@@ -26,10 +26,14 @@
 - [x] Classify: supported/partially_supported/invalid
 - [x] 14 reader fixtures + round-trip tests; 123 tests, 100% coverage
 
-## Crawl Increment 4 — Python Detection (PENDING)
-- [ ] .venv, venv, current interpreter detection
-- [ ] Working-directory detection
-- [ ] Environment comparison
+## Crawl Increment 4 — Python Detection (IN PROGRESS)
+- [ ] `python_detection.py`: `CandidateSource`, `InterpreterCandidate`, `PythonDetectionResult`, `EnvironmentDifference`
+- [ ] `detect_python`: .venv / venv / current / PATH-python3 candidates, executable-file qualification, dedupe, injection points
+- [ ] Working-directory recommendation (script parent, absolute only)
+- [ ] `compare_environments`: terminal_only / scheduled_only / different
+- [ ] Exports via `platform/macos/__init__.py`
+- [ ] Tests: tmp_path fixtures for all candidate shapes + environment comparison
+- [ ] `make check` green, coverage review, file-size review
 
 ## Crawl Increment 5 — Direct Test Runner (PENDING)
 - [ ] Direct task testing (exit code, stdout, stderr, duration)
