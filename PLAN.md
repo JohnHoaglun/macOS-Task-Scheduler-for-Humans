@@ -1,53 +1,81 @@
 # PLAN.md
 
 ## Current State
-Crawl Increments 0–3 complete and pushed to `sched_dev_opencode` (commits through `95582a4`, version 0.0.3):
+Crawl Increments 0–4 complete and pushed to `sched_dev_opencode` (commits through `64172e2`, version 0.0.4):
 - **Increment 0:** project foundation (pyproject, Makefile, package structure, docs, tooling)
-- **Increment 1:** Pydantic domain model (`JobDefinition`, `Command`, `Schedule`, `EnvironmentConfig`, `LoggingConfig`) + schema-versioned JSON persistence (`JsonJobRepository`)
-- **Increment 2:** plist encoder (`PlistCodec.encode_dict/encode_bytes`) + golden fixtures
-- **Increment 3:** plist reader (`parse_bytes/parse_path`, supported/partially_supported/invalid classification) + 14 fixtures + round-trip tests
-- Verification at v0.0.3: 123 tests, 100% coverage, ruff + mypy strict clean
+- **Increment 1:** Pydantic domain model + schema-versioned JSON persistence
+- **Increment 2:** plist encoder (`PlistCodec`) + golden fixtures
+- **Increment 3:** plist reader (`parse_bytes/parse_path`) + fixtures + round-trip tests
+- **Increment 4:** Python detection (`detect_python`, `compare_environments`) + tests
+- Verification at v0.0.4: 140 tests, 100% coverage, ruff + mypy strict clean
 
-Current focus: **Crawl Increment 4 — Python Detection**.
+Current focus: **Crawl Increment 5 — Direct Test Runner**.
 
 ## Blockers
 None
 
 ## Strategy
-Increment 4 adds Python-environment discovery in the macOS platform layer, with no GUI, CLI, `launchctl`, plist writes, task execution, or automatic shell-environment import.
+Direct Test (Mode A): execute a job's exact argv with its explicit environment and working
+directory, capture exit code/stdout/stderr/duration, and produce structured diagnostics.
+No timeout, no launchd, no LaunchAgent writes, no shell-environment capture, no CLI/GUI.
 
 ### Pinned decisions (approved)
-1. `PATH`-discovered `python3` **is** included as a candidate source in this increment.
-2. A candidate qualifies only if it is an **absolute, regular, executable file** (`is_absolute()`, `is_file()`, `os.access(X_OK)`).
-3. Environment differences use a **structured result**: `terminal_only`, `scheduled_only`, `different` (key → (terminal value, scheduled value)).
+1. **Environment:** the process receives exactly `job.environment.variables` (no inherited env).
+2. **Timeout:** none in this increment; no timeout/cancellation API.
+3. **Launch failures:** missing executable / permission / OS error return a structured
+   `ProcessResult` with `exit_code=None` + `launch_failure` (machine-readable kind);
+   services never leak `OSError`; no synthetic exit codes.
+4. **Diagnostics:** all seven specified rules, structured as
+   `severity`/`code`/`title`/`description`/`suggested_action`.
+5. **PATH-dependence rule:** `JobDefinition` absolute-path validation stays; the rule is
+   evaluated defensively at the `CommandSpec`/argv boundary (malformed imported inputs).
 
 ### API contract (pinned before implementation)
-- New module: `src/task_scheduler/platform/macos/python_detection.py`; exports via `platform/macos/__init__.py`.
-- Types (Pydantic, matching platform-model conventions):
-  - `CandidateSource(StrEnum)`: `VENV = ".venv"`, `VENV_FALLBACK = "venv"`, `CURRENT = "current"`, `PATH = "path"`
-  - `InterpreterCandidate(path: Path, source: CandidateSource)`
-  - `PythonDetectionResult(script: Path, candidates: list[InterpreterCandidate], working_directory: Path | None)`
-  - `EnvironmentDifference(terminal_only: dict[str, str], scheduled_only: dict[str, str], different: dict[str, tuple[str, str]])`
-- Functions:
-  - `detect_python(script, *, current_interpreter=None, path_lookup=None) -> PythonDetectionResult`
-    - `current_interpreter` defaults to `Path(sys.executable)`; `path_lookup` defaults to `shutil.which` (injection keeps tests host-independent).
-    - Candidate order: `<script parent>/.venv/bin/python`, `<script parent>/venv/bin/python`, current interpreter, `path_lookup("python3")`.
-    - Nearby-venv candidates and the working-directory recommendation only apply when the script path is absolute and not a directory; current/PATH candidates still apply.
-    - Deduplicate by exact path spelling; no symlink resolution/normalization.
-  - `compare_environments(terminal: Mapping[str, str], scheduled: Mapping[str, str]) -> EnvironmentDifference`
-    - Pure mapping comparison; never runs a shell, never logs values, never populates `EnvironmentConfig`.
-- Working directory: recommendation only (`script.parent`); callers override; `JobDefinition` is never mutated.
+- `src/task_scheduler/platform/macos/process_runner.py` (exports via platform `__init__`):
+  - `LaunchFailureKind(StrEnum)`: `NOT_FOUND`, `PERMISSION_DENIED`, `OS_ERROR`
+  - `ProcessLaunchFailure(kind, message)`
+  - `CommandSpec(argv: list[str], environment: dict[str, str] = {}, working_directory: Path | None = None)`
+  - `ProcessResult(exit_code: int | None, stdout: str, stderr: str, duration: timedelta, launch_failure: ProcessLaunchFailure | None)`
+  - `ProcessRunner` protocol: `run(spec: CommandSpec) -> ProcessResult`
+  - `SubprocessRunner(clock=None)` — only code allowed to call `subprocess`;
+    `check=False`, `capture_output=True`, `text=True`, exact `env`, no timeout;
+    clock injectable for deterministic durations; `FileNotFoundError`→NOT_FOUND,
+    `PermissionError`→PERMISSION_DENIED, `OSError`→OS_ERROR.
+- `src/task_scheduler/domain/command.py`: public `command_argv(command: Command) -> list[str]`
+  (python: `[interpreter, script, *args]`; shell/executable: `[executable, *args]`);
+  `PlistCodec` refactored to use it — one argv source of truth.
+- `src/task_scheduler/application/` (new package):
+  - `test_service.py`: `DirectTestService(runner: ProcessRunner)` with
+    `run(job: JobDefinition, *, detection: PythonDetectionResult | None = None) -> DirectTestResult`
+    (`process: ProcessResult`, `diagnostics: list[Diagnostic]`);
+    never mutates the job, never writes log paths, never calls subprocess.
+  - `diagnostic_service.py`: `DiagnosticSeverity` (`ERROR`/`WARNING`/`INFO`),
+    `Diagnostic(severity, code, title, description, suggested_action)`,
+    `evaluate_diagnostics(job=None, *, process=None, spec=None, detection=None) -> list[Diagnostic]`
+    — pure, deterministic rule order:
+    1. `executable_missing` (ERROR): command executable/interpreter not a file
+    2. `script_missing` (ERROR): Python script not a file
+    3. `working_directory_missing` (ERROR): configured wd not a directory
+    4. `permission_denied` (ERROR): executable exists but not `X_OK`, or process launch
+       failed with `PERMISSION_DENIED`
+    5. `relative_executable` (WARNING): `spec.argv[0]` not absolute (defensive, spec level)
+    6. `interpreter_mismatch` (WARNING): Python job interpreter differs from first
+       `.venv`/`venv` detection candidate
+    7. `module_not_found` (WARNING): `ModuleNotFoundError` in process stderr
 
 ### Tests
-`tests/unit/platform/test_python_detection.py`, all under `tmp_path` (never the developer's real venvs/PATH):
-- `.venv` present, `venv` present, both present (priority), none present
-- missing interpreter, non-executable file rejected, symlink-to-executable accepted
-- deduplication when the current interpreter equals a venv candidate
-- relative script and directory script (no nearby candidates, no working directory; current/PATH still present)
-- working-directory default and its absence for relative scripts
-- `compare_environments`: terminal-only, scheduled-only, differing values, identical, mixed
+- `tests/fakes.py`: reusable `FakeProcessRunner` (records specs, scripted result) and
+  `FakeClock` (deterministic monotonic); `pythonpath` extended to `["src", "tests"]`.
+- `tests/unit/platform/test_process_runner.py`: exit code, stdout/stderr capture, exact
+  env, cwd, injected-clock duration, NOT_FOUND/PERMISSION_DENIED/OS_ERROR failures.
+- `tests/unit/application/test_test_service.py`: argv per command kind, exact env/cwd
+  forwarding, result propagation, empty diagnostics for a healthy tmp_path job,
+  interpreter-mismatch via injected detection, job not mutated.
+- `tests/unit/application/test_diagnostic_service.py`: positive + negative for every rule.
+- Host independence: `tmp_path` only; no `launchctl`, no LaunchAgent dirs, no developer
+  Python env (runner tests use `/bin/echo`, `/usr/bin/false`, `/bin/pwd`, `/usr/bin/env`).
 
 ### Exit criteria
-- `make check` green (ruff, mypy strict, pytest) and coverage ≥ 90% on the new module (target 100%)
+- `make check` green; coverage target 100% (≥90% floor) on new modules
 - All logic files < 500 lines
-- Version bump 0.0.3 → 0.0.4 with docs in the final commit; push every commit
+- Version bump 0.0.4 → 0.0.5 with docs in the final commit; push every commit
