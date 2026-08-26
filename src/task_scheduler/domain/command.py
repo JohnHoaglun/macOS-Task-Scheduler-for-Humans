@@ -58,3 +58,16 @@ Command = Annotated[
     PythonCommand | ShellCommand | ExecutableCommand,
     Field(discriminator="type"),
 ]
+
+
+def command_argv(command: Command) -> list[str]:
+    """Flatten *command* into the argv launchd (and direct tests) execute.
+
+    The single source of truth for argv construction, shared by the plist
+    codec and the direct-test service so the two can never diverge.
+    """
+    if isinstance(command, PythonCommand):
+        return [str(command.interpreter), str(command.script), *command.arguments]
+    if isinstance(command, ShellCommand):
+        return [str(command.executable), *command.arguments]
+    return [str(command.executable), *command.arguments]

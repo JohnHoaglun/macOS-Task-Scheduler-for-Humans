@@ -5,6 +5,7 @@ from task_scheduler.domain.command import (
     ExecutableCommand,
     PythonCommand,
     ShellCommand,
+    command_argv,
 )
 from task_scheduler.domain.environment import EnvironmentConfig
 from task_scheduler.domain.errors import UnsupportedSchemaVersionError
@@ -24,4 +25,5 @@ __all__ = [
     "ShellCommand",
     "UnsupportedSchemaVersionError",
     "Weekday",
+    "command_argv",
 ]

@@ -4,15 +4,13 @@ from __future__ import annotations
 
 import plistlib
 
-from task_scheduler.domain import JobDefinition, PythonCommand
+from task_scheduler.domain import JobDefinition
+from task_scheduler.domain.command import command_argv
 from task_scheduler.platform.macos.plist_models import WEEKDAY_TO_LAUNCHD
 
 
 def _program_arguments(job: JobDefinition) -> list[str]:
-    command = job.command
-    if isinstance(command, PythonCommand):
-        return [str(command.interpreter), str(command.script), *command.arguments]
-    return [str(command.executable), *command.arguments]
+    return command_argv(job.command)
 
 
 def _calendar_interval(job: JobDefinition) -> list[dict[str, int]]:
