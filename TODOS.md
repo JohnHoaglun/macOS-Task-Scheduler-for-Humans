@@ -1,0 +1,66 @@
+# TODOS.md (v0.0.3)
+
+## Crawl Increment 0 — Project Foundation (DONE)
+- [x] Create project directory
+- [x] Integrate upstream repo (sched_dev_opencode branch)
+- [x] Add LICENSE file
+- [x] Create pyproject.toml
+- [x] Create Makefile
+- [x] Set up package structure (src/task_scheduler/)
+- [x] Configure pytest, ruff, mypy
+- [x] Create .gitignore
+- [x] `make check` passes
+
+## Crawl Increment 1 — Domain Model (DONE)
+- [x] JobDefinition, Command, Schedule, Environment, Logging models
+- [x] JSON serialization (schema-versioned JsonJobRepository)
+- [x] Tests: valid/invalid jobs, schema version, round-trip
+
+## Crawl Increment 2 — plist Generator (DONE)
+- [x] JobDefinition → LaunchAgent plist (PlistCodec)
+- [x] Label, ProgramArguments, WorkingDirectory, EnvironmentVariables, StartCalendarInterval, StandardOutPath, StandardErrorPath, Disabled
+- [x] Golden tests (JSON + plist bytes)
+
+## Crawl Increment 3 — plist Reader (DONE)
+- [x] LaunchAgent parsing (parse_bytes/parse_path, never raises)
+- [x] Classify: supported/partially_supported/invalid
+- [x] 14 reader fixtures + round-trip tests; 123 tests, 100% coverage
+
+## Crawl Increment 4 — Python Detection (PENDING)
+- [ ] .venv, venv, current interpreter detection
+- [ ] Working-directory detection
+- [ ] Environment comparison
+
+## Crawl Increment 5 — Direct Test Runner (PENDING)
+- [ ] Direct task testing (exit code, stdout, stderr, duration)
+- [ ] Diagnostic rules
+
+## Crawl Increment 6 — LaunchAgent Storage (PENDING)
+- [ ] write plist, remove plist, discover plist
+- [ ] Target ~/Library/LaunchAgents
+
+## Crawl Increment 7 — launchctl Adapter (PENDING)
+- [ ] install, uninstall, status, enable, disable, trigger
+- [ ] ProcessRunner abstraction
+- [ ] Integration tests with MACTASK_ALLOW_SYSTEM_TESTS=1
+
+## Crawl Increment 8 — CLI (PENDING)
+- [ ] mactask list/inspect/validate/generate/install/uninstall/enable/disable/status/test/run/logs
+
+## Crawl Increment 9 — GUI Read/Discovery (PENDING)
+- [ ] PySide6 main window
+- [ ] Discover, list, inspect, visualize
+
+## Crawl Increment 10 — GUI Job Creation (PENDING)
+- [ ] New Task, Edit, Save, Validate
+- [ ] Python, Shell, Executable forms
+- [ ] Schedule: specific time + weekdays
+
+## Crawl Increment 11 — GUI Installation (PENDING)
+- [ ] Install, Uninstall, Enable, Disable, Run Now
+
+## Crawl Increment 12 — GUI Diagnostics and Logs (PENDING)
+- [ ] Test, stdout/stderr viewer, diagnostics, env comparison
+
+## Crawl Increment 13 — Packaging (PENDING)
+- [ ] macOS .app bundle via PySide6 deployment
