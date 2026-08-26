@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.example.with-logs</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Users/example/.venv/bin/python</string>
+		<string>/Users/example/report.py</string>
+	</array>
+	<key>StandardErrorPath</key>
+	<string>/Users/example/logs/err.log</string>
+	<key>StandardOutPath</key>
+	<string>/Users/example/logs/out.log</string>
+	<key>StartCalendarInterval</key>
+	<array>
+		<dict>
+			<key>Hour</key>
+			<integer>7</integer>
+			<key>Minute</key>
+			<integer>30</integer>
+			<key>Weekday</key>
+			<integer>1</integer>
+		</dict>
+	</array>
+</dict>
+</plist>

@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>FOO</key>
+		<string>bar</string>
+	</dict>
+	<key>Label</key>
+	<string>io.github.macos-task-scheduler.user.python-weekdays</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Users/example/project/.venv/bin/python</string>
+		<string>/Users/example/project/report.py</string>
+	</array>
+	<key>StandardOutPath</key>
+	<string>/Users/example/logs/report.stdout.log</string>
+	<key>StartCalendarInterval</key>
+	<array>
+		<dict>
+			<key>Hour</key>
+			<integer>7</integer>
+			<key>Minute</key>
+			<integer>30</integer>
+			<key>Weekday</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>Hour</key>
+			<integer>7</integer>
+			<key>Minute</key>
+			<integer>30</integer>
+			<key>Weekday</key>
+			<integer>3</integer>
+		</dict>
+		<dict>
+			<key>Hour</key>
+			<integer>7</integer>
+			<key>Minute</key>
+			<integer>30</integer>
+			<key>Weekday</key>
+			<integer>5</integer>
+		</dict>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>/Users/example/project</string>
+</dict>
+</plist>

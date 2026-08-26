@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "id": "9f8a6c0e-1111-4222-8333-444455556666",
+  "name": "Shell MWF",
+  "label": "io.github.macos-task-scheduler.user.shell-mwf",
+  "enabled": true,
+  "command": {
+    "type": "shell",
+    "executable": "/bin/zsh",
+    "arguments": [
+      "/Users/example/scripts/backup.sh"
+    ]
+  },
+  "schedule": {
+    "time": "09:15",
+    "weekdays": [
+      "friday",
+      "monday",
+      "wednesday"
+    ]
+  },
+  "environment": {
+    "variables": {}
+  },
+  "logging": {
+    "stderr_path": "/Users/example/logs/backup.stderr.log"
+  }
+}

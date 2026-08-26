@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "id": "9f8a6c0e-1111-4222-8333-444455556666",
+  "name": "Python Weekdays",
+  "label": "io.github.macos-task-scheduler.user.python-weekdays",
+  "enabled": true,
+  "command": {
+    "type": "python",
+    "interpreter": "/Users/example/project/.venv/bin/python",
+    "script": "/Users/example/project/report.py",
+    "arguments": []
+  },
+  "schedule": {
+    "time": "07:30",
+    "weekdays": [
+      "friday",
+      "monday",
+      "wednesday"
+    ]
+  },
+  "environment": {
+    "variables": {
+      "FOO": "bar"
+    }
+  },
+  "working_directory": "/Users/example/project",
+  "logging": {
+    "stdout_path": "/Users/example/logs/report.stdout.log"
+  }
+}
