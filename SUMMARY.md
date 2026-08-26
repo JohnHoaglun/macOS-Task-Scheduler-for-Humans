@@ -2,6 +2,11 @@
 
 ## Changelog
 
+### v0.0.5
+- Crawl Increment 5: Direct Test Runner — `ProcessRunner` port + `SubprocessRunner` (only subprocess caller, exact job environment, no timeout, structured launch failures, injectable clock), `DirectTestService` (argv via shared `command_argv`, no job mutation), `diagnostic_service` with 7 structured rules in deterministic order
+- `command_argv` promoted to the domain as the single argv source of truth; `PlistCodec` refactored onto it
+- `tests/fakes.py` with `FakeProcessRunner`/`FakeClock`; 37 new tests, 177 total, 100% coverage, ruff + mypy strict clean
+
 ### v0.0.4
 - Crawl Increment 4: Python detection — `detect_python` finds candidate interpreters (`.venv`, `venv`, current interpreter, PATH-discovered `python3`) in priority order with executable-file qualification and spelling-based deduplication; `compare_environments` reports structured terminal/scheduled differences without ever capturing a shell
 - Injectable `current_interpreter` and `path_lookup` keep tests host-independent (all `tmp_path`-based)

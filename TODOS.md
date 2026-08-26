@@ -1,4 +1,4 @@
-# TODOS.md (v0.0.4)
+# TODOS.md (v0.0.5)
 
 ## Crawl Increment 0 — Project Foundation (DONE)
 - [x] Create project directory
@@ -35,14 +35,14 @@
 - [x] Tests: tmp_path fixtures for all candidate shapes + environment comparison
 - [x] `make check` green, 140 tests, 100% coverage, file-size review
 
-## Crawl Increment 5 — Direct Test Runner (IN PROGRESS)
-- [ ] `process_runner.py`: `CommandSpec`, `ProcessResult`, `ProcessLaunchFailure`, `ProcessRunner` protocol, `SubprocessRunner` (injectable clock)
-- [ ] `command_argv` in `domain/command.py`; `PlistCodec` refactored onto it
-- [ ] `application/test_service.py`: `DirectTestService` (exact env, no timeout, no mutation)
-- [ ] `application/diagnostic_service.py`: 7 structured rules (positive + negative tests each)
-- [ ] `tests/fakes.py`: `FakeProcessRunner`, `FakeClock`
-- [ ] Runner/test-service/diagnostic tests; host-independent (`tmp_path`)
-- [ ] `make check` green, coverage + file-size review
+## Crawl Increment 5 — Direct Test Runner (DONE)
+- [x] `process_runner.py`: `CommandSpec`, `ProcessResult`, `ProcessLaunchFailure`, `ProcessRunner` protocol, `SubprocessRunner` (injectable clock)
+- [x] `command_argv` in `domain/command.py`; `PlistCodec` refactored onto it
+- [x] `application/test_service.py`: `DirectTestService` (exact env, no timeout, no mutation)
+- [x] `application/diagnostic_service.py`: 7 structured rules (positive + negative tests each)
+- [x] `tests/fakes.py`: `FakeProcessRunner`, `FakeClock`
+- [x] Runner/test-service/diagnostic tests; host-independent (`tmp_path`)
+- [x] `make check` green, 177 tests, 100% coverage, file-size review
 
 ## Crawl Increment 6 — LaunchAgent Storage (PENDING)
 - [ ] write plist, remove plist, discover plist
