@@ -24,8 +24,8 @@ GUI (PySide6)          CLI (Typer)
 ```
 
 ## Status
-**Version:** 0.0.3
-**Phase:** Crawl — Increment 3 (plist Reader) complete; next: Increment 4 (Python Detection)
+**Version:** 0.0.4
+**Phase:** Crawl — Increment 4 (Python Detection) complete; next: Increment 5 (Direct Test Runner)
 
 ## Repository
 Source of truth: https://github.com/JohnHoaglun/macOS-Task-Scheduler-for-Humans/tree/sched_dev_opencode

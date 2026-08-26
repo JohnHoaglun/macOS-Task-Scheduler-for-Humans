@@ -2,6 +2,11 @@
 
 ## Changelog
 
+### v0.0.4
+- Crawl Increment 4: Python detection — `detect_python` finds candidate interpreters (`.venv`, `venv`, current interpreter, PATH-discovered `python3`) in priority order with executable-file qualification and spelling-based deduplication; `compare_environments` reports structured terminal/scheduled differences without ever capturing a shell
+- Injectable `current_interpreter` and `path_lookup` keep tests host-independent (all `tmp_path`-based)
+- 16 new tests; 140 total, 100% coverage, ruff + mypy strict clean
+
 ### v0.0.3
 - Crawl Increment 2: plist encoder — `PlistCodec.encode_dict/encode_bytes` producing launchd XML plists from `JobDefinition` (Label, ProgramArguments, StartCalendarInterval, WorkingDirectory, EnvironmentVariables, StandardOutPath, StandardErrorPath, Disabled)
 - Crawl Increment 3: plist reader — `parse_bytes/parse_path` classifying existing LaunchAgent plists as supported / partially_supported / invalid; never raises; raw dict always preserved
