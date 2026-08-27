@@ -1,9 +1,13 @@
 PYTHON ?= .venv/bin/python
 
-.PHONY: test lint format typecheck check
+.PHONY: test integration lint format typecheck check
 
 test:
 	$(PYTHON) -m pytest tests/
+
+# Runs only integration tests; they skip unless MACTASK_ALLOW_SYSTEM_TESTS=1.
+integration:
+	$(PYTHON) -m pytest -m integration
 
 lint:
 	$(PYTHON) -m ruff check src/task_scheduler/ tests/

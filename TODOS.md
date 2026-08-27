@@ -52,10 +52,15 @@
 - [x] `test_launch_agent_store.py`: write/refusal/cleanup, label rejection, remove idempotence, discovery (missing root, sorting, supported/invalid/partial, ignore non-plists, no mutation)
 - [x] `make check` green, 208 tests, 100% coverage, file-size review
 
-## Crawl Increment 7 — launchctl Adapter (PENDING)
-- [ ] install, uninstall, status, enable, disable, trigger
-- [ ] ProcessRunner abstraction
-- [ ] Integration tests with MACTASK_ALLOW_SYSTEM_TESTS=1
+## Crawl Increment 7 — launchctl Adapter (IN PROGRESS)
+- [ ] `launchctl.py`: `LaunchctlAction`, `LaunchctlResult`, `LaunchAgentStatus`, `LaunchAgentBackend` (install/uninstall/status/enable/disable/trigger via `ProcessRunner`, user `gui/<uid>` domain, `/bin/launchctl`)
+- [ ] Shared public `validate_label` in `launch_agent_store`; backend + store both use it
+- [ ] Exports via `platform/macos/__init__.py`
+- [ ] `tests/fakes.py`: `FakeProcessRunner` ordered `results` queue
+- [ ] `test_launchctl.py`: exact argv/env/cwd, storage-before-bootstrap ordering, retain-on-failure compensation, status mapping (True/False/None), label rejection
+- [ ] `tests/integration/test_launchctl.py`: `MACTASK_ALLOW_SYSTEM_TESTS=1` guard, unique UUID label, unconditional cleanup
+- [ ] `integration` pytest marker + `addopts -m 'not integration'`; `make integration` target
+- [ ] `make check` green, 100% coverage, file-size review, default-run skip verified
 
 ## Crawl Increment 8 — CLI (PENDING)
 - [ ] mactask list/inspect/validate/generate/install/uninstall/enable/disable/status/test/run/logs

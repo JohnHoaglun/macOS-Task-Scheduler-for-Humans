@@ -10,6 +10,14 @@ from task_scheduler.platform.macos.launch_agent_store import (
     DiscoveredLaunchAgent,
     LaunchAgentStore,
     default_launch_agents_root,
+    validate_label,
+)
+from task_scheduler.platform.macos.launchctl import (
+    LAUNCHCTL_PATH,
+    LaunchAgentBackend,
+    LaunchAgentStatus,
+    LaunchctlAction,
+    LaunchctlResult,
 )
 from task_scheduler.platform.macos.plist_codec import PlistCodec
 from task_scheduler.platform.macos.plist_models import (
@@ -46,8 +54,13 @@ __all__ = [
     "DiscoveredLaunchAgent",
     "EnvironmentDifference",
     "InterpreterCandidate",
+    "LAUNCHCTL_PATH",
+    "LaunchAgentBackend",
     "LaunchAgentFilesystem",
+    "LaunchAgentStatus",
     "LaunchAgentStore",
+    "LaunchctlAction",
+    "LaunchctlResult",
     "LaunchFailureKind",
     "LocalFilesystem",
     "PlistCodec",
@@ -63,4 +76,5 @@ __all__ = [
     "detect_python",
     "parse_bytes",
     "parse_path",
+    "validate_label",
 ]

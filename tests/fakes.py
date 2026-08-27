@@ -30,15 +30,30 @@ class FakeClock:
 
 
 class FakeProcessRunner:
-    """Scripted ProcessRunner: records every spec, returns the scripted result."""
+    """Scripted ProcessRunner: records every spec, returns scripted results.
 
-    def __init__(self, result: ProcessResult) -> None:
-        self._result = result
+    Pass a single ``result`` to get the legacy sticky behavior, or an ordered
+    ``results`` queue that is popped one result per call and then repeats its
+    last entry (so multi-command lifecycles stay scripted but never run dry).
+    """
+
+    def __init__(
+        self,
+        result: ProcessResult | None = None,
+        *,
+        results: list[ProcessResult] | None = None,
+    ) -> None:
+        if result is None and not results:
+            raise ValueError("provide a result or a non-empty results queue")
+        self._queue: list[ProcessResult] = list(results) if results else []
+        self._sticky = result if result is not None else self._queue[-1]
         self.specs: list[CommandSpec] = []
 
     def run(self, spec: CommandSpec) -> ProcessResult:
         self.specs.append(spec)
-        return self._result
+        if self._queue:
+            return self._queue.pop(0)
+        return self._sticky
 
 
 class FakeFilesystem:

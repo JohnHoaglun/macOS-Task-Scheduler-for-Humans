@@ -2,7 +2,7 @@
 
 Targets only the user's ``~/Library/LaunchAgents`` directory (or an injected
 root for tests). Never writes outside the root, never touches ``/Library``,
-and never shells out — no ``launchctl`` calls until the Increment 7 adapter.
+and never shells out — the Increment 7 adapter owns all ``launchctl`` calls.
 """
 
 from __future__ import annotations
@@ -24,12 +24,26 @@ __all__ = [
     "DiscoveredLaunchAgent",
     "LaunchAgentStore",
     "default_launch_agents_root",
+    "validate_label",
 ]
 
 
 def default_launch_agents_root() -> Path:
     """Return ``~/Library/LaunchAgents`` for the current user."""
     return Path.home() / "Library" / "LaunchAgents"
+
+
+def validate_label(label: str) -> None:
+    """Reject labels that could escape the managed root as file names.
+
+    The domain model already constrains job labels, but the store (and the
+    Increment 7 adapter) also accept raw label strings, so the path-safety
+    check is enforced here, at the filesystem boundary.
+    """
+    if label in {".", ".."} or "/" in label or os.sep in label:
+        raise ValueError(
+            "Label must not be '.'/'..' or contain path separators: " f"{label!r}"
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,7 +75,7 @@ class LaunchAgentStore:
 
     def destination_for(self, label: str) -> Path:
         """Return the managed plist path for ``label`` after validation."""
-        self._validate_label(label)
+        validate_label(label)
         return self._root / f"{label}.plist"
 
     def write(self, job: JobDefinition) -> Path:
@@ -94,11 +108,3 @@ class LaunchAgentStore:
                 DiscoveredLaunchAgent(path=path, parsed=parse_bytes(payload))
             )
         return discovered
-
-    @staticmethod
-    def _validate_label(label: str) -> None:
-        if label in {".", ".."} or "/" in label or os.sep in label:
-            raise ValueError(
-                "Label must not be '.'/'..' or contain path separators: "
-                f"{label!r}"
-            )

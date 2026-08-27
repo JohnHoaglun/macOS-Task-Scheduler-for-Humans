@@ -1,91 +1,96 @@
 # PLAN.md
 
 ## Current State
-Crawl Increments 0–5 complete and pushed to `sched_dev_opencode` (commits through `924c0da`, version 0.0.5):
+Crawl Increments 0–6 complete and pushed to `sched_dev_opencode` (commits through `6d4bc5e`, version 0.0.6):
 - **Increment 0:** project foundation (pyproject, Makefile, package structure, docs, tooling)
 - **Increment 1:** Pydantic domain model + schema-versioned JSON persistence
 - **Increment 2:** plist encoder (`PlistCodec`) + golden fixtures
 - **Increment 3:** plist reader (`parse_bytes/parse_path`) + fixtures + round-trip tests
 - **Increment 4:** Python detection (`detect_python`, `compare_environments`) + tests
 - **Increment 5:** Direct test runner (`SubprocessRunner`, `DirectTestService`, `evaluate_diagnostics`) + tests
-- Verification at v0.0.5: 177 tests, 100% coverage, ruff + mypy strict clean
+- **Increment 6:** LaunchAgent storage (`LaunchAgentStore` write/remove/discover + `LaunchAgentFilesystem`) + tests
+- Verification at v0.0.6: 208 tests, 100% coverage, ruff + mypy strict clean
 
-Current focus: **Crawl Increment 6 — LaunchAgent Storage** (IN PROGRESS).
+Current focus: **Crawl Increment 7 — launchctl Adapter** (IN PROGRESS).
 
 ## Blockers
 None
 
 ## Strategy
-Persist and list user LaunchAgent plists under `~/Library/LaunchAgents` only, through a
-filesystem abstraction so tests never touch the real user directory. Spec Increment 6
-(lines 1811–1831): implement `write plist`, `remove plist`, `discover plist`; target only
-`~/Library/LaunchAgents`; use filesystem abstraction; do not modify `/Library`.
+User-domain LaunchAgent lifecycle through `launchctl`: `install`, `uninstall`, `status`,
+`enable`, `disable`, `trigger` (spec lines 1833–1852). Every command goes through
+`ProcessRunner`; unit tests use fake `launchctl` results; real behavior lives in
+protected integration tests (`MACTASK_ALLOW_SYSTEM_TESTS=1`, unique UUID labels,
+teardown cleanup).
 
 ### Pinned decisions (approved)
-1. **Write is create-only:** refuse an existing `<label>.plist` with `FileExistsError`;
-   no overwrite and no backup in this increment.
-2. **Discovery returns parsed records only** (`path` + `ParsedLaunchAgent`);
-   ownership classification (Managed/Imported/External) is deferred to the
-   discovery-service increment.
-3. **Remove is idempotent:** `True` when a plist was removed, `False` when absent.
-4. **Label safety at the store boundary:** domain labels only forbid whitespace, so the
-   store rejects labels containing `/` (or `os.sep`) and the literals `.`/`..` with
-   `ValueError` — no path traversal is possible from a stored label.
-5. **Atomic exclusive write:** serialize via `PlistCodec`, write a sibling temporary file,
-   then `os.link` onto the destination (atomic, and `EEXIST` if the destination already
-   exists — no overwrite even under a race); temporary file is always cleaned up.
-6. **All file IO flows through the filesystem abstraction** (`read_plist_bytes`,
-   `list_plist_files`, `create_root`, `create_exclusive`, `remove_file`); discovery
-   parses via `ParsedLaunchAgent.parse_bytes` on bytes read through the abstraction,
-   so a `FakeFilesystem` can inject read failures.
-7. **Discovery:** missing root → empty list (no creation); only direct-child `*.plist`
-   regular files, sorted by filename; malformed/unsupported plists stay visible via
-   `ParsedLaunchAgent.status` and never raise; no rewrite, import, classification, or
-   `launchctl` action.
-8. **Remove resolves only the derived managed destination** (`<root>/<label>.plist`);
-   no arbitrary caller-supplied paths; no `launchctl` unload/disable until Increment 7.
+1. **User domain only:** target `gui/<uid>`; `uid` injectable, defaults to `os.getuid()`.
+   Never target `/Library`, system domains, or LaunchDaemons in this increment.
+2. **Absolute `/bin/launchctl`** with the exact empty `CommandSpec.environment`
+   (no inherited `PATH` — launchctl itself needs none).
+3. **Commands:** install `bootstrap gui/<uid> <path>`; uninstall `bootout gui/<uid>/<label>`;
+   status `print gui/<uid>/<label>`; enable `enable gui/<uid>/<label>`;
+   disable `disable gui/<uid>/<label>`; trigger `kickstart -k gui/<uid>/<label>`.
+4. **Structured results, no exceptions:** lifecycle ops return `LaunchctlResult(action,
+   process)` preserving the exact `ProcessResult` (non-zero exits and launch failures
+   included); only label validation and storage conflicts raise.
+5. **Backend coordinates storage + launchctl:** `install(job)` = `store.write(job)` then
+   `bootstrap` the derived path; `uninstall(label)` = `bootout` first, then
+   `store.remove(label)` only on a successful (exit 0) bootout.
+6. **Failure compensation: retain state for diagnosis** — failed bootstrap keeps its
+   newly written plist; failed bootout keeps its plist; no rollback/re-bootstrap.
+7. **Status mapping:** `loaded=True` only on completed exit 0; `loaded=False` on non-zero
+   completion; `loaded=None` (unknown) when the process never launched — launch
+   failures are never silently reported as unloaded.
+8. **`JobDefinition.enabled` is not mutated** by any lifecycle operation; plist state
+   and runtime launchd state remain distinct.
+9. **Label safety:** public `validate_label(label)` (shared, now exported from
+   `launch_agent_store`) guards every raw-label backend method and the store; the
+   backend never accepts arbitrary plist paths.
 
 ### API contract (pinned before implementation)
-- `src/task_scheduler/platform/macos/filesystem.py`:
-  - `LaunchAgentFilesystem` (Protocol): `read_plist_bytes(path) -> bytes`,
-    `list_plist_files(root) -> list[Path]` (sorted), `create_root(root) -> None`
-    (`mkdir(parents=True, exist_ok=True)`), `create_exclusive(destination, payload) -> None`
-    (raises `FileExistsError` if destination exists), `remove_file(path) -> bool`
-    (`FileNotFoundError` → `False`).
-  - `LocalFilesystem` — production implementation of that protocol.
-- `src/task_scheduler/platform/macos/launch_agent_store.py`:
-  - `default_launch_agents_root() -> Path` = `Path.home() / "Library" / "LaunchAgents"`.
-  - `DiscoveredLaunchAgent(path: Path, parsed: ParsedLaunchAgent)` (frozen dataclass).
-  - `LaunchAgentStore(root=None, filesystem=None, codec=None)` — defaults:
-    `default_launch_agents_root()`, `LocalFilesystem`, `PlistCodec`.
-  - `write(job: JobDefinition) -> Path` — validates label, `create_root`,
-    `create_exclusive` with `codec.encode_bytes(job)`; returns destination.
-  - `remove(label: str) -> bool` — validates label, removes derived destination.
-  - `discover() -> list[DiscoveredLaunchAgent]` — as pinned above.
-  - Re-exported via `platform/macos/__init__.py`.
+- `src/task_scheduler/platform/macos/launchctl.py`:
+  - `LAUNCHCTL_PATH = "/bin/launchctl"`
+  - `LaunchctlAction(StrEnum)`: `INSTALL`, `UNINSTALL`, `STATUS`, `ENABLE`, `DISABLE`, `TRIGGER`
+  - `LaunchctlResult(action: LaunchctlAction, process: ProcessResult)` (frozen dataclass)
+  - `LaunchAgentStatus(loaded: bool | None, process: ProcessResult)` (frozen dataclass)
+  - `LaunchAgentBackend(store: LaunchAgentStore, runner: ProcessRunner, *, uid: int | None = None)`
+    with `domain -> str` and the six operations above; every raw-label method validates
+    its label before any runner call.
+- `src/task_scheduler/platform/macos/launch_agent_store.py`: `validate_label(label: str) -> None`
+  becomes the public shared guard (store methods now call it).
+- Exports via `platform/macos/__init__.py`.
+- `tests/fakes.py`: `FakeProcessRunner` gains an ordered `results=[...]` queue (popped
+  per call; sticky last result afterwards) while keeping the single-`result` behavior.
+- `tests/integration/test_launchctl.py`: `pytestmark = pytest.mark.integration`; skips
+  unless `MACTASK_ALLOW_SYSTEM_TESTS=1`; unique label
+  `io.github.mactaskscheduler.test.<uuid>`; real `LaunchAgentStore`/`SubprocessRunner`;
+  unconditional `yield`/`finally` cleanup (best-effort `uninstall` + `store.remove`);
+  only the test-owned plist is ever touched.
+- Tooling: `integration` marker registered in `pyproject.toml`; `addopts` gains
+  `-m 'not integration'` (plain `pytest`/`make test`/`make check` exclude it);
+  `make integration` runs `pytest -m integration` (still skips without the env opt-in).
 
 ### Tests
-- `tests/fakes.py`: `FakeFilesystem` (in-memory; records calls; injectable
-  `create_error`; simulates existing files / missing root) for failure injection.
-- `tests/unit/platform/test_launch_agent_store.py` (real `tmp_path` roots; host-independent):
-  - default root computation (no IO); custom root + injected fs/codec honored.
-  - write: creates root, destination `<root>/<label>.plist`, bytes ==
-    `PlistCodec().encode_bytes(job)`, parseable back to the same job.
-  - write refused on existing destination (content byte-identical afterwards, no stray
-    temp siblings); failing `create_exclusive` leaves no temp files and propagates.
-  - label validation: `/` (or `os.sep`) and `.`/`..` rejected with `ValueError`
-    before any filesystem effect.
-  - remove: success `True` + file gone; missing file `False`; missing root `False`;
-    label validation applies.
-  - discover: missing root → `[]` (root not created); filename sorting; supported /
-    invalid / partially-supported plists all reported without raising; non-plist files
-    and subdirectories ignored; discovery never mutates file bytes.
-  - fake-filesystem tests: store forwards correct paths/payloads and surfaces fs errors.
-- No test invokes `launchctl`, touches the real `~/Library/LaunchAgents`, or reads
-  `/Library`; `tmp_path` only (README Testing Safety).
+- `tests/unit/platform/test_launchctl.py` (fakes only, no real launchctl, tmp_path roots):
+  - exact argv + empty environment + no cwd for all six actions; injected uid.
+  - default uid = `os.getuid()` in the domain string.
+  - install writes through the store before bootstrap (plist exists, argv has derived path).
+  - storage conflict (`FileExistsError`) stops before any runner call.
+  - bootstrap failure retains the plist; bootout failure retains the plist;
+    successful uninstall bootouts before removing.
+  - success / non-zero / launch-failure results preserved on every action.
+  - status maps exit 0 → True, non-zero → False, launch failure → None.
+  - raw-label methods reject unsafe labels before any runner call.
+- Integration (opt-in only): full lifecycle round-trip with a harmless `/bin/echo`
+  job (install → status loaded → disable/enable → trigger → uninstall → status
+  unloaded) and structured-failure uninstall of a never-installed label.
+- Default-run safety: `pytest -m integration` without the env var skips; plain
+  `pytest` never collects integration tests.
 
 ### Exit criteria
 - `make check` green; coverage target 100% (≥90% floor) on new modules
 - All logic files < 500 lines
-- No unit test touches real user LaunchAgent directories
-- Version bump 0.0.5 → 0.0.6 with docs in the final commit; push every commit
+- No unit test invokes `/bin/launchctl` or touches the real user LaunchAgents directory
+- Plain `pytest` / `make test` / `make check` never run integration tests
+- Version bump 0.0.6 → 0.0.7 with docs in the final commit; push every commit
