@@ -2,6 +2,12 @@
 
 ## Changelog
 
+### v0.0.7
+- Crawl Increment 7: launchctl adapter — `LaunchAgentBackend` coordinates storage + launchctl for `install` (write then bootstrap), `uninstall` (bootout then remove), `status` (print → loaded True/False/None), `enable`, `disable`, `trigger` (kickstart -k), user `gui/<uid>` domain only via `/bin/launchctl` through `ProcessRunner`
+- Structured lifecycle results (`LaunchctlResult`, `LaunchAgentStatus`) preserve exact `ProcessResult`; failed bootstrap/bootout retains the plist for diagnosis; shared public `validate_label` guards all raw-label entry points
+- Protected integration tests behind the `integration` marker + `MACTASK_ALLOW_SYSTEM_TESTS=1` (unique UUID labels, unconditional cleanup); plain `pytest`/`make test`/`make check` never run them; `make integration` added
+- 35 new unit tests, 243 total, 100% coverage, ruff + mypy strict clean
+
 ### v0.0.6
 - Crawl Increment 6: LaunchAgent Storage — `LaunchAgentStore` writing (create-only, atomic exclusive-link so an existing plist is never overwritten), removing (idempotent), and discovering plists under `~/Library/LaunchAgents` (or an injected root)
 - `LaunchAgentFilesystem` protocol + `LocalFilesystem`: all store file IO flows through the abstraction so unit tests never touch real user directories; discovery parses via the never-raising reader and reports supported/partially-supported/invalid plists without mutating them
