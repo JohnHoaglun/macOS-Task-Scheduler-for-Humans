@@ -1,6 +1,8 @@
-"""Reusable test fakes for process execution and time."""
+"""Reusable test fakes for process execution, time, and the filesystem."""
 
 from __future__ import annotations
+
+from pathlib import Path
 
 from task_scheduler.platform.macos import CommandSpec, ProcessResult
 
@@ -37,3 +39,54 @@ class FakeProcessRunner:
     def run(self, spec: CommandSpec) -> ProcessResult:
         self.specs.append(spec)
         return self._result
+
+
+class FakeFilesystem:
+    """In-memory LaunchAgentFilesystem for store tests.
+
+    ``files`` maps a destination filename to its existing bytes; ``create_error``,
+    when set, is raised by :meth:`create_exclusive` instead of creating. All
+    calls are recorded so tests can assert exactly what the store did.
+    """
+
+    def __init__(
+        self,
+        files: dict[str, bytes] | None = None,
+        *,
+        create_error: Exception | None = None,
+    ) -> None:
+        self._files: dict[str, bytes] = dict(files or {})
+        self._create_error = create_error
+        self.reads: list[str] = []
+        self.listings: list[str] = []
+        self.roots_created: list[str] = []
+        self.created: list[str] = []
+        self.removed: list[str] = []
+
+    def read_plist_bytes(self, path: Path) -> bytes:
+        self.reads.append(path.name)
+        if path.name not in self._files:
+            raise FileNotFoundError(path.name)
+        return self._files[path.name]
+
+    def list_plist_files(self, root: Path) -> list[Path]:
+        self.listings.append(root.name)
+        return sorted(Path(root) / name for name in self._files if name.endswith(".plist"))
+
+    def create_root(self, root: Path) -> None:
+        self.roots_created.append(root.name)
+
+    def create_exclusive(self, destination: Path, payload: bytes) -> None:
+        if destination.name in self._files:
+            raise FileExistsError(destination.name)
+        if self._create_error is not None:
+            raise self._create_error
+        self._files[destination.name] = payload
+        self.created.append(destination.name)
+
+    def remove_file(self, path: Path) -> bool:
+        self.removed.append(path.name)
+        if path.name in self._files:
+            del self._files[path.name]
+            return True
+        return False

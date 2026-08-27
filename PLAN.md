@@ -1,81 +1,91 @@
 # PLAN.md
 
 ## Current State
-Crawl Increments 0–4 complete and pushed to `sched_dev_opencode` (commits through `64172e2`, version 0.0.4):
+Crawl Increments 0–5 complete and pushed to `sched_dev_opencode` (commits through `924c0da`, version 0.0.5):
 - **Increment 0:** project foundation (pyproject, Makefile, package structure, docs, tooling)
 - **Increment 1:** Pydantic domain model + schema-versioned JSON persistence
 - **Increment 2:** plist encoder (`PlistCodec`) + golden fixtures
 - **Increment 3:** plist reader (`parse_bytes/parse_path`) + fixtures + round-trip tests
 - **Increment 4:** Python detection (`detect_python`, `compare_environments`) + tests
-- Verification at v0.0.4: 140 tests, 100% coverage, ruff + mypy strict clean
+- **Increment 5:** Direct test runner (`SubprocessRunner`, `DirectTestService`, `evaluate_diagnostics`) + tests
+- Verification at v0.0.5: 177 tests, 100% coverage, ruff + mypy strict clean
 
-Current focus: **Crawl Increment 5 — Direct Test Runner**.
+Current focus: **Crawl Increment 6 — LaunchAgent Storage** (IN PROGRESS).
 
 ## Blockers
 None
 
 ## Strategy
-Direct Test (Mode A): execute a job's exact argv with its explicit environment and working
-directory, capture exit code/stdout/stderr/duration, and produce structured diagnostics.
-No timeout, no launchd, no LaunchAgent writes, no shell-environment capture, no CLI/GUI.
+Persist and list user LaunchAgent plists under `~/Library/LaunchAgents` only, through a
+filesystem abstraction so tests never touch the real user directory. Spec Increment 6
+(lines 1811–1831): implement `write plist`, `remove plist`, `discover plist`; target only
+`~/Library/LaunchAgents`; use filesystem abstraction; do not modify `/Library`.
 
 ### Pinned decisions (approved)
-1. **Environment:** the process receives exactly `job.environment.variables` (no inherited env).
-2. **Timeout:** none in this increment; no timeout/cancellation API.
-3. **Launch failures:** missing executable / permission / OS error return a structured
-   `ProcessResult` with `exit_code=None` + `launch_failure` (machine-readable kind);
-   services never leak `OSError`; no synthetic exit codes.
-4. **Diagnostics:** all seven specified rules, structured as
-   `severity`/`code`/`title`/`description`/`suggested_action`.
-5. **PATH-dependence rule:** `JobDefinition` absolute-path validation stays; the rule is
-   evaluated defensively at the `CommandSpec`/argv boundary (malformed imported inputs).
+1. **Write is create-only:** refuse an existing `<label>.plist` with `FileExistsError`;
+   no overwrite and no backup in this increment.
+2. **Discovery returns parsed records only** (`path` + `ParsedLaunchAgent`);
+   ownership classification (Managed/Imported/External) is deferred to the
+   discovery-service increment.
+3. **Remove is idempotent:** `True` when a plist was removed, `False` when absent.
+4. **Label safety at the store boundary:** domain labels only forbid whitespace, so the
+   store rejects labels containing `/` (or `os.sep`) and the literals `.`/`..` with
+   `ValueError` — no path traversal is possible from a stored label.
+5. **Atomic exclusive write:** serialize via `PlistCodec`, write a sibling temporary file,
+   then `os.link` onto the destination (atomic, and `EEXIST` if the destination already
+   exists — no overwrite even under a race); temporary file is always cleaned up.
+6. **All file IO flows through the filesystem abstraction** (`read_plist_bytes`,
+   `list_plist_files`, `create_root`, `create_exclusive`, `remove_file`); discovery
+   parses via `ParsedLaunchAgent.parse_bytes` on bytes read through the abstraction,
+   so a `FakeFilesystem` can inject read failures.
+7. **Discovery:** missing root → empty list (no creation); only direct-child `*.plist`
+   regular files, sorted by filename; malformed/unsupported plists stay visible via
+   `ParsedLaunchAgent.status` and never raise; no rewrite, import, classification, or
+   `launchctl` action.
+8. **Remove resolves only the derived managed destination** (`<root>/<label>.plist`);
+   no arbitrary caller-supplied paths; no `launchctl` unload/disable until Increment 7.
 
 ### API contract (pinned before implementation)
-- `src/task_scheduler/platform/macos/process_runner.py` (exports via platform `__init__`):
-  - `LaunchFailureKind(StrEnum)`: `NOT_FOUND`, `PERMISSION_DENIED`, `OS_ERROR`
-  - `ProcessLaunchFailure(kind, message)`
-  - `CommandSpec(argv: list[str], environment: dict[str, str] = {}, working_directory: Path | None = None)`
-  - `ProcessResult(exit_code: int | None, stdout: str, stderr: str, duration: timedelta, launch_failure: ProcessLaunchFailure | None)`
-  - `ProcessRunner` protocol: `run(spec: CommandSpec) -> ProcessResult`
-  - `SubprocessRunner(clock=None)` — only code allowed to call `subprocess`;
-    `check=False`, `capture_output=True`, `text=True`, exact `env`, no timeout;
-    clock injectable for deterministic durations; `FileNotFoundError`→NOT_FOUND,
-    `PermissionError`→PERMISSION_DENIED, `OSError`→OS_ERROR.
-- `src/task_scheduler/domain/command.py`: public `command_argv(command: Command) -> list[str]`
-  (python: `[interpreter, script, *args]`; shell/executable: `[executable, *args]`);
-  `PlistCodec` refactored to use it — one argv source of truth.
-- `src/task_scheduler/application/` (new package):
-  - `test_service.py`: `DirectTestService(runner: ProcessRunner)` with
-    `run(job: JobDefinition, *, detection: PythonDetectionResult | None = None) -> DirectTestResult`
-    (`process: ProcessResult`, `diagnostics: list[Diagnostic]`);
-    never mutates the job, never writes log paths, never calls subprocess.
-  - `diagnostic_service.py`: `DiagnosticSeverity` (`ERROR`/`WARNING`/`INFO`),
-    `Diagnostic(severity, code, title, description, suggested_action)`,
-    `evaluate_diagnostics(job=None, *, process=None, spec=None, detection=None) -> list[Diagnostic]`
-    — pure, deterministic rule order:
-    1. `executable_missing` (ERROR): command executable/interpreter not a file
-    2. `script_missing` (ERROR): Python script not a file
-    3. `working_directory_missing` (ERROR): configured wd not a directory
-    4. `permission_denied` (ERROR): executable exists but not `X_OK`, or process launch
-       failed with `PERMISSION_DENIED`
-    5. `relative_executable` (WARNING): `spec.argv[0]` not absolute (defensive, spec level)
-    6. `interpreter_mismatch` (WARNING): Python job interpreter differs from first
-       `.venv`/`venv` detection candidate
-    7. `module_not_found` (WARNING): `ModuleNotFoundError` in process stderr
+- `src/task_scheduler/platform/macos/filesystem.py`:
+  - `LaunchAgentFilesystem` (Protocol): `read_plist_bytes(path) -> bytes`,
+    `list_plist_files(root) -> list[Path]` (sorted), `create_root(root) -> None`
+    (`mkdir(parents=True, exist_ok=True)`), `create_exclusive(destination, payload) -> None`
+    (raises `FileExistsError` if destination exists), `remove_file(path) -> bool`
+    (`FileNotFoundError` → `False`).
+  - `LocalFilesystem` — production implementation of that protocol.
+- `src/task_scheduler/platform/macos/launch_agent_store.py`:
+  - `default_launch_agents_root() -> Path` = `Path.home() / "Library" / "LaunchAgents"`.
+  - `DiscoveredLaunchAgent(path: Path, parsed: ParsedLaunchAgent)` (frozen dataclass).
+  - `LaunchAgentStore(root=None, filesystem=None, codec=None)` — defaults:
+    `default_launch_agents_root()`, `LocalFilesystem`, `PlistCodec`.
+  - `write(job: JobDefinition) -> Path` — validates label, `create_root`,
+    `create_exclusive` with `codec.encode_bytes(job)`; returns destination.
+  - `remove(label: str) -> bool` — validates label, removes derived destination.
+  - `discover() -> list[DiscoveredLaunchAgent]` — as pinned above.
+  - Re-exported via `platform/macos/__init__.py`.
 
 ### Tests
-- `tests/fakes.py`: reusable `FakeProcessRunner` (records specs, scripted result) and
-  `FakeClock` (deterministic monotonic); `pythonpath` extended to `["src", "tests"]`.
-- `tests/unit/platform/test_process_runner.py`: exit code, stdout/stderr capture, exact
-  env, cwd, injected-clock duration, NOT_FOUND/PERMISSION_DENIED/OS_ERROR failures.
-- `tests/unit/application/test_test_service.py`: argv per command kind, exact env/cwd
-  forwarding, result propagation, empty diagnostics for a healthy tmp_path job,
-  interpreter-mismatch via injected detection, job not mutated.
-- `tests/unit/application/test_diagnostic_service.py`: positive + negative for every rule.
-- Host independence: `tmp_path` only; no `launchctl`, no LaunchAgent dirs, no developer
-  Python env (runner tests use `/bin/echo`, `/usr/bin/false`, `/bin/pwd`, `/usr/bin/env`).
+- `tests/fakes.py`: `FakeFilesystem` (in-memory; records calls; injectable
+  `create_error`; simulates existing files / missing root) for failure injection.
+- `tests/unit/platform/test_launch_agent_store.py` (real `tmp_path` roots; host-independent):
+  - default root computation (no IO); custom root + injected fs/codec honored.
+  - write: creates root, destination `<root>/<label>.plist`, bytes ==
+    `PlistCodec().encode_bytes(job)`, parseable back to the same job.
+  - write refused on existing destination (content byte-identical afterwards, no stray
+    temp siblings); failing `create_exclusive` leaves no temp files and propagates.
+  - label validation: `/` (or `os.sep`) and `.`/`..` rejected with `ValueError`
+    before any filesystem effect.
+  - remove: success `True` + file gone; missing file `False`; missing root `False`;
+    label validation applies.
+  - discover: missing root → `[]` (root not created); filename sorting; supported /
+    invalid / partially-supported plists all reported without raising; non-plist files
+    and subdirectories ignored; discovery never mutates file bytes.
+  - fake-filesystem tests: store forwards correct paths/payloads and surfaces fs errors.
+- No test invokes `launchctl`, touches the real `~/Library/LaunchAgents`, or reads
+  `/Library`; `tmp_path` only (README Testing Safety).
 
 ### Exit criteria
 - `make check` green; coverage target 100% (≥90% floor) on new modules
 - All logic files < 500 lines
-- Version bump 0.0.4 → 0.0.5 with docs in the final commit; push every commit
+- No unit test touches real user LaunchAgent directories
+- Version bump 0.0.5 → 0.0.6 with docs in the final commit; push every commit

@@ -2,6 +2,15 @@
 
 from __future__ import annotations
 
+from task_scheduler.platform.macos.filesystem import (
+    LaunchAgentFilesystem,
+    LocalFilesystem,
+)
+from task_scheduler.platform.macos.launch_agent_store import (
+    DiscoveredLaunchAgent,
+    LaunchAgentStore,
+    default_launch_agents_root,
+)
 from task_scheduler.platform.macos.plist_codec import PlistCodec
 from task_scheduler.platform.macos.plist_models import (
     LAUNCHD_TO_WEEKDAY,
@@ -34,9 +43,13 @@ __all__ = [
     "WEEKDAY_TO_LAUNCHD",
     "CandidateSource",
     "CommandSpec",
+    "DiscoveredLaunchAgent",
     "EnvironmentDifference",
     "InterpreterCandidate",
+    "LaunchAgentFilesystem",
+    "LaunchAgentStore",
     "LaunchFailureKind",
+    "LocalFilesystem",
     "PlistCodec",
     "ProcessLaunchFailure",
     "ProcessResult",
@@ -46,6 +59,7 @@ __all__ = [
     "ParseSupport",
     "SubprocessRunner",
     "compare_environments",
+    "default_launch_agents_root",
     "detect_python",
     "parse_bytes",
     "parse_path",
