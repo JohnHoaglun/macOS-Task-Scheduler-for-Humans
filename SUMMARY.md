@@ -2,6 +2,12 @@
 
 ## Changelog
 
+### v0.0.6
+- Crawl Increment 6: LaunchAgent Storage — `LaunchAgentStore` writing (create-only, atomic exclusive-link so an existing plist is never overwritten), removing (idempotent), and discovering plists under `~/Library/LaunchAgents` (or an injected root)
+- `LaunchAgentFilesystem` protocol + `LocalFilesystem`: all store file IO flows through the abstraction so unit tests never touch real user directories; discovery parses via the never-raising reader and reports supported/partially-supported/invalid plists without mutating them
+- Store-boundary label validation (no path separators, no `.`/`..`) guards the raw-string `remove`/`destination_for` entry points
+- `FakeFilesystem` test fake; 31 new tests, 208 total, 100% coverage, ruff + mypy strict clean
+
 ### v0.0.5
 - Crawl Increment 5: Direct Test Runner — `ProcessRunner` port + `SubprocessRunner` (only subprocess caller, exact job environment, no timeout, structured launch failures, injectable clock), `DirectTestService` (argv via shared `command_argv`, no job mutation), `diagnostic_service` with 7 structured rules in deterministic order
 - `command_argv` promoted to the domain as the single argv source of truth; `PlistCodec` refactored onto it

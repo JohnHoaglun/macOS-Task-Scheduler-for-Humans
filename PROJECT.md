@@ -24,8 +24,8 @@ GUI (PySide6)          CLI (Typer)
 ```
 
 ## Status
-**Version:** 0.0.5
-**Phase:** Crawl — Increment 5 (Direct Test Runner) complete; next: Increment 6 (LaunchAgent Storage)
+**Version:** 0.0.6
+**Phase:** Crawl — Increment 6 (LaunchAgent Storage) complete; next: Increment 7 (launchctl Adapter)
 
 ## Repository
 Source of truth: https://github.com/JohnHoaglun/macOS-Task-Scheduler-for-Humans/tree/sched_dev_opencode

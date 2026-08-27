@@ -1,4 +1,4 @@
-# TODOS.md (v0.0.5)
+# TODOS.md (v0.0.6)
 
 ## Crawl Increment 0 — Project Foundation (DONE)
 - [x] Create project directory
@@ -44,13 +44,13 @@
 - [x] Runner/test-service/diagnostic tests; host-independent (`tmp_path`)
 - [x] `make check` green, 177 tests, 100% coverage, file-size review
 
-## Crawl Increment 6 — LaunchAgent Storage (IN PROGRESS)
-- [ ] `filesystem.py`: `LaunchAgentFilesystem` protocol + `LocalFilesystem` (read/list/create_root/create_exclusive/remove_file)
-- [ ] `launch_agent_store.py`: `LaunchAgentStore` (write create-only via atomic exclusive link, remove idempotent, discover parsed records), `DiscoveredLaunchAgent`, `default_launch_agents_root`, label validation (no `/`, `.`/`..`)
-- [ ] Exports via `platform/macos/__init__.py`
-- [ ] `tests/fakes.py`: `FakeFilesystem` (in-memory, failure injection)
-- [ ] `test_launch_agent_store.py`: write/refusal/cleanup, label rejection, remove idempotence, discovery (missing root, sorting, supported/invalid/partial, ignore non-plists, no mutation)
-- [ ] `make check` green, 100% coverage, file-size review
+## Crawl Increment 6 — LaunchAgent Storage (DONE)
+- [x] `filesystem.py`: `LaunchAgentFilesystem` protocol + `LocalFilesystem` (read/list/create_root/create_exclusive/remove_file)
+- [x] `launch_agent_store.py`: `LaunchAgentStore` (write create-only via atomic exclusive link, remove idempotent, discover parsed records), `DiscoveredLaunchAgent`, `default_launch_agents_root`, label validation (no `/`, `.`/`..`)
+- [x] Exports via `platform/macos/__init__.py`
+- [x] `tests/fakes.py`: `FakeFilesystem` (in-memory, failure injection)
+- [x] `test_launch_agent_store.py`: write/refusal/cleanup, label rejection, remove idempotence, discovery (missing root, sorting, supported/invalid/partial, ignore non-plists, no mutation)
+- [x] `make check` green, 208 tests, 100% coverage, file-size review
 
 ## Crawl Increment 7 — launchctl Adapter (PENDING)
 - [ ] install, uninstall, status, enable, disable, trigger
