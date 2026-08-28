@@ -4,7 +4,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from task_scheduler.platform.macos import CommandSpec, ProcessResult
+from task_scheduler.application import (
+    JobService,
+    LogService,
+    TaskCommandService,
+)
+from task_scheduler.application.test_service import DirectTestService
+from task_scheduler.domain import JobDefinition
+from task_scheduler.platform.macos import (
+    CommandSpec,
+    LaunchAgentBackend,
+    LaunchAgentStore,
+    PlistCodec,
+    ProcessResult,
+)
+from task_scheduler.storage import JsonJobRepository
 
 
 class FakeClock:
@@ -105,3 +119,44 @@ class FakeFilesystem:
             del self._files[path.name]
             return True
         return False
+
+
+OK_PROCESS = ProcessResult(exit_code=0)
+
+
+class FakeTaskWorld:
+    """A fully faked TaskCommandService environment rooted at temp paths.
+
+    The catalog and LaunchAgents store live under *tmp_path* and every
+    launchctl / direct-test invocation is scripted, so no test touches the
+    real home directory or invokes the real launchctl.
+    """
+
+    def __init__(
+        self,
+        tmp_path: Path,
+        *,
+        launch: ProcessResult | None = None,
+        test: ProcessResult | None = None,
+    ) -> None:
+        self.catalog_root = tmp_path / "catalog"
+        self.la_root = tmp_path / "launchagents"
+        self.store = LaunchAgentStore(self.la_root)
+        self.jobs = JobService(self.catalog_root)
+        self.launch_runner = FakeProcessRunner(result=launch or OK_PROCESS)
+        self.test_runner = FakeProcessRunner(result=test or OK_PROCESS)
+        self.backend = LaunchAgentBackend(self.store, self.launch_runner, uid=1000)
+        self.services = TaskCommandService(
+            repository=JsonJobRepository(),
+            jobs=self.jobs,
+            store=self.store,
+            backend=self.backend,
+            codec=PlistCodec(),
+            test=DirectTestService(self.test_runner),
+            logs=LogService(),
+        )
+
+    def manage(self, job: JobDefinition) -> None:
+        """Seed both the catalog record and the managed plist for *job*."""
+        self.jobs.import_job(job)
+        self.store.write(job)

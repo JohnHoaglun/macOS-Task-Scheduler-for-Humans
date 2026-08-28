@@ -36,20 +36,24 @@ first.
 pytest --cov=task_scheduler --cov-report=term-missing
 ```
 
-The core modules (domain, JSON persistence, plist encoder, plist parser)
-target at least 90% coverage.
+The source package maintains 100% line coverage.
 
 ## Current State
 
-This cycle (Crawl increments 0–3) establishes the core:
+Crawl increments 0–8 establish:
 
 - project/tooling foundation
 - normalized job domain model with Pydantic validation
 - schema-versioned JSON persistence (storage layer)
 - LaunchAgent plist generation and parsing (macOS platform layer)
+- LaunchAgent store (write, remove, discovery) in `~/Library/LaunchAgents`
+- `launchctl` backend behind an injectable process runner
+- application services: job service, log service, and the
+  `TaskCommandService` facade
+- `mactask` CLI (Typer): list, inspect, validate, generate, install,
+  uninstall, enable, disable, status, run, test, logs
 
-No GUI, no CLI commands, no `launchctl` calls, and no writes to
-`~/Library/LaunchAgents`, `/Library/LaunchAgents`, or
-`/Library/LaunchDaemons` exist in this cycle. Unit tests run against
-synthetic fixtures and never touch the live filesystem outside temporary
-directories.
+No GUI exists yet. Unit tests run against synthetic fakes and temporary
+directories and never touch `~/Library/LaunchAgents` or invoke real
+`launchctl`; OS integration tests are gated behind
+`MACTASK_ALLOW_SYSTEM_TESTS=1`.

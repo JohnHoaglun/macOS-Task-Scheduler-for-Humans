@@ -19,6 +19,11 @@ from task_scheduler.platform.macos.launchctl import (
     LaunchctlAction,
     LaunchctlResult,
 )
+from task_scheduler.platform.macos.log_reader import (
+    LocalLogReader,
+    LogReader,
+    LogReadResult,
+)
 from task_scheduler.platform.macos.plist_codec import PlistCodec
 from task_scheduler.platform.macos.plist_models import (
     LAUNCHD_TO_WEEKDAY,
@@ -63,6 +68,9 @@ __all__ = [
     "LaunchctlResult",
     "LaunchFailureKind",
     "LocalFilesystem",
+    "LocalLogReader",
+    "LogReadResult",
+    "LogReader",
     "PlistCodec",
     "ProcessLaunchFailure",
     "ProcessResult",

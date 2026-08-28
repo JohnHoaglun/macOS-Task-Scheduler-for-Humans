@@ -20,11 +20,11 @@ Each layer may depend on the layer below it, but never on layers above it. No la
 
 | Layer | Purpose | Status |
 |---|---|---|
-| **GUI (PySide6)** | Native macOS desktop interface | Planned for future |
-| **CLI (Typer)** | Terminal task management interface | Planned for future |
-| **Application Services** | Use cases, orchestration, coordination | Planned for future |
-| **Domain** | Core model: Job, Schedule, Command, Environment | Core — this cycle |
-| **Platform Adapters** | macOS plist, launchctl, filesystem operations | Platform-specific — this cycle |
+| **GUI (PySide6)** | Native macOS desktop interface | Planned (next: Increment 9) |
+| **CLI (Typer)** | Terminal task management interface (`mactask`) | Implemented (Increment 8) |
+| **Application Services** | Use cases, orchestration, coordination (`TaskCommandService` facade, `JobService`, `LogService`) | Implemented (Increments 7–8) |
+| **Domain** | Core model: Job, Schedule, Command, Environment | Implemented |
+| **Platform Adapters** | macOS plist codec, LaunchAgent store, launchctl backend, log reader | Implemented |
 | **launchd** | Underlying macOS scheduler (external) | Not part of the codebase |
 
 ## Domain Model
@@ -48,11 +48,17 @@ to the launchd LaunchAgent plist format by the platform layer
 (`platform/macos/`). The domain never knows about plist keys, JSON layout,
 or XML structure.
 
-A future cycle adds installation of plists into `~/Library/LaunchAgents`
-and `launchctl` interaction; this cycle performs no such operations.
+The application services layer (Increments 7–8) adds the `TaskCommandService`
+facade, which both the `mactask` CLI and the future GUI call. It coordinates
+`JobService` (catalog resolution and conflict checks), `LogService`, the
+`LaunchAgentStore` (plist writes/removals and discovery in
+`~/Library/LaunchAgents`), and the `LaunchAgentBackend` (all `launchctl`
+invocations).
 
-This cycle includes the Domain, Storage (persistence layer), and macOS plist Platform components. GUI, CLI, and Application Services layers will be added in subsequent cycles once the foundation is stable.
+## Platform Boundaries
 
-## No launchd Operations This Cycle
-
-This cycle establishes the model, persistence, and platform adapter interfaces. No actual `launchctl load/unload` or plist file system writes are performed at runtime. The storage layer validates and serializes; it does not invoke the scheduler.
+All `launchctl` argument vectors and LaunchAgent plist writes stay inside
+`platform/macos/`. Application and presentation layers never build
+`launchctl` commands or touch plist files directly. Process execution is
+injected (a `ProcessRunner` protocol), so the entire stack is unit-testable
+without invoking real `launchctl` or touching the live filesystem.

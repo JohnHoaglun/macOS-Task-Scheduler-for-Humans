@@ -162,6 +162,7 @@ Current technology decisions:
 
 * Python 3.12+
 * Pydantic 2.x
+* Typer (CLI)
 * `plistlib`
 * pytest
 * pytest-cov
@@ -171,7 +172,6 @@ Current technology decisions:
 Planned later in Crawl:
 
 * PySide6 / Qt Widgets
-* Typer
 
 The project intentionally avoids introducing a web backend or JavaScript frontend unless a future requirement makes one necessary.
 
@@ -182,6 +182,8 @@ The initial structure is expected to resemble:
 ```text
 src/
 └── task_scheduler/
+    ├── application/
+    ├── cli/
     ├── domain/
     ├── platform/
     │   └── macos/
@@ -197,7 +199,7 @@ docs/
 └── development.md
 ```
 
-Additional application, CLI, and GUI layers will be added incrementally.
+The GUI layer will be added incrementally.
 
 ## Development Requirements
 
@@ -286,7 +288,7 @@ With coverage:
 pytest --cov=task_scheduler --cov-report=term-missing
 ```
 
-The core modules should maintain strong test coverage. The initial target is approximately 90% for domain, persistence, plist generation, and plist parsing code.
+The source package maintains 100% line coverage, enforced with every change.
 
 Tests should focus on meaningful behavioral coverage rather than increasing coverage numbers artificially.
 
@@ -372,9 +374,45 @@ subprocess.run(...)
 
 or write LaunchAgent plist files.
 
+## Command-Line Interface
+
+The `mactask` command manages jobs through the same application services
+the future GUI will use:
+
+```bash
+mactask list
+mactask inspect <job>
+mactask validate <file.json>
+mactask generate <file.json>
+mactask install <file.json>
+mactask uninstall <job>
+mactask enable <job>
+mactask disable <job>
+mactask status <job>
+mactask run <job>
+mactask test <job>
+mactask logs <job>
+```
+
+`<job>` is the exact launchd label of a managed job, resolved from the
+application's JSON job catalog. `install` is create-only: it fails if a
+managed job with the same label already exists. `validate` and `generate`
+take a job definition JSON file; `generate` prints the LaunchAgent plist
+XML without writing anything.
+
+Exit codes:
+
+* `0` — success
+* `1` — launchd operation failed (bootstrap, bootout, print, kickstart, ...)
+* `2` — usage error: invalid label, invalid or unreadable JSON, conflicting
+  job, missing log configuration, or unknown job
+
+Reports and generated plist XML go to stdout; errors and diagnostics go to
+stderr.
+
 ## Current Status
 
-The project is currently in the initial **Crawl** phase.
+The project is currently in the **Crawl** phase.
 
 Current implementation scope:
 
@@ -383,17 +421,16 @@ Current implementation scope:
 * schema-versioned JSON persistence
 * LaunchAgent plist generation
 * LaunchAgent plist parsing
+* LaunchAgent store (write, remove, discovery in `~/Library/LaunchAgents`)
+* `launchctl` backend (bootstrap, bootout, print, kickstart, enable, disable)
+* application services (job service, log service, task command service)
+* `mactask` CLI (list, inspect, validate, generate, install, uninstall,
+  enable, disable, status, run, test, logs)
 
 Not yet implemented:
 
 * GUI
-* CLI commands
-* `launchctl`
-* LaunchAgent installation
-* LaunchAgent removal
 * Python virtual-environment detection
-* direct task execution
-* logging viewer
 * LaunchDaemon support
 * privileged helpers
 * signing/notarization
