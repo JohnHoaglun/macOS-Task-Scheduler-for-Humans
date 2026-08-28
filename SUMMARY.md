@@ -2,6 +2,12 @@
 
 ## Changelog
 
+### v0.0.8
+- Crawl Increment 8: `mactask` CLI — Typer app with 12 commands (list, inspect, validate, generate, install, uninstall, enable, disable, status, run, test, logs) sharing the application-service layer with the future GUI
+- `TaskCommandService` façade (12 operations) + `JobService` (app-owned JSON job catalog, create-only install conflict detection) + `LogService` (read-only stdout/stderr readers); `<job>` is always the exact managed launchd label resolved from the catalog
+- Exit codes 0/1/2 (success / launchd failure / usage error), reports and plist XML to stdout, errors and diagnostics to stderr; all launchd interaction still via `LaunchAgentBackend` + `ProcessRunner`
+- 85 new unit tests, 328 total, 100% coverage, ruff + mypy strict clean
+
 ### v0.0.7
 - Crawl Increment 7: launchctl adapter — `LaunchAgentBackend` coordinates storage + launchctl for `install` (write then bootstrap), `uninstall` (bootout then remove), `status` (print → loaded True/False/None), `enable`, `disable`, `trigger` (kickstart -k), user `gui/<uid>` domain only via `/bin/launchctl` through `ProcessRunner`
 - Structured lifecycle results (`LaunchctlResult`, `LaunchAgentStatus`) preserve exact `ProcessResult`; failed bootstrap/bootout retains the plist for diagnosis; shared public `validate_label` guards all raw-label entry points
