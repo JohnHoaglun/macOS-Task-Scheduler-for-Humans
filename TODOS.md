@@ -62,8 +62,15 @@
 - [x] `integration` pytest marker + `addopts -m 'not integration'`; `make integration` target
 - [x] `make check` green, 243 unit tests, 100% coverage, file-size review, default-run skip verified
 
-## Crawl Increment 8 — CLI (PENDING)
-- [ ] mactask list/inspect/validate/generate/install/uninstall/enable/disable/status/test/run/logs
+## Crawl Increment 8 — CLI (IN PROGRESS)
+- [ ] Typer runtime dependency + `mactask` console-script entry point
+- [ ] `application/job_service.py`: managed job catalog (`JobService`, `JobNotFoundError`, `JobConflictError`, `default_job_catalog_root`)
+- [ ] `platform/macos/log_reader.py` + `application/log_service.py`: read-only stdout/stderr readers
+- [ ] `application/task_command_service.py`: shared `TaskCommandService` façade (12 operations)
+- [ ] `cli/` package: Typer app factory, 12 commands, plain-text renderers, exit codes 0/1/2
+- [ ] Unit tests: job service, log service, command service, CLI commands (CliRunner + fakes)
+- [ ] Docs: README CLI usage + exit codes; architecture/development doc updates
+- [ ] `make check` green, 100% coverage, file-size review; bump 0.0.7 → 0.0.8
 
 ## Crawl Increment 9 — GUI Read/Discovery (PENDING)
 - [ ] PySide6 main window

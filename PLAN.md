@@ -1,7 +1,7 @@
 # PLAN.md
 
 ## Current State
-Crawl Increments 0–6 complete and pushed to `sched_dev_opencode` (commits through `6d4bc5e`, version 0.0.6):
+Crawl Increments 0–7 complete and pushed to `sched_dev_opencode` (commits through `a8a3e27`, version 0.0.7):
 - **Increment 0:** project foundation (pyproject, Makefile, package structure, docs, tooling)
 - **Increment 1:** Pydantic domain model + schema-versioned JSON persistence
 - **Increment 2:** plist encoder (`PlistCodec`) + golden fixtures
@@ -9,88 +9,99 @@ Crawl Increments 0–6 complete and pushed to `sched_dev_opencode` (commits thro
 - **Increment 4:** Python detection (`detect_python`, `compare_environments`) + tests
 - **Increment 5:** Direct test runner (`SubprocessRunner`, `DirectTestService`, `evaluate_diagnostics`) + tests
 - **Increment 6:** LaunchAgent storage (`LaunchAgentStore` write/remove/discover + `LaunchAgentFilesystem`) + tests
-- Verification at v0.0.6: 208 tests, 100% coverage, ruff + mypy strict clean
+- **Increment 7:** launchctl adapter (`LaunchAgentBackend` install/uninstall/status/enable/disable/trigger) + protected integration tests
+- Verification at v0.0.7: 243 tests, 100% coverage, ruff + mypy strict clean
 
-Current focus: **Crawl Increment 7 — launchctl Adapter** (IN PROGRESS).
+Current focus: **Crawl Increment 8 — CLI** (IN PROGRESS).
 
 ## Blockers
 None
 
 ## Strategy
-User-domain LaunchAgent lifecycle through `launchctl`: `install`, `uninstall`, `status`,
-`enable`, `disable`, `trigger` (spec lines 1833–1852). Every command goes through
-`ProcessRunner`; unit tests use fake `launchctl` results; real behavior lives in
-protected integration tests (`MACTASK_ALLOW_SYSTEM_TESTS=1`, unique UUID labels,
-teardown cleanup).
+First-class Typer CLI (`mactask`) so a developer completes the primary job lifecycle entirely
+from Terminal (spec lines 1856–1873, 1051–1089). The CLI is a presentation layer: it parses
+arguments, calls one application façade method, renders the returned result, and selects the
+exit code. All OS side effects flow through platform abstractions (`ProcessRunner`,
+`LaunchAgentStore`, `LaunchAgentBackend`, `PlistCodec`) so unit tests never invoke real
+`/bin/launchctl` or touch the real `~/Library/LaunchAgents`.
 
 ### Pinned decisions (approved)
-1. **User domain only:** target `gui/<uid>`; `uid` injectable, defaults to `os.getuid()`.
-   Never target `/Library`, system domains, or LaunchDaemons in this increment.
-2. **Absolute `/bin/launchctl`** with the exact empty `CommandSpec.environment`
-   (no inherited `PATH` — launchctl itself needs none).
-3. **Commands:** install `bootstrap gui/<uid> <path>`; uninstall `bootout gui/<uid>/<label>`;
-   status `print gui/<uid>/<label>`; enable `enable gui/<uid>/<label>`;
-   disable `disable gui/<uid>/<label>`; trigger `kickstart -k gui/<uid>/<label>`.
-4. **Structured results, no exceptions:** lifecycle ops return `LaunchctlResult(action,
-   process)` preserving the exact `ProcessResult` (non-zero exits and launch failures
-   included); only label validation and storage conflicts raise.
-5. **Backend coordinates storage + launchctl:** `install(job)` = `store.write(job)` then
-   `bootstrap` the derived path; `uninstall(label)` = `bootout` first, then
-   `store.remove(label)` only on a successful (exit 0) bootout.
-6. **Failure compensation: retain state for diagnosis** — failed bootstrap keeps its
-   newly written plist; failed bootout keeps its plist; no rollback/re-bootstrap.
-7. **Status mapping:** `loaded=True` only on completed exit 0; `loaded=False` on non-zero
-   completion; `loaded=None` (unknown) when the process never launched — launch
-   failures are never silently reported as unloaded.
-8. **`JobDefinition.enabled` is not mutated** by any lifecycle operation; plist state
-   and runtime launchd state remain distinct.
-9. **Label safety:** public `validate_label(label)` (shared, now exported from
-   `launch_agent_store`) guards every raw-label backend method and the store; the
-   backend never accepts arbitrary plist paths.
+1. **`<job>` identity = exact managed launchd label**, resolved from the application-owned
+   JSON catalog. `inspect`/`test`/`logs` need the full `JobDefinition` (plist re-parse loses
+   the id/name), so the catalog is the source of truth.
+2. **Managed catalog:** `~/Library/Application Support/macOS Task Scheduler for Humans/jobs/<uuid>.json`
+   (spec lines 1319–1326). One file per managed job, keyed by job id. Root and repository are
+   injectable. JSON is the persisted source of truth; the plist is the deployment artifact.
+3. **`install` is create-only:** import to catalog first (raises `JobConflictError` when the
+   id already exists), then `backend.install` (raises `FileExistsError` when the plist
+   exists). No overwrite/update semantics this increment.
+4. **`generate` emits the XML plist to stdout** — pure, no filesystem side effects.
+5. **`logs` reads both streams:** full read of the configured stdout+stderr with stream
+   headings; unconfigured/missing/unreadable → clear error text and exit 2. No tail/follow.
+6. **`test` = direct test (Mode A)** via `DirectTestService`; **`run` = launchd trigger** via
+   `backend.trigger` (`kickstart -k`). Never conflated.
+7. **Exit codes:** 0 success; 1 lifecycle/direct-test/process failure; 2 invalid input,
+   validation error, unsafe/unknown label, create-only conflict, missing log data. Errors go
+   to stderr; reports and generated XML go to stdout.
+8. **Shared façade:** `TaskCommandService` orchestrates every command; the future GUI
+   (Increments 9–12) calls the same service (spec 230–248, 1089, 2542–2550).
+9. **`list`/`inspect` cover all user LaunchAgents discovered** under the root, annotated with
+   parse-support status, warnings, and a managed flag cross-referenced with the catalog.
+10. **Label safety:** every raw-label façade method validates via the shared `validate_label`
+    before any runner call; unsafe label → exit 2.
 
 ### API contract (pinned before implementation)
-- `src/task_scheduler/platform/macos/launchctl.py`:
-  - `LAUNCHCTL_PATH = "/bin/launchctl"`
-  - `LaunchctlAction(StrEnum)`: `INSTALL`, `UNINSTALL`, `STATUS`, `ENABLE`, `DISABLE`, `TRIGGER`
-  - `LaunchctlResult(action: LaunchctlAction, process: ProcessResult)` (frozen dataclass)
-  - `LaunchAgentStatus(loaded: bool | None, process: ProcessResult)` (frozen dataclass)
-  - `LaunchAgentBackend(store: LaunchAgentStore, runner: ProcessRunner, *, uid: int | None = None)`
-    with `domain -> str` and the six operations above; every raw-label method validates
-    its label before any runner call.
-- `src/task_scheduler/platform/macos/launch_agent_store.py`: `validate_label(label: str) -> None`
-  becomes the public shared guard (store methods now call it).
-- Exports via `platform/macos/__init__.py`.
-- `tests/fakes.py`: `FakeProcessRunner` gains an ordered `results=[...]` queue (popped
-  per call; sticky last result afterwards) while keeping the single-`result` behavior.
-- `tests/integration/test_launchctl.py`: `pytestmark = pytest.mark.integration`; skips
-  unless `MACTASK_ALLOW_SYSTEM_TESTS=1`; unique label
-  `io.github.mactaskscheduler.test.<uuid>`; real `LaunchAgentStore`/`SubprocessRunner`;
-  unconditional `yield`/`finally` cleanup (best-effort `uninstall` + `store.remove`);
-  only the test-owned plist is ever touched.
-- Tooling: `integration` marker registered in `pyproject.toml`; `addopts` gains
-  `-m 'not integration'` (plain `pytest`/`make test`/`make check` exclude it);
-  `make integration` runs `pytest -m integration` (still skips without the env opt-in).
+- `src/task_scheduler/application/job_service.py`:
+  - `JobNotFoundError(label)`, `JobConflictError(label, path)` (Exception subclasses)
+  - `default_job_catalog_root() -> Path`
+  - `JobService(root=None, *, repository=None)`: `root` property,
+    `list_jobs() -> list[JobDefinition]` (sorted by label; missing root → `[]`;
+    direct-child `*.json` files only), `find(label) -> JobDefinition | None`,
+    `resolve(label) -> JobDefinition` (raises `JobNotFoundError`),
+    `import_job(job) -> Path` (raises `JobConflictError`), `remove(job_id) -> bool` (idempotent)
+- `src/task_scheduler/platform/macos/log_reader.py`:
+  - `LogReadResult(content, error)` model; `LogReader` protocol; `LocalLogReader`
+    (never raises: `FileNotFoundError` → not-found error; other `OSError`/
+    `UnicodeDecodeError` → read error)
+- `src/task_scheduler/application/log_service.py`:
+  - `LogStream(name, path, content, error)`, `JobLogs(stdout, stderr)` models
+  - `LogService(reader=None).read(job) -> JobLogs` (never raises; unconfigured stream = `path` None)
+- `src/task_scheduler/application/task_command_service.py`:
+  - DTOs: `AgentListing(path, parsed, managed)`, `InspectReport(job, plist, status)`,
+    `InstallResult(job, plist_path, process)`, `UninstallResult(label, process, catalog_removed)`
+  - `TaskCommandService(repository, jobs, store, backend, codec, test, logs)`:
+    `list_agents`, `inspect`, `validate_json`, `generate_plist`, `install_json`,
+    `uninstall`, `enable`, `disable`, `status`, `run_now`, `test`, `read_logs`
+  - `uninstall`: validate → catalog `find` (tolerant) → `backend.uninstall` → remove the
+    catalog record only on exit 0
+- `src/task_scheduler/cli/{__init__,app,render}.py`: `create_app(services)` Typer factory
+  (12 commands, closures over the injected `TaskCommandService`), production
+  `build_services()`, `main()` entry point; `render.py` plain-text renderers + exit-code
+  constants
+- `pyproject.toml`: `typer` runtime dependency; `[project.scripts] mactask = "task_scheduler.cli.app:main"`
 
 ### Tests
-- `tests/unit/platform/test_launchctl.py` (fakes only, no real launchctl, tmp_path roots):
-  - exact argv + empty environment + no cwd for all six actions; injected uid.
-  - default uid = `os.getuid()` in the domain string.
-  - install writes through the store before bootstrap (plist exists, argv has derived path).
-  - storage conflict (`FileExistsError`) stops before any runner call.
-  - bootstrap failure retains the plist; bootout failure retains the plist;
-    successful uninstall bootouts before removing.
-  - success / non-zero / launch-failure results preserved on every action.
-  - status maps exit 0 → True, non-zero → False, launch failure → None.
-  - raw-label methods reject unsafe labels before any runner call.
-- Integration (opt-in only): full lifecycle round-trip with a harmless `/bin/echo`
-  job (install → status loaded → disable/enable → trigger → uninstall → status
-  unloaded) and structured-failure uninstall of a never-installed label.
-- Default-run safety: `pytest -m integration` without the env var skips; plain
-  `pytest` never collects integration tests.
+- `tests/unit/application/test_job_service.py` (tmp_path roots): missing root, sorted job
+  listing, non-`.json` skipped, find/resolve hit/miss, import (create + conflict),
+  remove present/absent
+- `tests/unit/application/test_log_service.py` (reader + service): unconfigured, existing
+  (empty + non-empty), missing file, unreadable (directory path), non-UTF-8 content
+- `tests/unit/application/test_task_command_service.py`: `list_agents` managed flag,
+  `inspect` (catalog + plist parse + status), `validate_json`/`generate_plist`,
+  `install_json` (catalog + plist + bootstrap ordering, conflicts), `uninstall` (catalog
+  removal only on success), lifecycle delegation, label rejection, `test`/`read_logs`
+  resolution errors
+- `tests/unit/cli/` (Typer `CliRunner` against `create_app` with fakes): all 12 commands —
+  output, exit codes (0/1/2), invalid JSON, unknown label, unsafe label, install conflict,
+  lifecycle failure, direct-test launch failure + diagnostics rendering, logs
+  unconfigured/missing states
+- No CLI test touches the real `~/Library/LaunchAgents`, real log directories, or
+  `/bin/launchctl`; plain `pytest` still excludes integration tests
 
 ### Exit criteria
-- `make check` green; coverage target 100% (≥90% floor) on new modules
-- All logic files < 500 lines
-- No unit test invokes `/bin/launchctl` or touches the real user LaunchAgents directory
-- Plain `pytest` / `make test` / `make check` never run integration tests
-- Version bump 0.0.6 → 0.0.7 with docs in the final commit; push every commit
+- `make check` green; 100% coverage on new modules
+- All logic files < 500 lines (decomposition review at 400–450)
+- CLI imports no `LaunchAgentStore`/`LaunchAgentBackend`/`SubprocessRunner` outside the
+  `build_services()` composition root
+- `mactask --help` lists all 12 commands; exit-code contract verified in tests
+- Version bump 0.0.7 → 0.0.8 with docs in the final commit; push every commit
