@@ -2,6 +2,16 @@
 
 ## Changelog
 
+### Planning: Crawl Increments 9–13 (GUI + Packaging)
+- Detailed implementation plan written to PLAN.md covering 5 increments:
+  - **Increment 9:** GUI Read/Discovery — PySide6 main window, discover/list/inspect external and managed LaunchAgents, read-only external-job policy
+  - **Increment 10:** GUI Job Creation/Edit/Save/Validate — new task forms (Python/Shell/Executable), Python venv detection, schedule/time/weekdays, draft validation, managed catalog save/update (non-deploying save, explicit reinstall)
+  - **Increment 11:** GUI Installation/Lifecycle — install, reinstall, uninstall, enable, disable, run now; managed-only gating; worker/controller for blocking operations; explicit redeploy transaction
+  - **Increment 12:** GUI Diagnostics and Logs — direct-test (Mode A), structured diagnostics, stdout/stderr viewer, persisted logs, environment comparison, Python interpreter recommendation
+  - **Increment 13:** Packaging — pyside6-deploy local .app bundle, make package/run-gui targets, manual macOS smoke checklist
+- Pinned decisions: save is non-deploying; environment comparison uses GUI process env; packaging targets current machine architecture only
+- Shared foundation before Increment 9: add PySide6 + pytest-qt, extract composition root to task_scheduler/bootstrap/build_services(), add GUI entry point
+
 ### v0.0.8
 - Crawl Increment 8: `mactask` CLI — Typer app with 12 commands (list, inspect, validate, generate, install, uninstall, enable, disable, status, run, test, logs) sharing the application-service layer with the future GUI
 - `TaskCommandService` façade (12 operations) + `JobService` (app-owned JSON job catalog, create-only install conflict detection) + `LogService` (read-only stdout/stderr readers); `<job>` is always the exact managed launchd label resolved from the catalog

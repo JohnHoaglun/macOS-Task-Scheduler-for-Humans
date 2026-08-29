@@ -25,7 +25,7 @@ GUI (PySide6)          CLI (Typer)
 
 ## Status
 **Version:** 0.0.8
-**Phase:** Crawl — Increment 8 (CLI) complete; next: Increment 9 (GUI Read/Discovery)
+**Phase:** Crawl — Increments 0–8 complete (CLI); Increments 9–13 (GUI + Packaging) planned and detailed in PLAN.md
 
 ## Repository
 Source of truth: https://github.com/JohnHoaglun/macOS-Task-Scheduler-for-Humans/tree/sched_dev_opencode
