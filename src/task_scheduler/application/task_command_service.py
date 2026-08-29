@@ -32,6 +32,7 @@ from task_scheduler.storage import JsonJobRepository
 
 __all__ = [
     "AgentListing",
+    "DiscoveredInspectReport",
     "InspectReport",
     "InstallResult",
     "TaskCommandService",
@@ -46,6 +47,16 @@ class AgentListing:
     path: Path
     parsed: ParsedLaunchAgent
     managed: bool
+
+
+@dataclass(frozen=True, slots=True)
+class DiscoveredInspectReport:
+    """A discovered LaunchAgent: its plist parse, managed flag, launchd status."""
+
+    path: Path
+    parsed: ParsedLaunchAgent
+    managed: bool
+    status: LaunchAgentStatus | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,6 +137,25 @@ class TaskCommandService:
             plist_path=plist_path,
             plist=parse_path(plist_path),
             status=self._backend.status(label),
+        )
+
+    def inspect_discovered(self, path: Path) -> DiscoveredInspectReport:
+        """Inspect a discovered plist (read-only, any parse status).
+
+        Raises ValueError when *path* is outside the store root.
+        """
+        root = self._store.root
+        if not path.resolve().is_relative_to(root.resolve()):
+            raise ValueError(f"path is outside the LaunchAgent root: {path}")
+        parsed = parse_path(path)
+        job = parsed.job
+        managed = False
+        status = None
+        if job is not None:
+            managed = self._jobs.find(job.label) is not None
+            status = self._backend.status(job.label)
+        return DiscoveredInspectReport(
+            path=path, parsed=parsed, managed=managed, status=status
         )
 
     # -- JSON file commands --------------------------------------------------

@@ -7,6 +7,7 @@ invokes the real launchctl.
 
 from __future__ import annotations
 
+import plistlib
 from datetime import timedelta
 from pathlib import Path
 from uuid import UUID
@@ -25,6 +26,7 @@ from task_scheduler.domain import (
 from task_scheduler.domain.command import command_argv
 from task_scheduler.platform.macos import (
     LAUNCHCTL_PATH,
+    LaunchAgentStatus,
     LaunchctlAction,
     ParseSupport,
     ProcessLaunchFailure,
@@ -96,6 +98,98 @@ class TestInspect:
         world = FakeTaskWorld(tmp_path)
         with pytest.raises(JobNotFoundError):
             world.services.inspect("missing.label")
+
+
+class TestInspectDiscovered:
+    def test_managed_agent_reports_managed_and_status(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        job = make_job()
+        world.manage(job)
+        destination = world.store.destination_for(job.label)
+        report = world.services.inspect_discovered(destination)
+        assert report.path == destination
+        assert report.managed is True
+        assert report.parsed.status is ParseSupport.SUPPORTED
+        assert report.parsed.job is not None
+        assert report.status is not None
+        assert isinstance(report.status, LaunchAgentStatus)
+        assert report.status.loaded is True
+
+    def test_external_agent_is_not_managed(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        external = make_job(label="com.example.external", id=OTHER_ID)
+        world.store.write(external)
+        destination = world.store.destination_for(external.label)
+        report = world.services.inspect_discovered(destination)
+        assert report.managed is False
+        assert report.parsed.status is ParseSupport.SUPPORTED
+        assert report.status is not None
+        assert report.status.loaded is True
+
+    def test_partially_supported_reports_job_and_status(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        payload = {
+            "Label": "com.example.keepalive",
+            "ProgramArguments": ["/bin/zsh", "/Users/example/scripts/x.sh"],
+            "StartCalendarInterval": [{"Weekday": 1, "Hour": 7, "Minute": 30}],
+            "KeepAlive": True,
+        }
+        world.la_root.mkdir(parents=True, exist_ok=True)
+        path = world.la_root / "com.example.keepalive.plist"
+        path.write_bytes(plistlib.dumps(payload))
+        report = world.services.inspect_discovered(path)
+        assert report.parsed.status is ParseSupport.PARTIALLY_SUPPORTED
+        assert report.parsed.job is not None
+        assert report.parsed.unsupported_keys == ["KeepAlive"]
+        assert report.managed is False
+        assert report.status is not None
+        assert report.status.loaded is True
+
+    def test_invalid_plist_has_no_job_or_status(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        payload = {
+            "Label": "com.example.broken",
+            "ProgramArguments": "not-a-list",
+            "StartCalendarInterval": [{"Weekday": 1, "Hour": 7, "Minute": 30}],
+        }
+        world.la_root.mkdir(parents=True, exist_ok=True)
+        path = world.la_root / "com.example.broken.plist"
+        path.write_bytes(plistlib.dumps(payload))
+        report = world.services.inspect_discovered(path)
+        assert report.parsed.status is ParseSupport.INVALID
+        assert report.parsed.job is None
+        assert report.managed is False
+        assert report.status is None
+
+    def test_path_outside_root_raises(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        outside = tmp_path / "outside.plist"
+        outside.write_bytes(plistlib.dumps({"Label": "com.example.outside"}))
+        with pytest.raises(ValueError):
+            world.services.inspect_discovered(outside)
+
+    def test_inspect_discovered_is_read_only(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        job = make_job()
+        world.manage(job)
+        plist_path = world.store.destination_for(job.label)
+        catalog_path = world.catalog_root / f"{job.id}.json"
+        plist_before = plist_path.read_bytes()
+        catalog_before = catalog_path.read_bytes()
+        world.services.inspect_discovered(plist_path)
+        assert plist_path.read_bytes() == plist_before
+        assert catalog_path.read_bytes() == catalog_before
+        assert [spec.argv[1] for spec in world.launch_runner.specs] == ["print"]
+
+    def test_status_passthrough_reflects_launch_result(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path, launch=ProcessResult(exit_code=5))
+        job = make_job()
+        world.manage(job)
+        destination = world.store.destination_for(job.label)
+        report = world.services.inspect_discovered(destination)
+        assert report.status is not None
+        assert report.status.loaded is False
+        assert report.status.process.exit_code == 5
 
 
 class TestJsonFileCommands:

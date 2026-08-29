@@ -1,9 +1,9 @@
-"""mactask CLI: Typer app factory and production composition root (Increment 8).
+"""mactask CLI: Typer app factory (Increment 8).
 
 ``create_app(services)`` binds every command to an injected
 :class:`TaskCommandService`, so unit tests can drive the whole CLI with
-fakes. ``build_services()`` is the only place that constructs production
-platform adapters (store, backend, subprocess runner).
+fakes. The production composition root (``build_services()``) now lives in
+``task_scheduler.bootstrap``, shared by the CLI and GUI entry points.
 """
 
 from __future__ import annotations
@@ -19,18 +19,9 @@ from task_scheduler.application import (
     JobNotFoundError,
     TaskCommandService,
 )
-from task_scheduler.application.job_service import JobService
-from task_scheduler.application.log_service import LogService
-from task_scheduler.application.test_service import DirectTestService
+from task_scheduler.bootstrap import build_services
 from task_scheduler.cli import render
-from task_scheduler.platform.macos import (
-    LaunchAgentBackend,
-    LaunchAgentStore,
-    PlistCodec,
-    ProcessResult,
-    SubprocessRunner,
-)
-from task_scheduler.storage import JsonJobRepository
+from task_scheduler.platform.macos import ProcessResult
 
 __all__ = ["EXIT_FAILURE", "EXIT_SUCCESS", "EXIT_USAGE", "build_services", "create_app", "main"]
 
@@ -54,20 +45,6 @@ def _format_validation_error(exc: Exception) -> str:
             lines.append(f"  {location}: {error['msg']}")
         return "\n".join(lines)
     return f"invalid job definition: {exc}"
-
-
-def build_services() -> TaskCommandService:
-    """Construct the production application services (the only real wiring)."""
-    store = LaunchAgentStore()
-    return TaskCommandService(
-        repository=JsonJobRepository(),
-        jobs=JobService(),
-        store=store,
-        backend=LaunchAgentBackend(store, SubprocessRunner()),
-        codec=PlistCodec(),
-        test=DirectTestService(SubprocessRunner()),
-        logs=LogService(),
-    )
 
 
 def create_app(services: TaskCommandService) -> typer.Typer:
