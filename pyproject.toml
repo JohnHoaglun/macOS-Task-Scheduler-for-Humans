@@ -40,6 +40,7 @@ addopts = "-ra -q -m 'not integration'"
 markers = [
     "integration: real launchctl / LaunchAgent tests (require MACTASK_ALLOW_SYSTEM_TESTS=1)",
 ]
+qt_api = "pyside6"
 
 [tool.coverage.run]
 source = ["task_scheduler"]
