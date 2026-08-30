@@ -8,17 +8,29 @@ the application database (spec lines 1307-1326).
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from task_scheduler.domain import JobDefinition
+from task_scheduler.domain import (
+    SUPPORTED_SCHEMA_VERSION,
+    Command,
+    EnvironmentConfig,
+    JobDefinition,
+    LoggingConfig,
+    PythonCommand,
+    Schedule,
+)
 from task_scheduler.storage import JsonJobRepository
 
 __all__ = [
+    "MANAGED_LABEL_PREFIX",
     "JobConflictError",
     "JobNotFoundError",
     "JobService",
     "default_job_catalog_root",
+    "default_job_logs_root",
+    "managed_label",
 ]
 
 
@@ -31,6 +43,24 @@ def default_job_catalog_root() -> Path:
         / "macOS Task Scheduler for Humans"
         / "jobs"
     )
+
+
+MANAGED_LABEL_PREFIX = "io.github.macos-task-scheduler.user."
+
+
+def default_job_logs_root() -> Path:
+    """Return the default per-user directory for job stdout/stderr logs."""
+    return Path.home() / "Library" / "Logs" / "macOS Task Scheduler for Humans"
+
+
+def managed_label(name: str, job_id: UUID) -> str:
+    """Return the launchd label for the managed job *name* identified by *job_id*."""
+    return f"{MANAGED_LABEL_PREFIX}{_slug(name)}-{job_id.hex[:8]}"
+
+
+def _slug(name: str) -> str:
+    """Return a lowercase hyphen-separated identifier derived from *name*."""
+    return re.sub(r"[^a-z0-9]+", "-", name.strip().lower()).strip("-") or "task"
 
 
 class JobNotFoundError(Exception):
@@ -96,11 +126,57 @@ class JobService:
             raise JobNotFoundError(label)
         return job
 
+    def new_managed_job(
+        self,
+        name: str,
+        command: Command,
+        schedule: Schedule,
+        *,
+        job_id: UUID | None = None,
+    ) -> JobDefinition:
+        """Build the :class:`JobDefinition` for a new managed job; nothing is persisted.
+
+        The caller persists the result through :meth:`save`; no files or
+        directories are created here.
+        """
+        id = job_id if job_id is not None else uuid4()
+        return JobDefinition(
+            schema_version=SUPPORTED_SCHEMA_VERSION,
+            id=id,
+            name=name,
+            label=managed_label(name, id),
+            enabled=True,
+            command=command,
+            schedule=schedule,
+            environment=EnvironmentConfig(),
+            working_directory=command.script.parent
+            if isinstance(command, PythonCommand)
+            else None,
+            logging=LoggingConfig(
+                stdout_path=default_job_logs_root() / id.hex / "stdout.log",
+                stderr_path=default_job_logs_root() / id.hex / "stderr.log",
+            ),
+        )
+
     def import_job(self, job: JobDefinition) -> Path:
         """Persist ``job`` into the catalog; create-only, never overwrite."""
         path = self._path_for(job.id)
         if path.exists():
             raise JobConflictError(label=job.label, path=path)
+        self._repository.save(job, path, create_parent=True)
+        return path
+
+    def save(self, job: JobDefinition) -> Path:
+        """Persist ``job`` into the catalog, overwriting its own record.
+
+        Overwriting the same immutable id is the normal update path. A
+        different managed job already claiming ``job.label`` raises
+        :class:`JobConflictError`.
+        """
+        owner = self.find(job.label)
+        if owner is not None and owner.id != job.id:
+            raise JobConflictError(label=job.label, path=self._path_for(owner.id))
+        path = self._path_for(job.id)
         self._repository.save(job, path, create_parent=True)
         return path
 
