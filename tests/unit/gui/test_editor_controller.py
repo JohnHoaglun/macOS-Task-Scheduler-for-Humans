@@ -7,10 +7,11 @@ from pathlib import Path
 from uuid import UUID
 
 import pytest
+from pydantic import ValidationError
 
 from task_scheduler.application.job_service import JobNotFoundError, managed_label
-from task_scheduler.domain import ExecutableCommand, LoggingConfig, ShellCommand
-from task_scheduler.gui.controllers.editor_controller import EditorController
+from task_scheduler.domain import ExecutableCommand, JobDefinition, LoggingConfig, ShellCommand
+from task_scheduler.gui.controllers.editor_controller import EditorController, JobDraft
 from task_scheduler.platform.macos import CandidateSource
 from tests.conftest import make_job
 from tests.fakes import FakeTaskWorld
@@ -264,3 +265,363 @@ class TestDelegation:
         world, controller = make_controller(tmp_path)
         with pytest.raises(JobNotFoundError):
             controller.resolve("io.github.macos-task-scheduler.user.nope")
+
+
+def valid_draft(controller: EditorController, tmp_path: Path) -> JobDraft:
+    draft = controller.open_new()
+    controller.set_name(draft, "Editor Job")
+    controller.set_interpreter(draft, "/usr/bin/python3")
+    controller.set_script(draft, str(tmp_path / "job.py"))
+    controller.set_time(draft, "07:30")
+    controller.set_weekdays(draft, {"monday"})
+    return draft
+
+
+class TestValidate:
+    def test_valid_draft(self, tmp_path: Path) -> None:
+        """A fully populated draft validates cleanly."""
+        world, controller = make_controller(tmp_path)
+        o = controller.validate(valid_draft(controller, tmp_path))
+        assert o.ok is True
+        assert o.message == "Valid"
+        assert o.fields == {}
+
+    def test_missing_name(self, tmp_path: Path) -> None:
+        """A draft without a name fails with a name field error."""
+        world, controller = make_controller(tmp_path)
+        d = controller.open_new()
+        controller.set_interpreter(d, "/usr/bin/python3")
+        controller.set_script(d, "/tmp/job.py")
+        controller.set_time(d, "07:30")
+        controller.set_weekdays(d, {"monday"})
+        o = controller.validate(d)
+        assert o.ok is False
+        assert o.message == "Fix the highlighted fields."
+        assert o.fields == {"name": "a job name is required"}
+
+    def test_missing_interpreter(self, tmp_path: Path) -> None:
+        """A blank interpreter fails with an interpreter field error."""
+        world, controller = make_controller(tmp_path)
+        d = valid_draft(controller, tmp_path)
+        controller.set_interpreter(d, "")
+        o = controller.validate(d)
+        assert o.fields == {"interpreter": "an interpreter is required"}
+
+    def test_relative_interpreter(self, tmp_path: Path) -> None:
+        """A relative interpreter path fails validation."""
+        world, controller = make_controller(tmp_path)
+        d = valid_draft(controller, tmp_path)
+        controller.set_interpreter(d, "python3")
+        o = controller.validate(d)
+        assert o.fields == {"interpreter": "the interpreter path must be absolute"}
+
+    def test_missing_script(self, tmp_path: Path) -> None:
+        """A blank script fails with a script field error."""
+        world, controller = make_controller(tmp_path)
+        d = valid_draft(controller, tmp_path)
+        controller.set_script(d, "")
+        o = controller.validate(d)
+        assert o.fields == {"script": "a script is required"}
+
+    def test_relative_script(self, tmp_path: Path) -> None:
+        """A relative script path fails validation."""
+        world, controller = make_controller(tmp_path)
+        d = valid_draft(controller, tmp_path)
+        controller.set_script(d, "job.py")
+        o = controller.validate(d)
+        assert o.fields == {"script": "the script path must be absolute"}
+
+    def test_shell_kind_missing_executable(self, tmp_path: Path) -> None:
+        """A shell draft without an executable fails validation."""
+        world, controller = make_controller(tmp_path)
+        d = valid_draft(controller, tmp_path)
+        controller.set_command_kind(d, "shell")
+        o = controller.validate(d)
+        assert o.fields == {"shell_executable": "a shell executable is required"}
+
+    def test_executable_kind_missing_executable(self, tmp_path: Path) -> None:
+        """An executable draft without a path fails validation."""
+        world, controller = make_controller(tmp_path)
+        d = valid_draft(controller, tmp_path)
+        controller.set_command_kind(d, "executable")
+        o = controller.validate(d)
+        assert o.fields == {"executable": "an executable is required"}
+
+    def test_bad_time(self, tmp_path: Path) -> None:
+        """A malformed time fails with a time field error."""
+        world, controller = make_controller(tmp_path)
+        d = valid_draft(controller, tmp_path)
+        controller.set_time(d, "25:00")
+        o = controller.validate(d)
+        assert o.fields == {"time": "the time must look like HH:MM, got '25:00'"}
+
+    def test_no_weekdays(self, tmp_path: Path) -> None:
+        """A draft with no weekdays fails validation."""
+        world, controller = make_controller(tmp_path)
+        d = valid_draft(controller, tmp_path)
+        controller.set_weekdays(d, set())
+        o = controller.validate(d)
+        assert o.fields == {"weekdays": "at least one weekday is required"}
+
+    def test_relative_working_directory(self, tmp_path: Path) -> None:
+        """A relative working directory fails validation."""
+        world, controller = make_controller(tmp_path)
+        d = valid_draft(controller, tmp_path)
+        controller.set_working_directory(d, "relative/dir")
+        o = controller.validate(d)
+        assert "working_directory" in o.fields and o.fields["working_directory"]
+
+    def test_relative_stdout(self, tmp_path: Path) -> None:
+        """A relative stdout path fails validation."""
+        world, controller = make_controller(tmp_path)
+        d = valid_draft(controller, tmp_path)
+        controller.set_stdout_path(d, "rel/out.log")
+        o = controller.validate(d)
+        assert "stdout_path" in o.fields and o.fields["stdout_path"]
+
+    def test_invalid_label(self, tmp_path: Path) -> None:
+        """A label with whitespace fails validation."""
+        world, controller = make_controller(tmp_path)
+        d = valid_draft(controller, tmp_path)
+        controller.set_label(d, "bad label")
+        o = controller.validate(d)
+        assert "label" in o.fields and o.fields["label"]
+
+    def test_name_too_long(self, tmp_path: Path) -> None:
+        """A name over the length limit fails validation."""
+        world, controller = make_controller(tmp_path)
+        d = valid_draft(controller, tmp_path)
+        controller.set_name(d, "x" * 150)
+        o = controller.validate(d)
+        assert "name" in o.fields and o.fields["name"]
+
+    def test_invalid_weekday_value(self, tmp_path: Path) -> None:
+        """An unknown weekday value fails as a whole-job error."""
+        world, controller = make_controller(tmp_path)
+        d = valid_draft(controller, tmp_path)
+        d.weekdays = {"notaday"}
+        o = controller.validate(d)
+        assert list(o.fields) == ["job"] and "notaday" in o.fields["job"]
+
+
+class TestPreview:
+    def test_preview_ok(self, tmp_path: Path) -> None:
+        """A valid draft renders a launchd plist containing its label."""
+        world, controller = make_controller(tmp_path)
+        d = valid_draft(controller, tmp_path)
+        o = controller.preview(d)
+        assert o.ok is True
+        assert "<?xml" in o.xml
+        assert d.label in o.xml
+
+    def test_preview_invalid(self, tmp_path: Path) -> None:
+        """An invalid draft produces no preview and a name field error."""
+        world, controller = make_controller(tmp_path)
+        d = controller.open_new()
+        o = controller.preview(d)
+        assert o.ok is False
+        assert o.xml == ""
+        assert o.fields == {"name": "a job name is required"}
+
+
+class TestSave:
+    def test_save_persists(self, tmp_path: Path) -> None:
+        """A valid draft persists to the catalog and resolves by label."""
+        world, controller = make_controller(tmp_path)
+        d = valid_draft(controller, tmp_path)
+        o = controller.save(d)
+        assert o.ok is True
+        assert o.label == d.label
+        assert o.path is not None
+        assert o.path == world.catalog_root / f"{d.job_id}.json"
+        assert o.path.is_file()
+        assert world.services.resolve_managed_job(d.label).id == d.job_id
+
+    def test_save_rejects_invalid_draft(self, tmp_path: Path) -> None:
+        """An empty draft fails with a name error before any catalog write."""
+        world, controller = make_controller(tmp_path)
+        d = controller.open_new()
+        o = controller.save(d)
+        assert o.ok is False
+        assert o.fields == {"name": "a job name is required"}
+        assert o.path is None
+        assert o.label == ""
+
+    def test_save_conflict(self, tmp_path: Path) -> None:
+        """Saving under an existing job's label conflicts without overwriting."""
+        world, controller = make_controller(tmp_path)
+        job = make_job()
+        world.services.save_managed_job(job)
+        seeded = world.catalog_root / f"{job.id}.json"
+        before = seeded.read_bytes()
+        d = valid_draft(controller, tmp_path)
+        controller.set_name(d, "Other")
+        controller.set_label(d, job.label)
+        o = controller.save(d)
+        assert o.ok is False
+        assert o.path is None
+        assert o.label == ""
+        assert "label" in o.fields
+        assert job.label in o.message
+        assert seeded.read_bytes() == before
+
+    def test_save_oserror(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A disk failure during save surfaces as a whole-job error."""
+        world, controller = make_controller(tmp_path)
+
+        def _boom(job: JobDefinition) -> Path:
+            """Simulate a disk failure during persistence."""
+            raise OSError("disk full")
+
+        monkeypatch.setattr(world.services, "save_managed_job", _boom)
+        d = valid_draft(controller, tmp_path)
+        o = controller.save(d)
+        assert o.ok is False
+        assert o.message == "disk full"
+        assert o.fields == {"job": "disk full"}
+        assert o.path is None
+
+    def test_save_shell_kind(self, tmp_path: Path) -> None:
+        """A populated shell draft saves and persists a shell command job."""
+        world, controller = make_controller(tmp_path)
+        d = valid_draft(controller, tmp_path)
+        controller.set_command_kind(d, "shell")
+        controller.set_shell_executable(d, "/bin/zsh")
+        o = controller.save(d)
+        assert o.ok is True
+        assert o.path is not None
+        assert o.path.is_file()
+        saved = world.services.resolve_managed_job(d.label)
+        assert isinstance(saved.command, ShellCommand)
+
+    def test_save_relative_shell_executable(self, tmp_path: Path) -> None:
+        """A relative shell executable fails with a shell_executable error."""
+        world, controller = make_controller(tmp_path)
+        d = valid_draft(controller, tmp_path)
+        controller.set_command_kind(d, "shell")
+        controller.set_shell_executable(d, "zsh")
+        o = controller.save(d)
+        assert o.ok is False
+        assert o.fields == {"shell_executable": "the shell executable path must be absolute"}
+
+    def test_save_executable_kind(self, tmp_path: Path) -> None:
+        """A populated executable draft saves and persists an executable job."""
+        world, controller = make_controller(tmp_path)
+        d = valid_draft(controller, tmp_path)
+        controller.set_command_kind(d, "executable")
+        controller.set_executable_path(d, "/usr/local/bin/backup")
+        o = controller.save(d)
+        assert o.ok is True
+        assert o.path is not None
+        assert o.path.is_file()
+        saved = world.services.resolve_managed_job(d.label)
+        assert isinstance(saved.command, ExecutableCommand)
+
+    def test_save_relative_executable(self, tmp_path: Path) -> None:
+        """A relative executable path fails with an executable error."""
+        world, controller = make_controller(tmp_path)
+        d = valid_draft(controller, tmp_path)
+        controller.set_command_kind(d, "executable")
+        controller.set_executable_path(d, "backup")
+        o = controller.save(d)
+        assert o.ok is False
+        assert o.fields == {"executable": "the executable path must be absolute"}
+
+    def test_save_environment_rows(self, tmp_path: Path) -> None:
+        """Environment rows persist onto the saved job definition."""
+        world, controller = make_controller(tmp_path)
+        d = valid_draft(controller, tmp_path)
+        controller.add_environment_row(d)
+        controller.set_environment_key(d, 0, "PATH")
+        controller.set_environment_value(d, 0, "/usr/bin")
+        o = controller.save(d)
+        assert o.ok is True
+        saved = world.services.resolve_managed_job(d.label)
+        assert saved.environment.variables == {"PATH": "/usr/bin"}
+
+    def test_save_blank_environment_key(self, tmp_path: Path) -> None:
+        """A blank environment key fails with an environment error."""
+        world, controller = make_controller(tmp_path)
+        d = valid_draft(controller, tmp_path)
+        controller.add_environment_row(d)
+        o = controller.save(d)
+        assert o.ok is False
+        assert o.fields == {"environment": "environment variable names must not be empty"}
+
+    def test_save_duplicate_environment_key(self, tmp_path: Path) -> None:
+        """A duplicated environment key fails with an environment error."""
+        world, controller = make_controller(tmp_path)
+        d = valid_draft(controller, tmp_path)
+        controller.add_environment_row(d)
+        controller.add_environment_row(d)
+        controller.set_environment_key(d, 0, "PATH")
+        controller.set_environment_key(d, 1, "PATH")
+        o = controller.save(d)
+        assert o.ok is False
+        assert o.fields == {"environment": "duplicate environment variable: PATH"}
+
+
+class TestFieldErrors:
+    def test_command_interpreter_loc(self, tmp_path: Path) -> None:
+        """A relative interpreter maps through the command branch to script."""
+        world, controller = make_controller(tmp_path)
+        data = make_job().model_dump()
+        data["command"]["interpreter"] = "relative/path"
+        with pytest.raises(ValidationError) as excinfo:
+            JobDefinition.model_validate(data)
+        result = controller._field_errors(excinfo.value)
+        assert list(result) == ["script"]
+        assert result["script"]
+
+    def test_command_type_loc(self, tmp_path: Path) -> None:
+        """An unknown command type maps to the script fallback key."""
+        world, controller = make_controller(tmp_path)
+        data = make_job().model_dump()
+        data["command"]["type"] = "bogus"
+        with pytest.raises(ValidationError) as excinfo:
+            JobDefinition.model_validate(data)
+        result = controller._field_errors(excinfo.value)
+        assert list(result) == ["script"]
+
+    def test_command_executable_loc(self, tmp_path: Path) -> None:
+        """A relative executable maps to the executable key in the command branch."""
+        world, controller = make_controller(tmp_path)
+        data = make_job(
+            command=ExecutableCommand(executable="/usr/local/bin/backup", arguments=["--all"])
+        ).model_dump()
+        data["command"]["executable"] = "relative/bin"
+        with pytest.raises(ValidationError) as excinfo:
+            JobDefinition.model_validate(data)
+        result = controller._field_errors(excinfo.value)
+        assert list(result) == ["executable"]
+        assert result["executable"]
+
+    def test_schedule_time_loc(self, tmp_path: Path) -> None:
+        """A malformed schedule time maps to the time key."""
+        world, controller = make_controller(tmp_path)
+        data = make_job().model_dump()
+        data["schedule"]["time"] = "garbage"
+        with pytest.raises(ValidationError) as excinfo:
+            JobDefinition.model_validate(data)
+        result = controller._field_errors(excinfo.value)
+        assert list(result) == ["time"]
+
+    def test_logging_nested_loc(self, tmp_path: Path) -> None:
+        """A nested logging path error maps through the logging branch."""
+        world, controller = make_controller(tmp_path)
+        data = make_job().model_dump()
+        data["logging"]["stdout_path"] = "relative/out.log"
+        with pytest.raises(ValidationError) as excinfo:
+            JobDefinition.model_validate(data)
+        result = controller._field_errors(excinfo.value)
+        assert list(result) == ["stdout_path"]
+
+    def test_unmapped_loc_falls_back(self, tmp_path: Path) -> None:
+        """An unmapped error location falls back to the job key."""
+        world, controller = make_controller(tmp_path)
+        data = make_job().model_dump()
+        data["id"] = "not-a-uuid"
+        with pytest.raises(ValidationError) as excinfo:
+            JobDefinition.model_validate(data)
+        result = controller._field_errors(excinfo.value)
+        assert list(result) == ["job"]

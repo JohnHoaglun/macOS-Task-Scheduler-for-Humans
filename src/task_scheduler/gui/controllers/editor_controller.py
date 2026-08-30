@@ -307,7 +307,14 @@ class EditorController:
                 loc = error["loc"]
                 head = str(loc[0])
                 second = str(loc[1]) if len(loc) > 1 else ""
-                if head in {"name", "label", "working_directory", "environment"}:
+                if head in {
+            "name",
+            "label",
+            "working_directory",
+            "environment",
+            "stdout_path",
+            "stderr_path",
+        }:
                     return {head: str(error["msg"])}
                 if head == "schedule":
                     return {second or "time": str(error["msg"])}
