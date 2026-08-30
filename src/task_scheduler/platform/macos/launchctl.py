@@ -94,12 +94,7 @@ class LaunchAgentBackend:
     def install(self, job: JobDefinition) -> LaunchctlResult:
         """Write the job's plist (create-only) and bootstrap it into launchd."""
         self._store.write(job)
-        return self._run(
-            LaunchctlAction.INSTALL,
-            "bootstrap",
-            self.domain,
-            str(self._store.destination_for(job.label)),
-        )
+        return self.bootstrap(job.label)
 
     def uninstall(self, label: str) -> LaunchctlResult:
         """Boot the label out, then remove its plist only on success.
@@ -107,11 +102,25 @@ class LaunchAgentBackend:
         A failed bootout retains the plist so the caller can diagnose or
         retry; the returned result is always the bootout's.
         """
-        validate_label(label)
-        booted_out = self._run(LaunchctlAction.UNINSTALL, "bootout", self._target(label))
+        booted_out = self.bootout(label)
         if booted_out.process.exit_code == 0:
             self._store.remove(label)
         return booted_out
+
+    def bootout(self, label: str) -> LaunchctlResult:
+        """Boot the label out of launchd (``bootout``); no plist is touched."""
+        validate_label(label)
+        return self._run(LaunchctlAction.UNINSTALL, "bootout", self._target(label))
+
+    def bootstrap(self, label: str) -> LaunchctlResult:
+        """Bootstrap the label's deployed plist into launchd (``bootstrap``)."""
+        validate_label(label)
+        return self._run(
+            LaunchctlAction.INSTALL,
+            "bootstrap",
+            self.domain,
+            str(self._store.destination_for(label)),
+        )
 
     def status(self, label: str) -> LaunchAgentStatus:
         """Report whether the label is loaded (``print`` exit 0)."""

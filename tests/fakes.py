@@ -91,6 +91,7 @@ class FakeFilesystem:
         self.roots_created: list[str] = []
         self.created: list[str] = []
         self.removed: list[str] = []
+        self.replaced: list[str] = []
 
     def read_plist_bytes(self, path: Path) -> bytes:
         self.reads.append(path.name)
@@ -119,6 +120,12 @@ class FakeFilesystem:
             del self._files[path.name]
             return True
         return False
+
+    def replace(self, source: Path, destination: Path) -> None:
+        if source.name not in self._files:
+            raise FileNotFoundError(source.name)
+        self._files[destination.name] = self._files[source.name]
+        self.replaced.append(destination.name)
 
 
 OK_PROCESS = ProcessResult(exit_code=0)

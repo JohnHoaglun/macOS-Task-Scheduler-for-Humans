@@ -61,6 +61,32 @@ class TestCreate:
         assert [path.name for path in tmp_path.iterdir()] == ["d.plist"]
 
 
+class TestReplace:
+    def test_replace_overwrites_destination_and_keeps_source(self, tmp_path: Path) -> None:
+        source = tmp_path / "s.plist"
+        source.write_bytes(b"new")
+        destination = tmp_path / "d.plist"
+        destination.write_bytes(b"old")
+
+        LocalFilesystem().replace(source, destination)
+
+        assert destination.read_bytes() == b"new"
+        assert source.read_bytes() == b"new"
+        assert sorted(path.name for path in tmp_path.iterdir()) == ["d.plist", "s.plist"]
+
+    def test_replace_into_missing_destination(self, tmp_path: Path) -> None:
+        source = tmp_path / "s.plist"
+        source.write_bytes(b"new")
+
+        LocalFilesystem().replace(source, tmp_path / "d.plist")
+
+        assert (tmp_path / "d.plist").read_bytes() == b"new"
+
+    def test_replace_missing_source_raises(self, tmp_path: Path) -> None:
+        with pytest.raises(FileNotFoundError):
+            LocalFilesystem().replace(tmp_path / "nope.plist", tmp_path / "d.plist")
+
+
 class TestRemove:
     def test_remove_file_then_missing(self, tmp_path: Path) -> None:
         filesystem = LocalFilesystem()

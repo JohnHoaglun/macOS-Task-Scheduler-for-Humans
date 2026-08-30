@@ -197,6 +197,39 @@ class TestUninstall:
         assert not store.destination_for(TEST_LABEL).exists()
 
 
+class TestPhaseMethods:
+    def test_bootout_argv_action_and_no_plist_touch(self, tmp_path: Path) -> None:
+        store = _store(tmp_path)
+        store.write(make_job(label=TEST_LABEL))
+        runner = FakeProcessRunner(_process(exit_code=3))
+        backend = LaunchAgentBackend(store, runner, uid=UID)
+
+        result = backend.bootout(TEST_LABEL)
+
+        assert result.action is LaunchctlAction.UNINSTALL
+        assert result.process.exit_code == 3
+        (spec,) = runner.specs
+        assert spec.argv == [LAUNCHCTL_PATH, "bootout", f"gui/{UID}/{TEST_LABEL}"]
+        assert store.destination_for(TEST_LABEL).is_file()
+
+    def test_bootstrap_argv_and_action(self, tmp_path: Path) -> None:
+        store = _store(tmp_path)
+        store.write(make_job(label=TEST_LABEL))
+        runner = FakeProcessRunner(_process())
+        backend = LaunchAgentBackend(store, runner, uid=UID)
+
+        result = backend.bootstrap(TEST_LABEL)
+
+        assert result.action is LaunchctlAction.INSTALL
+        assert result.process.exit_code == 0
+        (spec,) = runner.specs
+        assert spec.argv == [
+            LAUNCHCTL_PATH,
+            "bootstrap",
+            f"gui/{UID}",
+            str(store.destination_for(TEST_LABEL)),
+        ]
+
 class TestStatus:
     def test_loaded_on_exit_zero(self, tmp_path: Path) -> None:
         runner = FakeProcessRunner(_process(exit_code=0))
@@ -227,7 +260,8 @@ class TestStatus:
 class TestLabelSafety:
     @pytest.mark.parametrize("label", ["..", ".", "a/b"])
     @pytest.mark.parametrize(
-        "method", ["uninstall", "status", "enable", "disable", "trigger"]
+        "method",
+        ["uninstall", "bootout", "bootstrap", "status", "enable", "disable", "trigger"],
     )
     def test_raw_label_methods_reject_unsafe_labels(
         self, tmp_path: Path, method: str, label: str

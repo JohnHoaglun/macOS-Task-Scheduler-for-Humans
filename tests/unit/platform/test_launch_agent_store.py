@@ -219,3 +219,90 @@ class TestDiscover:
 
         assert store.discover() == []
         assert filesystem.listings == []
+
+
+class TestStaging:
+    def test_stage_creates_unique_sibling_without_touching_deployed(
+        self, tmp_path: Path
+    ) -> None:
+        store = LaunchAgentStore(tmp_path / "agents")
+
+        staged = store.stage_plist("x", b"payload")
+
+        assert staged == tmp_path / "agents" / "x.plist.staged.1"
+        assert staged.read_bytes() == b"payload"
+        assert not store.destination_for("x").exists()
+
+    def test_stage_skips_taken_names(self, tmp_path: Path) -> None:
+        store = LaunchAgentStore(tmp_path / "agents")
+
+        first = store.stage_plist("x", b"one")
+        second = store.stage_plist("x", b"two")
+
+        assert first.name == "x.plist.staged.1"
+        assert second.name == "x.plist.staged.2"
+        assert second.read_bytes() == b"two"
+
+    def test_stage_rejects_unsafe_labels(self, tmp_path: Path) -> None:
+        store = LaunchAgentStore(tmp_path / "agents")
+
+        with pytest.raises(ValueError, match="Label must not be"):
+            store.stage_plist("../escape", b"x")
+
+        assert not (tmp_path / "agents").exists()
+
+    def test_stage_exhaustion_raises(self, tmp_path: Path) -> None:
+        filesystem = FakeFilesystem(create_error=FileExistsError("taken"))
+        store = LaunchAgentStore(tmp_path / "agents", filesystem=filesystem)
+
+        with pytest.raises(RuntimeError, match="unique staged sibling"):
+            store.stage_plist("x", b"x")
+
+    def test_backup_preserves_deployed_bytes(self, tmp_path: Path) -> None:
+        store = LaunchAgentStore(tmp_path / "agents")
+        store.write(make_job(label="x"))
+        deployed_bytes = store.destination_for("x").read_bytes()
+
+        backup = store.backup_plist("x")
+
+        assert backup is not None
+        assert backup.name == "x.plist.backup.1"
+        assert backup.read_bytes() == deployed_bytes
+        assert store.destination_for("x").read_bytes() == deployed_bytes
+
+    def test_backup_missing_deployed_returns_none(self, tmp_path: Path) -> None:
+        store = LaunchAgentStore(tmp_path / "agents")
+        assert store.backup_plist("never-there") is None
+
+    def test_backup_skips_taken_names(self, tmp_path: Path) -> None:
+        store = LaunchAgentStore(tmp_path / "agents")
+        store.write(make_job(label="x"))
+
+        assert store.backup_plist("x").name == "x.plist.backup.1"
+        assert store.backup_plist("x").name == "x.plist.backup.2"
+
+    def test_backup_exhaustion_raises(self, tmp_path: Path) -> None:
+        filesystem = FakeFilesystem(
+            files={"x.plist": b"old"}, create_error=FileExistsError("taken")
+        )
+        store = LaunchAgentStore(tmp_path / "agents", filesystem=filesystem)
+
+        with pytest.raises(RuntimeError, match="unique backup sibling"):
+            store.backup_plist("x")
+
+    def test_activate_replaces_deployed_and_removes_staged(self, tmp_path: Path) -> None:
+        store = LaunchAgentStore(tmp_path / "agents")
+        store.write(make_job(label="x"))
+        staged = store.stage_plist("x", b"new-payload")
+
+        destination = store.activate_staged("x", staged)
+
+        assert destination == store.destination_for("x")
+        assert destination.read_bytes() == b"new-payload"
+        assert not staged.exists()
+
+    def test_activate_missing_staged_raises(self, tmp_path: Path) -> None:
+        store = LaunchAgentStore(tmp_path / "agents")
+
+        with pytest.raises(FileNotFoundError):
+            store.activate_staged("x", store.root / "x.plist.staged.9")

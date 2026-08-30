@@ -34,6 +34,14 @@ class LaunchAgentFilesystem(Protocol):
     def remove_file(self, path: Path) -> bool:
         """Remove ``path``. Return ``True`` when removed, ``False`` when absent."""
 
+    def replace(self, source: Path, destination: Path) -> None:
+        """Atomically replace ``destination``'s contents with a copy of ``source``.
+
+        ``source`` is left in place. Unlike :meth:`create_exclusive` this is an
+        explicit overwrite: the caller staged ``source`` and decided to
+        activate it, so the destination is replaced, never created only.
+        """
+
 
 class LocalFilesystem:
     """Production :class:`LaunchAgentFilesystem` built on :mod:`pathlib`."""
@@ -67,3 +75,13 @@ class LocalFilesystem:
         except FileNotFoundError:
             return False
         return True
+
+    def replace(self, source: Path, destination: Path) -> None:
+        temporary = destination.with_name(
+            f"{destination.name}.{os.getpid()}.tmp"
+        )
+        try:
+            temporary.write_bytes(source.read_bytes())
+            os.replace(temporary, destination)
+        finally:
+            temporary.unlink(missing_ok=True)

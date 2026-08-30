@@ -1,8 +1,13 @@
-"""LaunchAgent storage: write, remove, and discover user plists (Increment 6).
+"""LaunchAgent storage: write, remove, discover, and stage user plists.
 
 Targets only the user's ``~/Library/LaunchAgents`` directory (or an injected
 root for tests). Never writes outside the root, never touches ``/Library``,
 and never shells out — the Increment 7 adapter owns all ``launchctl`` calls.
+
+The staging API (stage → backup → activate) supports the explicit
+replace/reload path: staging and backup are create-exclusive sibling files
+that never silently overwrite anything, and activation is the one explicit
+atomic replacement.
 """
 
 from __future__ import annotations
@@ -108,3 +113,53 @@ class LaunchAgentStore:
                 DiscoveredLaunchAgent(path=path, parsed=parse_bytes(payload))
             )
         return discovered
+
+    # -- staging (explicit replace/reload path) ------------------------------
+
+    def stage_plist(self, label: str, payload: bytes) -> Path:
+        """Create a uniquely named staged sibling for ``label``'s plist.
+
+        Create-exclusive: nothing existing is ever overwritten. The caller
+        owns the staged file — activate it or clean it up.
+        """
+        destination = self.destination_for(label)
+        self._filesystem.create_root(self._root)
+        for attempt in range(1, 1001):
+            candidate = destination.with_name(f"{destination.name}.staged.{attempt}")
+            try:
+                self._filesystem.create_exclusive(candidate, payload)
+                return candidate
+            except FileExistsError:
+                continue
+        raise RuntimeError(f"could not allocate a unique staged sibling for {label!r}")
+
+    def backup_plist(self, label: str) -> Path | None:
+        """Preserve ``label``'s deployed plist as a uniquely named backup sibling.
+
+        Create-exclusive and read-only with respect to the deployed plist.
+        Returns the backup path, or ``None`` when no deployed plist exists.
+        """
+        destination = self.destination_for(label)
+        try:
+            payload = self._filesystem.read_plist_bytes(destination)
+        except FileNotFoundError:
+            return None
+        for attempt in range(1, 1001):
+            candidate = destination.with_name(f"{destination.name}.backup.{attempt}")
+            try:
+                self._filesystem.create_exclusive(candidate, payload)
+                return candidate
+            except FileExistsError:
+                continue
+        raise RuntimeError(f"could not allocate a unique backup sibling for {label!r}")
+
+    def activate_staged(self, label: str, staged: Path) -> Path:
+        """Atomically replace ``label``'s deployed plist with the staged payload.
+
+        This is the one explicit overwrite in the staging flow; the staged
+        file is removed once the replacement has completed.
+        """
+        destination = self.destination_for(label)
+        self._filesystem.replace(staged, destination)
+        self._filesystem.remove_file(staged)
+        return destination
