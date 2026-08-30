@@ -294,12 +294,15 @@ class TestInstall:
             str(result.plist_path),
         ]
 
-    def test_install_conflict_raises(self, tmp_path: Path) -> None:
+    def test_install_already_saved_job_deploys_without_reimport(self, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
         job = make_job()
         world.jobs.import_job(job)
-        with pytest.raises(JobConflictError):
-            world.services.install_json(job_file(tmp_path, job))
+        result = world.services.install_json(job_file(tmp_path, job))
+        assert result.job == job
+        assert result.process.exit_code == 0
+        assert result.plist_path.is_file()
+        assert world.jobs.find(job.label) is not None
 
     def test_install_existing_plist_raises(self, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)

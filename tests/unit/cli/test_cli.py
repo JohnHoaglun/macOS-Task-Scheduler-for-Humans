@@ -203,13 +203,14 @@ def test_install_success(tmp_path: Path) -> None:
     assert (world.la_root / f"{job.label}.plist").is_file()
 
 
-def test_install_conflict_exits_usage(tmp_path: Path) -> None:
+def test_install_already_saved_job_deploys(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
     job = make_job()
     world.jobs.import_job(job)
     result = invoke(world, "install", str(job_file(tmp_path, job)))
-    assert result.exit_code == 2
-    assert "a managed job already exists" in result.stderr
+    assert result.exit_code == 0
+    assert (world.la_root / f"{job.label}.plist").is_file()
+    assert world.jobs.find(job.label) is not None
 
 
 def test_install_existing_plist_exits_usage(tmp_path: Path) -> None:

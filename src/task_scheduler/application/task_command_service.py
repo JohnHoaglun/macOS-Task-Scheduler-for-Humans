@@ -235,15 +235,18 @@ class TaskCommandService:
         return self.install(self._repository.load(path))
 
     def install(self, job: JobDefinition) -> InstallResult:
-        """Install a job: catalog import, plist write, bootstrap.
+        """Install a job: import it into the catalog, write the plist, bootstrap.
 
-        Create-only: ``JobConflictError`` when the catalog id already
-        exists, ``FileExistsError`` when the plist already exists.
-        A failed bootstrap retains the catalog record and the plist for
-        diagnosis — no rollback is claimed.
+        The import is skipped when this same job id is already saved in the
+        catalog (installing a saved, not-installed job). ``FileExistsError``
+        when the plist already exists — an installed job is re-applied with
+        ``reinstall`` instead. A failed bootstrap retains the catalog record
+        and the plist for diagnosis — no rollback is claimed.
         """
         job = self.validate_job(job)
-        self._jobs.import_job(job)
+        existing = self._jobs.find(job.label)
+        if existing is None or existing.id != job.id:
+            self._jobs.import_job(job)
         result = self._backend.install(job)
         return self._install_result(
             job,

@@ -15,7 +15,6 @@ import typer
 from pydantic import ValidationError
 
 from task_scheduler.application import (
-    JobConflictError,
     JobNotFoundError,
     TaskCommandService,
 )
@@ -122,8 +121,6 @@ def create_app(services: TaskCommandService) -> typer.Typer:
         """Install a job: import it into the catalog and bootstrap the plist."""
         try:
             result = services.install_json(path)
-        except JobConflictError as exc:
-            _fail(str(exc), EXIT_USAGE)
         except FileExistsError as exc:
             _fail(
                 f"install refused (managed plist already exists): {exc}",
