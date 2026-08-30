@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from uuid import UUID
 
-from PySide6.QtCore import QItemSelection
-from PySide6.QtWidgets import QLabel, QScrollArea, QTextEdit
+from PySide6.QtCore import QItemSelection, QTimer
+from PySide6.QtWidgets import QCheckBox, QLabel, QLineEdit, QPushButton, QScrollArea, QTextEdit
 from pytestqt.qtbot import QtBot
 
 from conftest import make_job
@@ -14,10 +14,13 @@ from task_scheduler.application import TaskCommandService
 from task_scheduler.application.task_command_service import AgentListing
 from task_scheduler.domain import JobDefinition
 from task_scheduler.gui.controllers.discovery_controller import DiscoveryController
+from task_scheduler.gui.controllers.editor_controller import EditorController
 from task_scheduler.gui.main_window import MainWindow
 from task_scheduler.gui.models.agent_table_model import AgentTableModel
 from task_scheduler.gui.presenters.agent_presenter import format_name
 from task_scheduler.gui.widgets.agent_inspector import AgentInspector
+from task_scheduler.gui.widgets.job_editor import JobEditor
+from task_scheduler.platform.macos import parse_path
 from tests.fakes import FakeTaskWorld
 
 EXTERNAL_A_ID = UUID("11111111-1111-4111-8111-111111111111")
@@ -60,9 +63,13 @@ def _advanced_text(inspector: AgentInspector) -> QTextEdit:
     return text
 
 
-def _window(qtbot: QtBot, controller: DiscoveryController) -> MainWindow:
+def _window(
+    qtbot: QtBot,
+    controller: DiscoveryController,
+    editor: EditorController | None = None,
+) -> MainWindow:
     """A constructed, shown window kept alive by qtbot."""
-    window = MainWindow(controller)
+    window = MainWindow(controller, editor or EditorController(controller._services))
     qtbot.addWidget(window)
     window.show()
     return window
@@ -75,6 +82,15 @@ def _row_by_path(model: AgentTableModel, path: Path) -> int:
         if listing is not None and listing.path == path:
             return row
     raise AssertionError(f"no row for {path}")
+
+
+def _fill_valid_python(editor: JobEditor) -> None:
+    """Fill a new python draft so it validates."""
+    editor.findChild(QLineEdit, "editor-name").setText("Nightly Sync")
+    editor.findChild(QLineEdit, "editor-interpreter").setText("/tmp/venv/bin/python")
+    editor.findChild(QLineEdit, "editor-script").setText("/tmp/nightly.py")
+    editor.findChild(QLineEdit, "editor-time").setText("01:00")
+    editor.findChild(QCheckBox, "editor-weekday-monday").setChecked(True)
 
 
 def _seed_three(
@@ -139,7 +155,7 @@ class TestRefreshPopulates:
             return original()
 
         controller.refresh = counting_refresh
-        window = MainWindow(controller)
+        window = MainWindow(controller, EditorController(controller._services))
         qtbot.addWidget(window)
         assert window.refresh_action is not None
         assert window.refresh_action.text() == "Refresh"
@@ -302,3 +318,119 @@ class TestInspectFailure:
         window.table.setCurrentIndex(model.index(0, 0))
         assert _message_label(window.inspector).text() == "plist is corrupted"
         assert _scroll_area(window.inspector).isHidden()
+
+
+class TestTaskActions:
+    def test_new_task_action_opens_editor(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """The New Task action opens the editor modal titled New Task."""
+        world = FakeTaskWorld(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        editor = window._editor
+        QTimer.singleShot(0, editor.reject)
+        window.new_task_action.trigger()
+        assert editor.windowTitle() == "New Task"
+        assert editor.result() == 0
+        assert editor.saved_path is None
+
+    def test_new_task_save_writes_catalog(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """Saving from New Task writes a catalog file and accepts."""
+        world = FakeTaskWorld(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        editor = window._editor
+
+        def fill_and_save() -> None:
+            _fill_valid_python(editor)
+            editor.findChild(QPushButton, "editor-save").click()
+
+        QTimer.singleShot(0, fill_and_save)
+        window.new_task_action.trigger()
+        assert editor.result() == 1
+        assert editor.saved_path is not None and editor.saved_path.is_file()
+        assert "Nightly Sync" in editor.saved_path.read_text()
+
+    def test_edit_action_requires_selection(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """Edit Managed Task with no selection shows a status hint."""
+        world = FakeTaskWorld(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        hint = "Select a managed task to edit it."
+        QTimer.singleShot(0, window.edit_task_action.trigger)
+        qtbot.waitUntil(lambda: window.statusBar().currentMessage() == hint)
+        assert not window._editor.isVisible()
+
+    def test_edit_action_rejects_unmanaged(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """Edit Managed Task on an external agent shows the same hint."""
+        world, managed, external_a, _ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        model = window.table.model()
+        row = _row_by_path(model, world.store.destination_for(external_a.label))
+        window.table.setCurrentIndex(model.index(row, 0))
+        hint = "Select a managed task to edit it."
+        QTimer.singleShot(0, window.edit_task_action.trigger)
+        qtbot.waitUntil(lambda: window.statusBar().currentMessage() == hint)
+        assert not window._editor.isVisible()
+
+    def test_edit_managed_task_opens_editor(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """Selecting a managed agent and editing opens a populated dialog."""
+        world, managed, _, _ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        model = window.table.model()
+        row = _row_by_path(model, world.store.destination_for(managed.label))
+        window.table.setCurrentIndex(model.index(row, 0))
+        editor = window._editor
+        QTimer.singleShot(0, editor.reject)
+        window.edit_task_action.trigger()
+        assert editor.windowTitle() == "Edit Task"
+        assert editor.findChild(QLineEdit, "editor-name").text() == "Daily Backup"
+        assert editor.result() == 0
+
+    def test_edit_managed_task_save_renames(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """Renaming and saving a managed job rewrites its catalog file."""
+        world, managed, _, _ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        model = window.table.model()
+        row = _row_by_path(model, world.store.destination_for(managed.label))
+        window.table.setCurrentIndex(model.index(row, 0))
+        editor = window._editor
+
+        def rename_and_save() -> None:
+            editor.findChild(QLineEdit, "editor-name").setText("Renamed Backup")
+            editor.findChild(QPushButton, "editor-save").click()
+
+        QTimer.singleShot(0, rename_and_save)
+        window.edit_task_action.trigger()
+        assert editor.result() == 1
+        assert editor.saved_path is not None
+        assert "Renamed Backup" in editor.saved_path.read_text()
+
+
+class TestEditEdgeCases:
+    def test_edit_action_unparseable_managed(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """A managed agent whose plist cannot be parsed shows a hint."""
+        world = FakeTaskWorld(tmp_path)
+        label = "io.github.macos-task-scheduler.user.unparseable"
+        plist_path = world.la_root / f"{label}.plist"
+        world.la_root.mkdir(parents=True)
+        plist_path.write_bytes(b"not a plist at all")
+        window = _window(qtbot, DiscoveryController(world.services))
+        model = window.table.model()
+        listing = AgentListing(path=plist_path, parsed=parse_path(plist_path), managed=True)
+        model.set_agents([listing])
+        row = _row_by_path(model, plist_path)
+        window.table.setCurrentIndex(model.index(row, 0))
+        window.edit_task_action.trigger()
+        assert window.statusBar().currentMessage() == "This task cannot be parsed for editing."
+        assert not window._editor.isVisible()
+
+    def test_edit_action_missing_catalog_entry(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """A parseable managed agent absent from the catalog shows a hint."""
+        world = FakeTaskWorld(tmp_path)
+        job = make_job(label="io.github.macos-task-scheduler.user.orphan")
+        world.manage(job)
+        window = _window(qtbot, DiscoveryController(world.services))
+        model = window.table.model()
+        row = _row_by_path(model, world.store.destination_for(job.label))
+        window.table.setCurrentIndex(model.index(row, 0))
+        world.jobs.remove(job.id)
+        window.edit_task_action.trigger()
+        assert window.statusBar().currentMessage() == "This task is not in the task catalog."
+        assert not window._editor.isVisible()

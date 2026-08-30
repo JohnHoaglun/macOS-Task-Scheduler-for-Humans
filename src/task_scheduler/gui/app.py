@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QApplication
 from task_scheduler.application.task_command_service import TaskCommandService
 from task_scheduler.bootstrap import build_services
 from task_scheduler.gui.controllers.discovery_controller import DiscoveryController
+from task_scheduler.gui.controllers.editor_controller import EditorController
 from task_scheduler.gui.main_window import MainWindow
 
 __all__ = ["create_main_window", "main"]
@@ -16,7 +17,7 @@ __all__ = ["create_main_window", "main"]
 
 def create_main_window(services: TaskCommandService) -> MainWindow:
     """Create the main window wired to the given application services."""
-    return MainWindow(DiscoveryController(services))
+    return MainWindow(DiscoveryController(services), EditorController(services))
 
 
 def main() -> None:
