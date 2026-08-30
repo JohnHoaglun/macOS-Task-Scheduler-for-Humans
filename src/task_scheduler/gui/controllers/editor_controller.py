@@ -246,6 +246,19 @@ class EditorController:
         """Set the stderr capture path."""
         draft.stderr_path = value
 
+    def set_arguments(self, draft: JobDraft, kind: CommandKind, values: list[str]) -> None:
+        """Replace the argument list for the given command kind."""
+        if kind == "python":
+            draft.python_arguments = list(values)
+        elif kind == "shell":
+            draft.shell_arguments = list(values)
+        else:
+            draft.executable_arguments = list(values)
+
+    def set_environment(self, draft: JobDraft, rows: list[tuple[str, str]]) -> None:
+        """Replace the draft's environment rows."""
+        draft.environment = list(rows)
+
     def detect_python(self, script: Path) -> PythonDetectionResult:
         """Return interpreter candidates and a working-directory hint for a script."""
         return self._services.detect_python(script)
