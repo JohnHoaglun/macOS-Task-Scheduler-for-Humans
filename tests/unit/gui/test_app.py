@@ -9,7 +9,7 @@ from typing import NoReturn
 import pytest
 from pytestqt.qtbot import QtBot
 
-from task_scheduler.application.task_command_service import AgentListing
+from task_scheduler.application.task_command_service import TaskListing
 from task_scheduler.gui import app as app_module
 from task_scheduler.gui.app import create_main_window
 from task_scheduler.gui.main_window import MainWindow
@@ -18,7 +18,7 @@ from task_scheduler.gui.main_window import MainWindow
 class _EmptyServices:
     """Duck-typed TaskCommandService: empty discovery, inspect never used."""
 
-    def list_agents(self) -> list[AgentListing]:
+    def list_agents(self) -> list[TaskListing]:
         return []
 
     def inspect_discovered(self, path: Path) -> NoReturn:

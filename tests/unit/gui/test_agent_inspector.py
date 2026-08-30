@@ -10,8 +10,9 @@ from pytestqt.qtbot import QtBot
 
 from conftest import make_job
 from task_scheduler.application.task_command_service import (
-    AgentListing,
     DiscoveredInspectReport,
+    ListingKind,
+    TaskListing,
 )
 from task_scheduler.gui.presenters.agent_presenter import (
     format_environment,
@@ -31,40 +32,68 @@ EXTERNAL_PATH = Path("/Users/example/Library/LaunchAgents/com.example.external.p
 INVALID_PATH = Path("/Users/example/Library/LaunchAgents/com.example.bad.plist")
 
 
-def _managed_listing() -> AgentListing:
+def _managed_listing() -> TaskListing:
     job = make_job()
     parsed = ParsedLaunchAgent(
         status=ParseSupport.SUPPORTED,
         job=job,
         raw={"Label": job.label},
     )
-    return AgentListing(path=MANAGED_PATH, parsed=parsed, managed=True)
+    return TaskListing(
+        kind=ListingKind.DISCOVERED,
+        path=MANAGED_PATH,
+        parsed=parsed,
+        job=job,
+        managed=True,
+    )
 
 
-def _external_listing() -> AgentListing:
+def _external_listing() -> TaskListing:
     parsed = ParsedLaunchAgent(
         status=ParseSupport.PARTIALLY_SUPPORTED,
         raw={"ProgramArguments": ["/bin/zsh", "/Users/example/scripts/x.sh"]},
         unsupported_keys=["KeepAlive"],
         warnings=["no calendar schedule found"],
     )
-    return AgentListing(path=EXTERNAL_PATH, parsed=parsed, managed=False)
+    return TaskListing(
+        kind=ListingKind.DISCOVERED,
+        path=EXTERNAL_PATH,
+        parsed=parsed,
+        job=None,
+        managed=False,
+    )
 
 
-def _invalid_listing() -> AgentListing:
+def _invalid_listing() -> TaskListing:
     parsed = ParsedLaunchAgent(
         status=ParseSupport.INVALID,
         raw={"Label": "com.example.bad"},
         warnings=["plist has no ProgramArguments"],
     )
-    return AgentListing(path=INVALID_PATH, parsed=parsed, managed=False)
+    return TaskListing(
+        kind=ListingKind.DISCOVERED,
+        path=INVALID_PATH,
+        parsed=parsed,
+        job=None,
+        managed=False,
+    )
+
+
+def _saved_listing() -> TaskListing:
+    job = make_job()
+    return TaskListing(kind=ListingKind.SAVED, path=None, parsed=None, job=job, managed=True)
 
 
 def _report(
-    agent: AgentListing, status: LaunchAgentStatus | None = None
+    listing: TaskListing, status: LaunchAgentStatus | None = None
 ) -> DiscoveredInspectReport:
+    assert listing.path is not None
+    assert listing.parsed is not None
     return DiscoveredInspectReport(
-        path=agent.path, parsed=agent.parsed, managed=agent.managed, status=status
+        path=listing.path,
+        parsed=listing.parsed,
+        managed=listing.managed,
+        status=status,
     )
 
 
@@ -122,7 +151,6 @@ class TestShowAgentManaged:
     def test_supported_managed_fields(self, inspector: AgentInspector) -> None:
         listing = _managed_listing()
         inspector.show_agent(listing, _report(listing))
-        parsed = listing.parsed
         assert _scroll_area(inspector).isVisible()
         assert not _message_label(inspector).isVisible()
         assert _value_label(inspector, "overview-name").text() == "Daily Backup"
@@ -138,10 +166,10 @@ class TestShowAgentManaged:
             "--mode daily"
         )
         assert _value_label(inspector, "command-working-directory").text() == "not set"
-        assert _value_label(inspector, "schedule-text").text() == format_schedule(parsed)
+        assert _value_label(inspector, "schedule-text").text() == format_schedule(listing)
         assert (
             _value_label(inspector, "environment-text").text()
-            == format_environment(parsed)
+            == format_environment(listing)
         )
         assert _value_label(inspector, "environment-text").text() == "none configured"
         assert _value_label(inspector, "warnings-text").text() == "none"
@@ -164,16 +192,51 @@ class TestShowAgentManaged:
         assert _value_label(inspector, "overview-loaded").text() == "not loaded"
 
 
+class TestShowSaved:
+    def test_saved_fields(self, inspector: AgentInspector) -> None:
+        listing = _saved_listing()
+        inspector.show_saved(listing)
+        assert _scroll_area(inspector).isVisible()
+        assert not _message_label(inspector).isVisible()
+        assert _value_label(inspector, "overview-name").text() == "Daily Backup"
+        assert _value_label(inspector, "overview-label").text() == (
+            "io.github.macos-task-scheduler.user.daily-backup"
+        )
+        assert _value_label(inspector, "overview-classification").text() == "Managed"
+        assert _value_label(inspector, "overview-source").text() == (
+            "(task catalog — not installed)"
+        )
+        assert _value_label(inspector, "overview-enabled").text() == "enabled"
+        assert _value_label(inspector, "overview-loaded").text() == "not installed"
+        assert _value_label(inspector, "command-command").text() == (
+            "/Users/example/project/.venv/bin/python /Users/example/project/main.py "
+            "--mode daily"
+        )
+        assert _value_label(inspector, "schedule-text").text() == "at 07:30:00 on Monday"
+        assert _value_label(inspector, "warnings-text").text() == "none"
+        assert _advanced_text(inspector).toPlainText() == (
+            "(no deployed plist — saved in the task catalog)"
+        )
+
+    def test_saved_replaces_agent(self, inspector: AgentInspector) -> None:
+        listing = _managed_listing()
+        inspector.show_agent(listing, _report(listing))
+        inspector.show_saved(_saved_listing())
+        assert _value_label(inspector, "overview-source").text() == (
+            "(task catalog — not installed)"
+        )
+        assert _value_label(inspector, "overview-loaded").text() == "not installed"
+
+
 class TestShowAgentInvalid:
     def test_invalid_fields(self, inspector: AgentInspector) -> None:
         listing = _invalid_listing()
         inspector.show_agent(listing, _report(listing))
-        parsed = listing.parsed
         assert _value_label(inspector, "overview-classification").text() == "Invalid"
         assert _value_label(inspector, "command-command").text() == "—"
         assert _value_label(inspector, "schedule-text").text() == "—"
         warnings = _value_label(inspector, "warnings-text").text()
-        assert warnings == format_warnings(parsed)
+        assert warnings == format_warnings(listing)
         assert warnings != "none"
         assert warnings
         assert "com.example.bad" in _advanced_text(inspector).toPlainText()
@@ -183,13 +246,12 @@ class TestShowAgentExternal:
     def test_external_partial_fields(self, inspector: AgentInspector) -> None:
         listing = _external_listing()
         inspector.show_agent(listing, _report(listing))
-        parsed = listing.parsed
         assert _value_label(inspector, "overview-classification").text() == "External"
         assert _value_label(inspector, "command-command").text() == (
             "/bin/zsh /Users/example/scripts/x.sh"
         )
         warnings = _value_label(inspector, "warnings-text").text()
-        assert warnings == format_warnings(parsed)
+        assert warnings == format_warnings(listing)
         assert "no calendar schedule found" in warnings
         assert "unsupported keys: KeepAlive" in warnings
 

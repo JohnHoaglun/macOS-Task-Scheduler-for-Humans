@@ -13,8 +13,9 @@ from datetime import timedelta
 from task_scheduler.application.diagnostic_service import Diagnostic
 from task_scheduler.application.log_service import JobLogs, LogStream
 from task_scheduler.application.task_command_service import (
-    AgentListing,
     InspectReport,
+    ListingKind,
+    TaskListing,
 )
 from task_scheduler.application.test_service import DirectTestResult
 from task_scheduler.domain import JobDefinition, Schedule
@@ -68,21 +69,27 @@ def format_job_summary(job: JobDefinition) -> str:
     return "\n".join(lines)
 
 
-def format_label(agent: AgentListing) -> str:
-    """Best-effort label for a discovered agent (its plist may be invalid)."""
-    parsed = agent.parsed
-    if parsed.job is not None:
-        return parsed.job.label
-    raw_label = parsed.raw.get("Label")
-    if isinstance(raw_label, str) and raw_label:
-        return raw_label
-    return agent.path.name
+def format_label(listing: TaskListing) -> str:
+    """Best-effort label for a task row (its plist may be invalid)."""
+    job = listing.job or (listing.parsed.job if listing.parsed is not None else None)
+    if job is not None:
+        return job.label
+    if listing.parsed is not None:
+        raw_label = listing.parsed.raw.get("Label")
+        if isinstance(raw_label, str) and raw_label:
+            return raw_label
+    return listing.path.name if listing.path is not None else "unknown"
 
 
-def format_list(agent: AgentListing) -> str:
+def format_list(listing: TaskListing) -> str:
     """Render one line of the ``list`` output."""
-    flag = "managed" if agent.managed else "external"
-    return f"{format_label(agent)} [{agent.parsed.status.value}] ({flag}) {agent.path}"
+    flag = "managed" if listing.managed else "external"
+    if listing.kind is ListingKind.SAVED:
+        return f"{format_label(listing)} [saved] ({flag}) (task catalog — not installed)"
+    parsed = listing.parsed
+    status = parsed.status.value if parsed is not None else "unknown"
+    path = str(listing.path) if listing.path is not None else "(no plist)"
+    return f"{format_label(listing)} [{status}] ({flag}) {path}"
 
 
 def format_status(status: LaunchAgentStatus) -> str:

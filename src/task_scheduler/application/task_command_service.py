@@ -10,6 +10,7 @@ returns structured results, never presentation text.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from uuid import UUID
 
@@ -18,7 +19,6 @@ from task_scheduler.application.log_service import JobLogs, LogService
 from task_scheduler.application.test_service import DirectTestResult, DirectTestService
 from task_scheduler.domain import Command, JobDefinition, Schedule
 from task_scheduler.platform.macos import (
-    DiscoveredLaunchAgent,
     LaunchAgentBackend,
     LaunchAgentStatus,
     LaunchAgentStore,
@@ -36,21 +36,36 @@ from task_scheduler.platform.macos import (
 from task_scheduler.storage import JsonJobRepository
 
 __all__ = [
-    "AgentListing",
     "DiscoveredInspectReport",
     "InspectReport",
     "InstallResult",
+    "ListingKind",
     "TaskCommandService",
+    "TaskListing",
     "UninstallResult",
 ]
 
 
-@dataclass(frozen=True, slots=True)
-class AgentListing:
-    """One discovered LaunchAgent, flagged when application-managed."""
+class ListingKind(StrEnum):
+    """Where a listed task lives: a deployed plist or the catalog only."""
 
-    path: Path
-    parsed: ParsedLaunchAgent
+    SAVED = "saved"
+    DISCOVERED = "discovered"
+
+
+@dataclass(frozen=True, slots=True)
+class TaskListing:
+    """One task row: a discovered LaunchAgent or a catalog-only saved job.
+
+    Discovered rows carry the plist path and its parse. Saved rows have no
+    deployed plist (path/parsed are ``None``) and expose only the canonical
+    managed job from the catalog.
+    """
+
+    kind: ListingKind
+    path: Path | None
+    parsed: ParsedLaunchAgent | None
+    job: JobDefinition | None
     managed: bool
 
 
@@ -116,22 +131,44 @@ class TaskCommandService:
 
     # -- discovery ---------------------------------------------------------
 
-    def list_agents(self) -> list[AgentListing]:
-        """Discover user LaunchAgents, flagging the application-managed ones."""
-        managed = {job.label for job in self._jobs.list_jobs()}
-        return [
-            AgentListing(
-                path=agent.path,
-                parsed=agent.parsed,
-                managed=self._is_managed(agent, managed),
-            )
-            for agent in self._store.discover()
-        ]
+    def list_agents(self) -> list[TaskListing]:
+        """List user LaunchAgents plus catalog-only saved jobs, in that order.
 
-    @staticmethod
-    def _is_managed(agent: DiscoveredLaunchAgent, managed: set[str]) -> bool:
-        job = agent.parsed.job
-        return job is not None and job.label in managed
+        Discovered rows keep discovery order; saved rows (catalog jobs with
+        no deployed plist) follow, sorted by label. Managed rows carry the
+        canonical catalog job.
+        """
+        catalog = {job.label: job for job in self._jobs.list_jobs()}
+        listings: list[TaskListing] = []
+        discovered_labels: set[str] = set()
+        for agent in self._store.discover():
+            parsed = agent.parsed
+            parsed_job = parsed.job
+            label = parsed_job.label if parsed_job is not None else None
+            if label is not None:
+                discovered_labels.add(label)
+            job = catalog.get(label) if label is not None and label in catalog else None
+            listings.append(
+                TaskListing(
+                    kind=ListingKind.DISCOVERED,
+                    path=agent.path,
+                    parsed=parsed,
+                    job=job,
+                    managed=job is not None,
+                )
+            )
+        for job in sorted(catalog.values(), key=lambda job: job.label):
+            if job.label not in discovered_labels:
+                listings.append(
+                    TaskListing(
+                        kind=ListingKind.SAVED,
+                        path=None,
+                        parsed=None,
+                        job=job,
+                        managed=True,
+                    )
+                )
+        return listings
 
     def inspect(self, label: str) -> InspectReport:
         """Return the managed job's definition, plist parse, and launchd status."""

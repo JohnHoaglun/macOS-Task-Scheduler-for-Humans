@@ -14,8 +14,8 @@ from PySide6.QtWidgets import (
 )
 
 from task_scheduler.application.task_command_service import (
-    AgentListing,
     DiscoveredInspectReport,
+    TaskListing,
 )
 from task_scheduler.gui.presenters.agent_presenter import (
     classify,
@@ -128,21 +128,32 @@ class AgentInspector(QWidget):
         QVBoxLayout(box).addWidget(self._advanced_text)
         return box
 
-    def show_agent(self, agent: AgentListing, report: DiscoveredInspectReport) -> None:
-        """Fill every field from the presenter output and reveal the form."""
-        parsed = agent.parsed
-        self._overview["name"].setText(format_name(agent))
-        self._overview["label"].setText(format_label(parsed))
-        self._overview["classification"].setText(classify(parsed, agent.managed).value)
-        self._overview["source"].setText(str(agent.path))
-        self._overview["enabled"].setText(format_enabled(parsed))
-        self._overview["loaded"].setText(format_status(report.status))
-        self._command["command"].setText(format_command(parsed))
-        self._command["working_directory"].setText(format_working_directory(parsed))
-        self._schedule_text.setText(format_schedule(parsed))
-        self._environment_text.setText(format_environment(parsed))
-        self._warnings_text.setText(format_warnings(parsed))
-        self._advanced_text.setText(format_raw_plist(parsed))
+    def show_agent(self, agent: TaskListing, report: DiscoveredInspectReport) -> None:
+        """Fill every field for a discovered agent and reveal the form."""
+        self._fill(
+            agent,
+            source=str(agent.path) if agent.path is not None else "(no source)",
+            loaded=format_status(report.status),
+        )
+
+    def show_saved(self, listing: TaskListing) -> None:
+        """Fill every field for a saved (catalog-only) task and reveal the form."""
+        self._fill(listing, source="(task catalog — not installed)", loaded="not installed")
+
+    def _fill(self, listing: TaskListing, *, source: str, loaded: str) -> None:
+        """Render every section from the presenter output and reveal the form."""
+        self._overview["name"].setText(format_name(listing))
+        self._overview["label"].setText(format_label(listing))
+        self._overview["classification"].setText(classify(listing).value)
+        self._overview["source"].setText(source)
+        self._overview["enabled"].setText(format_enabled(listing))
+        self._overview["loaded"].setText(loaded)
+        self._command["command"].setText(format_command(listing))
+        self._command["working_directory"].setText(format_working_directory(listing))
+        self._schedule_text.setText(format_schedule(listing))
+        self._environment_text.setText(format_environment(listing))
+        self._warnings_text.setText(format_warnings(listing))
+        self._advanced_text.setText(format_raw_plist(listing))
         self._message.hide()
         self._scroll.show()
 

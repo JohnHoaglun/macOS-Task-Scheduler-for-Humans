@@ -5,9 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from task_scheduler.application.task_command_service import (
-    AgentListing,
     DiscoveredInspectReport,
+    ListingKind,
     TaskCommandService,
+    TaskListing,
 )
 
 __all__ = ["DiscoveryController", "InspectOutcome", "RefreshOutcome"]
@@ -17,7 +18,7 @@ __all__ = ["DiscoveryController", "InspectOutcome", "RefreshOutcome"]
 class RefreshOutcome:
     """Result of a discovery refresh: the listings, or an error message."""
 
-    agents: list[AgentListing] | None
+    agents: list[TaskListing] | None
     error: str | None
 
 
@@ -43,10 +44,16 @@ class DiscoveryController:
             return RefreshOutcome(agents=None, error=str(exc))
         return RefreshOutcome(agents=agents, error=None)
 
-    def inspect(self, agent: AgentListing) -> InspectOutcome:
-        """Inspect one discovered plist, converting boundary errors to text."""
+    def inspect(self, listing: TaskListing) -> InspectOutcome:
+        """Inspect one discovered plist, converting boundary errors to text.
+
+        Saved (catalog-only) rows have no plist to inspect: the outcome
+        carries no report and no error.
+        """
+        if listing.kind is ListingKind.SAVED or listing.path is None:
+            return InspectOutcome(report=None, error=None)
         try:
-            report = self._services.inspect_discovered(agent.path)
+            report = self._services.inspect_discovered(listing.path)
         except (ValueError, OSError) as exc:
             return InspectOutcome(report=None, error=str(exc))
         return InspectOutcome(report=report, error=None)

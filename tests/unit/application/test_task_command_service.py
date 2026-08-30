@@ -18,7 +18,7 @@ from pydantic import ValidationError
 from tests.conftest import make_job
 from tests.fakes import FakeTaskWorld
 
-from task_scheduler.application import JobConflictError, JobNotFoundError
+from task_scheduler.application import JobConflictError, JobNotFoundError, ListingKind
 from task_scheduler.application.job_service import (
     default_job_logs_root,
     managed_label,
@@ -70,18 +70,56 @@ class TestListAgents:
         world.store.write(external)
         (world.la_root / "com.example.broken.plist").write_bytes(b"garbage")
         agents = world.services.list_agents()
-        by_name = {agent.path.name: agent for agent in agents}
+        by_name = {
+            agent.path.name: agent for agent in agents if agent.path is not None
+        }
         assert set(by_name) == {
             f"{managed.label}.plist",
             f"{external.label}.plist",
             "com.example.broken.plist",
         }
+        assert by_name[f"{managed.label}.plist"].kind is ListingKind.DISCOVERED
         assert by_name[f"{managed.label}.plist"].managed is True
+        assert by_name[f"{managed.label}.plist"].job == managed
         assert by_name[f"{managed.label}.plist"].parsed.status is ParseSupport.SUPPORTED
         assert by_name[f"{managed.label}.plist"].parsed.job is not None
         assert by_name[f"{external.label}.plist"].managed is False
+        assert by_name[f"{external.label}.plist"].job is None
         assert by_name["com.example.broken.plist"].managed is False
         assert by_name["com.example.broken.plist"].parsed.status is ParseSupport.INVALID
+
+    def test_catalog_only_jobs_appear_as_saved_rows(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        job = make_job()
+        world.jobs.import_job(job)
+        agents = world.services.list_agents()
+        assert len(agents) == 1
+        listing = agents[0]
+        assert listing.kind is ListingKind.SAVED
+        assert listing.path is None
+        assert listing.parsed is None
+        assert listing.job == job
+        assert listing.managed is True
+
+    def test_saved_rows_follow_discovered_rows(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        deployed = make_job(label="io.github.macos-task-scheduler.user.aaa")
+        world.manage(deployed)
+        saved = make_job(id=OTHER_ID, label="io.github.macos-task-scheduler.user.bbb")
+        world.jobs.import_job(saved)
+        agents = world.services.list_agents()
+        assert [agent.kind for agent in agents] == [
+            ListingKind.DISCOVERED,
+            ListingKind.SAVED,
+        ]
+        assert agents[1].job == saved
+
+    def test_deployed_managed_job_is_not_listed_twice(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        job = make_job()
+        world.manage(job)
+        agents = world.services.list_agents()
+        assert [agent.kind for agent in agents] == [ListingKind.DISCOVERED]
 
 
 class TestInspect:

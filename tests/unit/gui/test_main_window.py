@@ -11,7 +11,7 @@ from pytestqt.qtbot import QtBot
 
 from conftest import make_job
 from task_scheduler.application import TaskCommandService
-from task_scheduler.application.task_command_service import AgentListing
+from task_scheduler.application.task_command_service import ListingKind, TaskListing
 from task_scheduler.domain import JobDefinition
 from task_scheduler.gui.controllers.discovery_controller import DiscoveryController
 from task_scheduler.gui.controllers.editor_controller import EditorController
@@ -299,7 +299,7 @@ class _InspectFailingServices:
     def __init__(self, inner: TaskCommandService) -> None:
         self._inner = inner
 
-    def list_agents(self) -> list[AgentListing]:
+    def list_agents(self) -> list[TaskListing]:
         return self._inner.list_agents()
 
     def inspect_discovered(self, path: Path) -> None:
@@ -403,9 +403,52 @@ class TestTaskActions:
         assert "Renamed Backup" in editor.saved_path.read_text()
 
 
+class TestSelectSavedRow:
+    def test_selecting_saved_row_shows_saved_inspector(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        saved = make_job(
+            id=SECOND_JOB_ID, label="io.github.macos-task-scheduler.user.saved-only"
+        )
+        world.jobs.import_job(saved)
+        window = _window(qtbot, DiscoveryController(world.services))
+        model = window.table.model()
+        assert model.rowCount() == 1
+        listing = model.listing_at(0)
+        assert listing is not None
+        assert listing.kind is ListingKind.SAVED
+        assert listing.path is None
+        window.table.setCurrentIndex(model.index(0, 0))
+        assert _scroll_area(window.inspector).isVisible()
+        assert _value_label(window.inspector, "overview-name").text() == "Daily Backup"
+        assert _value_label(window.inspector, "overview-classification").text() == "Managed"
+        assert _value_label(window.inspector, "overview-source").text() == (
+            "(task catalog — not installed)"
+        )
+        assert _value_label(window.inspector, "overview-loaded").text() == "not installed"
+        assert _value_label(window.inspector, "warnings-text").text() == "none"
+
+    def test_edit_saved_row_opens_populated_editor(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        saved = make_job(
+            id=SECOND_JOB_ID, label="io.github.macos-task-scheduler.user.saved-only"
+        )
+        world.jobs.import_job(saved)
+        window = _window(qtbot, DiscoveryController(world.services))
+        model = window.table.model()
+        window.table.setCurrentIndex(model.index(0, 0))
+        editor = window._editor
+        QTimer.singleShot(0, editor.reject)
+        window.edit_task_action.trigger()
+        assert editor.windowTitle() == "Edit Task"
+        assert editor.findChild(QLineEdit, "editor-name").text() == "Daily Backup"
+        assert editor.result() == 0
+
+
 class TestEditEdgeCases:
-    def test_edit_action_unparseable_managed(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """A managed agent whose plist cannot be parsed shows a hint."""
+    def test_edit_action_selected_row_without_catalog_job(
+        self, qtbot: QtBot, tmp_path: Path
+    ) -> None:
+        """A selected row with no catalog job shows the edit hint."""
         world = FakeTaskWorld(tmp_path)
         label = "io.github.macos-task-scheduler.user.unparseable"
         plist_path = world.la_root / f"{label}.plist"
@@ -413,12 +456,18 @@ class TestEditEdgeCases:
         plist_path.write_bytes(b"not a plist at all")
         window = _window(qtbot, DiscoveryController(world.services))
         model = window.table.model()
-        listing = AgentListing(path=plist_path, parsed=parse_path(plist_path), managed=True)
+        listing = TaskListing(
+            kind=ListingKind.DISCOVERED,
+            path=plist_path,
+            parsed=parse_path(plist_path),
+            job=None,
+            managed=True,
+        )
         model.set_agents([listing])
         row = _row_by_path(model, plist_path)
         window.table.setCurrentIndex(model.index(row, 0))
         window.edit_task_action.trigger()
-        assert window.statusBar().currentMessage() == "This task cannot be parsed for editing."
+        assert window.statusBar().currentMessage() == "Select a managed task to edit it."
         assert not window._editor.isVisible()
 
     def test_edit_action_missing_catalog_entry(self, qtbot: QtBot, tmp_path: Path) -> None:

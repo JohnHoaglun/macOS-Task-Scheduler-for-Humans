@@ -12,38 +12,38 @@ from PySide6.QtCore import (
     Qt,
 )
 
-from task_scheduler.application.task_command_service import AgentListing
+from task_scheduler.application.task_command_service import TaskListing
 from task_scheduler.gui.presenters.agent_presenter import (
     classify,
     format_command,
     format_name,
-    format_parsed_support,
     format_schedule,
+    format_state,
 )
 
 __all__ = ["AgentTableModel", "COLUMNS"]
 
-COLUMNS: tuple[str, ...] = ("Name", "Command", "Schedule", "Classification", "Support")
+COLUMNS: tuple[str, ...] = ("Name", "Command", "Schedule", "Classification", "State")
 
 _DEFAULT_INDEX: QModelIndex = QModelIndex()
 
 
 class AgentTableModel(QAbstractTableModel):
-    """Read-only rows for discovered LaunchAgents, kept in discovery order."""
+    """Read-only task rows: discovered LaunchAgents and saved catalog jobs."""
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
-        self._agents: list[AgentListing] = []
+        self._agents: list[TaskListing] = []
 
-    def set_agents(self, agents: Sequence[AgentListing]) -> None:
+    def set_agents(self, agents: Sequence[TaskListing]) -> None:
         self.beginResetModel()
         self._agents = list(agents)
         self.endResetModel()
 
-    def agents(self) -> list[AgentListing]:
+    def agents(self) -> list[TaskListing]:
         return self._agents
 
-    def listing_at(self, row: int) -> AgentListing | None:
+    def listing_at(self, row: int) -> TaskListing | None:
         if row < 0 or row >= len(self._agents):
             return None
         return self._agents[row]
@@ -69,16 +69,15 @@ class AgentTableModel(QAbstractTableModel):
         listing = self.listing_at(index.row())
         if listing is None:
             return None
-        parsed = listing.parsed
         column = index.column()
         if column == 0:
             return format_name(listing)
         if column == 1:
-            return format_command(parsed)
+            return format_command(listing)
         if column == 2:
-            return format_schedule(parsed)
+            return format_schedule(listing)
         if column == 3:
-            return classify(parsed, listing.managed).value
+            return classify(listing).value
         if column == 4:
-            return format_parsed_support(parsed)
+            return format_state(listing)
         return None

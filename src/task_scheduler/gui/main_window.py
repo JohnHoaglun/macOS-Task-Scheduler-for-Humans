@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from task_scheduler.application.job_service import JobNotFoundError
+from task_scheduler.application.task_command_service import ListingKind
 from task_scheduler.gui.controllers.discovery_controller import DiscoveryController
 from task_scheduler.gui.controllers.editor_controller import EditorController
 from task_scheduler.gui.models.agent_table_model import AgentTableModel
@@ -97,15 +98,11 @@ class MainWindow(QMainWindow):
         """Open the editor for the selected managed task and refresh on save."""
         row = self.table.currentIndex().row()
         listing = self._model.listing_at(row) if row >= 0 else None
-        if listing is None or not listing.managed:
+        if listing is None or not listing.managed or listing.job is None:
             self.statusBar().showMessage("Select a managed task to edit it.")
             return
-        job = listing.parsed.job
-        if job is None:
-            self.statusBar().showMessage("This task cannot be parsed for editing.")
-            return
         try:
-            resolved = self._editor_controller.resolve(job.label)
+            resolved = self._editor_controller.resolve(listing.job.label)
         except JobNotFoundError:
             self.statusBar().showMessage("This task is not in the task catalog.")
             return
@@ -138,6 +135,9 @@ class MainWindow(QMainWindow):
             return
         listing = self._model.listing_at(rows[0])
         if listing is None:
+            return
+        if listing.kind is ListingKind.SAVED:
+            self.inspector.show_saved(listing)
             return
         result = self._controller.inspect(listing)
         if result.error is not None:

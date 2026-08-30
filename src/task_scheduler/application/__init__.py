@@ -10,16 +10,16 @@ from task_scheduler.application.job_service import (
 )
 from task_scheduler.application.log_service import JobLogs, LogService, LogStream
 from task_scheduler.application.task_command_service import (
-    AgentListing,
     InspectReport,
     InstallResult,
+    ListingKind,
     TaskCommandService,
+    TaskListing,
     UninstallResult,
 )
 from task_scheduler.application.test_service import DirectTestResult, DirectTestService
 
 __all__ = [
-    "AgentListing",
     "DirectTestResult",
     "DirectTestService",
     "InspectReport",
@@ -28,9 +28,11 @@ __all__ = [
     "JobLogs",
     "JobNotFoundError",
     "JobService",
+    "ListingKind",
     "LogService",
     "LogStream",
     "TaskCommandService",
+    "TaskListing",
     "UninstallResult",
     "default_job_catalog_root",
 ]

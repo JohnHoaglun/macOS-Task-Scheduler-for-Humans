@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 
 from conftest import make_job
-from task_scheduler.application.task_command_service import AgentListing
-from task_scheduler.domain import EnvironmentConfig, Schedule, Weekday
+from task_scheduler.application.task_command_service import ListingKind, TaskListing
+from task_scheduler.domain import EnvironmentConfig, JobDefinition, Schedule, Weekday
 from task_scheduler.gui.presenters.agent_presenter import (
     AgentClassification,
     classify,
@@ -17,9 +17,9 @@ from task_scheduler.gui.presenters.agent_presenter import (
     format_environment,
     format_label,
     format_name,
-    format_parsed_support,
     format_raw_plist,
     format_schedule,
+    format_state,
     format_status,
     format_warnings,
     format_working_directory,
@@ -40,69 +40,135 @@ def _parsed(**overrides: object) -> ParsedLaunchAgent:
     return ParsedLaunchAgent(**kwargs)  # type: ignore[arg-type]
 
 
+def _discovered(
+    parsed: ParsedLaunchAgent,
+    *,
+    managed: bool = False,
+    job: JobDefinition | None = None,
+) -> TaskListing:
+    return TaskListing(
+        kind=ListingKind.DISCOVERED,
+        path=AGENT_PATH,
+        parsed=parsed,
+        job=job,
+        managed=managed,
+    )
+
+
+def _saved(job: JobDefinition) -> TaskListing:
+    return TaskListing(kind=ListingKind.SAVED, path=None, parsed=None, job=job, managed=True)
+
+
 class TestClassify:
+    def test_saved_row_is_managed(self) -> None:
+        assert classify(_saved(make_job())) is AgentClassification.MANAGED
+
     def test_supported_and_managed(self) -> None:
-        assert classify(_parsed(), managed=True) is AgentClassification.MANAGED
+        assert classify(_discovered(_parsed(), managed=True)) is AgentClassification.MANAGED
 
     def test_supported_and_unmanaged(self) -> None:
-        assert classify(_parsed(), managed=False) is AgentClassification.EXTERNAL
+        assert classify(_discovered(_parsed())) is AgentClassification.EXTERNAL
 
     def test_invalid_wins_over_managed(self) -> None:
         parsed = _parsed(status=ParseSupport.INVALID, raw={})
-        assert classify(parsed, managed=True) is AgentClassification.INVALID
+        assert classify(_discovered(parsed, managed=True)) is AgentClassification.INVALID
+
+    def test_missing_parse_is_invalid(self) -> None:
+        listing = TaskListing(
+            kind=ListingKind.DISCOVERED, path=AGENT_PATH, parsed=None, job=None, managed=False
+        )
+        assert classify(listing) is AgentClassification.INVALID
 
 
 class TestFormatName:
     def test_with_job(self) -> None:
         job = make_job()
-        agent = AgentListing(path=AGENT_PATH, parsed=_parsed(job=job), managed=True)
-        assert format_name(agent) == job.name
+        listing = _discovered(_parsed(job=job), managed=True)
+        assert format_name(listing) == job.name
 
     def test_without_job_uses_path_stem(self) -> None:
-        agent = AgentListing(
-            path=AGENT_PATH,
-            parsed=_parsed(status=ParseSupport.INVALID, raw={}),
-            managed=False,
+        listing = _discovered(
+            _parsed(status=ParseSupport.INVALID, raw={}),
         )
-        assert format_name(agent) == "com.example"
+        assert format_name(listing) == "com.example"
+
+    def test_saved_uses_job_name(self) -> None:
+        job = make_job()
+        assert format_name(_saved(job)) == job.name
+
+    def test_no_job_and_no_path(self) -> None:
+        listing = TaskListing(
+            kind=ListingKind.DISCOVERED, path=None, parsed=None, job=None, managed=False
+        )
+        assert format_name(listing) == "—"
 
 
 class TestFormatLabel:
     def test_with_job(self) -> None:
-        parsed = _parsed(job=make_job())
-        assert format_label(parsed) == "io.github.macos-task-scheduler.user.daily-backup"
+        listing = _discovered(_parsed(job=make_job()), managed=True)
+        assert format_label(listing) == "io.github.macos-task-scheduler.user.daily-backup"
+
+    def test_catalog_job_used_when_parse_has_none(self) -> None:
+        job = make_job()
+        listing = _discovered(
+            _parsed(status=ParseSupport.INVALID, raw={}), job=job
+        )
+        assert format_label(listing) == job.label
 
     def test_raw_only(self) -> None:
-        parsed = _parsed(status=ParseSupport.INVALID, raw={"Label": "com.example.x"})
-        assert format_label(parsed) == "com.example.x"
+        listing = _discovered(
+            _parsed(status=ParseSupport.INVALID, raw={"Label": "com.example.x"})
+        )
+        assert format_label(listing) == "com.example.x"
 
     def test_empty_raw(self) -> None:
-        parsed = _parsed(status=ParseSupport.INVALID, raw={})
-        assert format_label(parsed) == "—"
+        listing = _discovered(_parsed(status=ParseSupport.INVALID, raw={}))
+        assert format_label(listing) == "—"
+
+    def test_saved_uses_job_label(self) -> None:
+        job = make_job()
+        assert format_label(_saved(job)) == job.label
+
+    def test_no_parse_no_job(self) -> None:
+        listing = TaskListing(
+            kind=ListingKind.DISCOVERED, path=None, parsed=None, job=None, managed=False
+        )
+        assert format_label(listing) == "—"
 
 
 class TestFormatCommand:
     def test_with_job(self) -> None:
-        parsed = _parsed(job=make_job())
-        assert format_command(parsed) == (
+        listing = _discovered(_parsed(job=make_job()), managed=True)
+        assert format_command(listing) == (
             "/Users/example/project/.venv/bin/python /Users/example/project/main.py "
             "--mode daily"
         )
 
     def test_raw_program_arguments_list(self) -> None:
-        parsed = _parsed(
-            status=ParseSupport.INVALID,
-            raw={"ProgramArguments": ["/bin/zsh", "/Users/example/scripts/x.sh"]},
+        listing = _discovered(
+            _parsed(
+                status=ParseSupport.INVALID,
+                raw={"ProgramArguments": ["/bin/zsh", "/Users/example/scripts/x.sh"]},
+            )
         )
-        assert format_command(parsed) == "/bin/zsh /Users/example/scripts/x.sh"
+        assert format_command(listing) == "/bin/zsh /Users/example/scripts/x.sh"
 
     def test_raw_program_arguments_not_a_list(self) -> None:
-        parsed = _parsed(status=ParseSupport.INVALID, raw={"ProgramArguments": "/bin/zsh"})
-        assert format_command(parsed) == "—"
+        listing = _discovered(
+            _parsed(status=ParseSupport.INVALID, raw={"ProgramArguments": "/bin/zsh"})
+        )
+        assert format_command(listing) == "—"
 
     def test_raw_missing(self) -> None:
-        parsed = _parsed(status=ParseSupport.INVALID, raw={})
-        assert format_command(parsed) == "—"
+        listing = _discovered(_parsed(status=ParseSupport.INVALID, raw={}))
+        assert format_command(listing) == "—"
+
+    def test_saved_uses_job_argv(self) -> None:
+        job = make_job()
+        assert format_command(_saved(job)) == (
+            "/Users/example/project/.venv/bin/python /Users/example/project/main.py "
+            "--mode daily"
+        )
 
 
 class TestFormatSchedule:
@@ -113,19 +179,19 @@ class TestFormatSchedule:
                 weekdays={Weekday.FRIDAY, Weekday.MONDAY, Weekday.SUNDAY},
             )
         )
-        parsed = _parsed(job=job)
-        assert format_schedule(parsed) == "at 09:15:00 on Friday, Monday, Sunday"
+        listing = _discovered(_parsed(job=job), managed=True)
+        assert format_schedule(listing) == "at 09:15:00 on Friday, Monday, Sunday"
 
     def test_single_weekday(self) -> None:
-        parsed = _parsed(job=make_job())
-        assert format_schedule(parsed) == "at 07:30:00 on Monday"
+        listing = _discovered(_parsed(job=make_job()), managed=True)
+        assert format_schedule(listing) == "at 07:30:00 on Monday"
 
     def test_without_job(self) -> None:
-        parsed = _parsed(status=ParseSupport.INVALID, raw={})
-        assert format_schedule(parsed) == "—"
+        listing = _discovered(_parsed(status=ParseSupport.INVALID, raw={}))
+        assert format_schedule(listing) == "—"
 
 
-class TestFormatParsedSupport:
+class TestFormatState:
     @pytest.mark.parametrize(
         ("status", "expected"),
         [
@@ -134,9 +200,17 @@ class TestFormatParsedSupport:
             (ParseSupport.INVALID, "invalid"),
         ],
     )
-    def test_all_statuses(self, status: ParseSupport, expected: str) -> None:
-        parsed = _parsed(status=status)
-        assert format_parsed_support(parsed) == expected
+    def test_discovered_statuses(self, status: ParseSupport, expected: str) -> None:
+        assert format_state(_discovered(_parsed(status=status))) == expected
+
+    def test_saved(self) -> None:
+        assert format_state(_saved(make_job())) == "saved, not installed"
+
+    def test_missing_parse(self) -> None:
+        listing = TaskListing(
+            kind=ListingKind.DISCOVERED, path=AGENT_PATH, parsed=None, job=None, managed=False
+        )
+        assert format_state(listing) == "—"
 
 
 class TestFormatStatus:
@@ -154,16 +228,19 @@ class TestFormatStatus:
 
 class TestFormatEnabled:
     def test_enabled(self) -> None:
-        parsed = _parsed(job=make_job(enabled=True))
-        assert format_enabled(parsed) == "enabled"
+        listing = _discovered(_parsed(job=make_job(enabled=True)), managed=True)
+        assert format_enabled(listing) == "enabled"
 
     def test_disabled(self) -> None:
-        parsed = _parsed(job=make_job(enabled=False))
-        assert format_enabled(parsed) == "disabled"
+        listing = _discovered(_parsed(job=make_job(enabled=False)), managed=True)
+        assert format_enabled(listing) == "disabled"
 
     def test_without_job(self) -> None:
-        parsed = _parsed(status=ParseSupport.INVALID, raw={})
-        assert format_enabled(parsed) == "—"
+        listing = _discovered(_parsed(status=ParseSupport.INVALID, raw={}))
+        assert format_enabled(listing) == "—"
+
+    def test_saved_uses_job_enabled(self) -> None:
+        assert format_enabled(_saved(make_job(enabled=False))) == "disabled"
 
 
 class TestFormatEnvironment:
@@ -171,67 +248,89 @@ class TestFormatEnvironment:
         job = make_job(
             environment=EnvironmentConfig(variables={"FOO": "bar", "PATH": "/usr/bin"})
         )
-        parsed = _parsed(job=job)
-        assert format_environment(parsed) == "FOO=bar, PATH=/usr/bin"
+        listing = _discovered(_parsed(job=job), managed=True)
+        assert format_environment(listing) == "FOO=bar, PATH=/usr/bin"
 
     def test_empty_mapping(self) -> None:
-        parsed = _parsed(job=make_job())
-        assert format_environment(parsed) == "none configured"
+        listing = _discovered(_parsed(job=make_job()), managed=True)
+        assert format_environment(listing) == "none configured"
 
     def test_without_job(self) -> None:
-        parsed = _parsed(status=ParseSupport.INVALID, raw={})
-        assert format_environment(parsed) == "—"
+        listing = _discovered(_parsed(status=ParseSupport.INVALID, raw={}))
+        assert format_environment(listing) == "—"
+
+    def test_saved_uses_job_environment(self) -> None:
+        job = make_job(environment=EnvironmentConfig(variables={"A": "b"}))
+        assert format_environment(_saved(job)) == "A=b"
 
 
 class TestFormatWorkingDirectory:
     def test_set(self) -> None:
         job = make_job(working_directory=Path("/Users/example/project"))
-        parsed = _parsed(job=job)
-        assert format_working_directory(parsed) == "/Users/example/project"
+        listing = _discovered(_parsed(job=job), managed=True)
+        assert format_working_directory(listing) == "/Users/example/project"
 
     def test_not_set(self) -> None:
-        parsed = _parsed(job=make_job())
-        assert format_working_directory(parsed) == "not set"
+        listing = _discovered(_parsed(job=make_job()), managed=True)
+        assert format_working_directory(listing) == "not set"
 
     def test_without_job(self) -> None:
-        parsed = _parsed(status=ParseSupport.INVALID, raw={})
-        assert format_working_directory(parsed) == "—"
+        listing = _discovered(_parsed(status=ParseSupport.INVALID, raw={}))
+        assert format_working_directory(listing) == "—"
 
 
 class TestFormatWarnings:
     def test_warnings_only(self) -> None:
-        parsed = _parsed(
-            status=ParseSupport.PARTIALLY_SUPPORTED,
-            warnings=["no calendar schedule found"],
+        listing = _discovered(
+            _parsed(
+                status=ParseSupport.PARTIALLY_SUPPORTED,
+                warnings=["no calendar schedule found"],
+            )
         )
-        assert format_warnings(parsed) == "no calendar schedule found"
+        assert format_warnings(listing) == "no calendar schedule found"
 
     def test_unsupported_keys_only(self) -> None:
-        parsed = _parsed(status=ParseSupport.PARTIALLY_SUPPORTED, unsupported_keys=["a", "b"])
-        assert format_warnings(parsed) == "unsupported keys: a, b"
+        listing = _discovered(
+            _parsed(
+                status=ParseSupport.PARTIALLY_SUPPORTED,
+                unsupported_keys=["a", "b"],
+            )
+        )
+        assert format_warnings(listing) == "unsupported keys: a, b"
 
     def test_both(self) -> None:
-        parsed = _parsed(
-            status=ParseSupport.PARTIALLY_SUPPORTED,
-            warnings=["distinct execution times"],
-            unsupported_keys=["a", "b"],
+        listing = _discovered(
+            _parsed(
+                status=ParseSupport.PARTIALLY_SUPPORTED,
+                warnings=["distinct execution times"],
+                unsupported_keys=["a", "b"],
+            )
         )
-        assert format_warnings(parsed) == (
+        assert format_warnings(listing) == (
             "distinct execution times\nunsupported keys: a, b"
         )
 
     def test_neither(self) -> None:
-        parsed = _parsed()
-        assert format_warnings(parsed) == "none"
+        assert format_warnings(_discovered(_parsed())) == "none"
+
+    def test_saved_reports_none(self) -> None:
+        assert format_warnings(_saved(make_job())) == "none"
 
 
 class TestFormatRawPlist:
     def test_non_empty_raw(self) -> None:
-        parsed = _parsed(status=ParseSupport.INVALID, raw={"Label": "com.example.x"})
-        text = format_raw_plist(parsed)
+        listing = _discovered(
+            _parsed(status=ParseSupport.INVALID, raw={"Label": "com.example.x"})
+        )
+        text = format_raw_plist(listing)
         assert "<plist" in text
         assert "com.example.x" in text
 
     def test_empty_raw(self) -> None:
-        parsed = _parsed(status=ParseSupport.INVALID, raw={})
-        assert format_raw_plist(parsed) == "(no raw data)"
+        listing = _discovered(_parsed(status=ParseSupport.INVALID, raw={}))
+        assert format_raw_plist(listing) == "(no raw data)"
+
+    def test_saved_reports_no_deployed_plist(self) -> None:
+        assert format_raw_plist(_saved(make_job())) == (
+            "(no deployed plist — saved in the task catalog)"
+        )

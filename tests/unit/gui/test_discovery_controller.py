@@ -7,6 +7,7 @@ from typing import NoReturn
 from uuid import UUID
 
 from conftest import make_job
+from task_scheduler.application.task_command_service import ListingKind
 from task_scheduler.gui.controllers.discovery_controller import DiscoveryController
 from tests.fakes import FakeTaskWorld
 
@@ -36,10 +37,34 @@ class TestRefresh:
         outcome = controller.refresh()
         assert outcome.error is None
         assert outcome.agents is not None
-        by_name = {agent.path.name: agent for agent in outcome.agents}
-        assert len(by_name) == 2
+        discovered = [agent for agent in outcome.agents if agent.path is not None]
+        by_name = {agent.path.name: agent for agent in discovered}
+        assert len(discovered) == 2
         assert by_name[f"{managed.label}.plist"].managed is True
         assert by_name[f"{external.label}.plist"].managed is False
+
+    def test_saved_only_jobs_follow_discovered_rows(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        managed = make_job()
+        world.manage(managed)
+        saved = make_job(
+            id=EXTERNAL_ID, label="com.example.saved-only", name="Saved Job"
+        )
+        world.jobs.import_job(saved)
+        controller = DiscoveryController(world.services)
+        outcome = controller.refresh()
+        assert outcome.error is None
+        assert outcome.agents is not None
+        assert [agent.kind for agent in outcome.agents] == [
+            ListingKind.DISCOVERED,
+            ListingKind.SAVED,
+        ]
+        saved_row = outcome.agents[-1]
+        assert saved_row.path is None
+        assert saved_row.parsed is None
+        assert saved_row.job is not None
+        assert saved_row.job.label == "com.example.saved-only"
+        assert saved_row.managed is True
 
     def test_reports_service_failure(self) -> None:
         controller = DiscoveryController(_BoomServices())
@@ -73,3 +98,15 @@ class TestInspect:
         outcome = controller.inspect(listing)
         assert outcome.report is None
         assert outcome.error == "outside root"
+
+    def test_inspect_saved_listing_is_a_noop(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        saved = make_job(id=EXTERNAL_ID, label="com.example.saved-only", name="Saved Job")
+        world.jobs.import_job(saved)
+        controller = DiscoveryController(world.services)
+        listing = next(
+            agent for agent in world.services.list_agents() if agent.kind is ListingKind.SAVED
+        )
+        outcome = controller.inspect(listing)
+        assert outcome.report is None
+        assert outcome.error is None

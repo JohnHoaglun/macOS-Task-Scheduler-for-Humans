@@ -78,6 +78,18 @@ def test_list_managed_external_and_invalid(tmp_path: Path) -> None:
     assert "com.example.broken.plist [invalid] (external)" in result.stdout
 
 
+def test_list_shows_saved_catalog_only_jobs(tmp_path: Path) -> None:
+    world = FakeTaskWorld(tmp_path)
+    job = make_job()
+    world.jobs.import_job(job)
+    result = invoke(world, "list")
+    assert result.exit_code == 0
+    assert (
+        f"{job.label} [saved] (managed) (task catalog — not installed)"
+        in result.stdout
+    )
+
+
 def test_inspect_managed_job(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
     job = make_job(
