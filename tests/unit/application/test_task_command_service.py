@@ -16,9 +16,14 @@ from uuid import UUID
 import pytest
 from pydantic import ValidationError
 from tests.conftest import make_job
-from tests.fakes import FakeTaskWorld
+from tests.fakes import OK_PROCESS, FakeTaskWorld
 
-from task_scheduler.application import JobConflictError, JobNotFoundError, ListingKind
+from task_scheduler.application import (
+    InstallPhase,
+    JobConflictError,
+    JobNotFoundError,
+    ListingKind,
+)
 from task_scheduler.application.job_service import (
     default_job_logs_root,
     managed_label,
@@ -314,13 +319,118 @@ class TestInstall:
         assert result.plist_path.is_file()
         assert world.jobs.find(job.label) is not None
 
-    def test_install_result_phases_default_empty(self, tmp_path: Path) -> None:
+    def test_install_records_bootstrap_phase(self, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
         job = make_job()
-        result = world.services.install_json(job_file(tmp_path, job))
-        assert result.phases == ()
+        result = world.services.install(job)
+        assert result.phases == (InstallPhase("bootstrap", OK_PROCESS),)
+        assert result.completed_phases == ("bootstrap",)
+        assert result.retained_artifacts == ()
+
+    def test_failed_bootstrap_marks_phase_incomplete(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(
+            tmp_path, launch=ProcessResult(exit_code=1, stderr="bootstrap failed")
+        )
+        job = make_job()
+        result = world.services.install(job)
+        assert result.process.exit_code == 1
+        assert result.process.stderr == "bootstrap failed"
+        assert result.phases[0].name == "bootstrap"
         assert result.completed_phases == ()
         assert result.retained_artifacts == ()
+
+    def test_install_validates_before_side_effects(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        with pytest.raises(ValidationError):
+            world.services.install(broken_job(make_job()))
+        assert world.launch_runner.specs == []
+
+
+class TestReinstall:
+    def test_success_replaces_plist_and_retains_nothing(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        job = make_job()
+        world.manage(job)
+        updated = job.model_copy(update={"name": "Renamed Backup"})
+        world.jobs.save(updated)
+        result = world.services.reinstall(job.label)
+        assert result.process.exit_code == 0
+        assert [phase.name for phase in result.phases] == ["bootout", "bootstrap"]
+        assert result.completed_phases == ("bootout", "bootstrap")
+        assert result.retained_artifacts == ()
+        assert result.plist_path.read_bytes() == PlistCodec().encode_bytes(updated)
+        assert [path.name for path in world.la_root.iterdir()] == [f"{job.label}.plist"]
+        assert world.launch_runner.specs[0].argv == [
+            LAUNCHCTL_PATH, "bootout", f"gui/1000/{job.label}"
+        ]
+        assert world.launch_runner.specs[1].argv == [
+            LAUNCHCTL_PATH, "bootstrap", "gui/1000", str(result.plist_path)
+        ]
+        assert world.jobs.find(job.label) is not None
+
+    def test_failed_bootout_retains_staged_sibling(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(
+            tmp_path, launch=ProcessResult(exit_code=1, stderr="bootout failed")
+        )
+        job = make_job()
+        world.manage(job)
+        result = world.services.reinstall(job.label)
+        assert result.process.exit_code == 1
+        assert result.process.stderr == "bootout failed"
+        assert [phase.name for phase in result.phases] == ["bootout"]
+        assert result.completed_phases == ()
+        assert len(result.retained_artifacts) == 1
+        staged = result.retained_artifacts[0]
+        assert staged.name == f"{job.label}.plist.staged.1"
+        assert staged.is_file()
+        assert result.plist_path.read_bytes() == PlistCodec().encode_bytes(job)
+        assert [spec.argv[1] for spec in world.launch_runner.specs] == ["bootout"]
+        assert world.jobs.find(job.label) is not None
+
+    def test_failed_bootstrap_retains_backup_sibling(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(
+            tmp_path,
+            launches=[
+                OK_PROCESS,
+                ProcessResult(exit_code=1, stderr="bootstrap failed"),
+            ],
+        )
+        job = make_job()
+        world.manage(job)
+        result = world.services.reinstall(job.label)
+        assert result.process.exit_code == 1
+        assert result.process.stderr == "bootstrap failed"
+        assert [phase.name for phase in result.phases] == ["bootout", "bootstrap"]
+        assert result.completed_phases == ("bootout",)
+        assert len(result.retained_artifacts) == 1
+        backup = result.retained_artifacts[0]
+        assert backup.name == f"{job.label}.plist.backup.1"
+        assert backup.is_file()
+        assert backup.read_bytes() == PlistCodec().encode_bytes(job)
+        assert [spec.argv[1] for spec in world.launch_runner.specs] == [
+            "bootout",
+            "bootstrap",
+        ]
+
+    def test_saved_job_reinstall_deploys_it(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        job = make_job()
+        world.jobs.import_job(job)
+        result = world.services.reinstall(job.label)
+        assert result.process.exit_code == 0
+        assert result.completed_phases == ("bootout", "bootstrap")
+        assert result.retained_artifacts == ()
+        assert [path.name for path in world.la_root.iterdir()] == [f"{job.label}.plist"]
+
+    def test_unmanaged_label_rejected_without_side_effects(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        external = make_job(label="com.example.external", id=OTHER_ID)
+        world.store.write(external)
+        with pytest.raises(JobNotFoundError):
+            world.services.reinstall(external.label)
+        assert world.launch_runner.specs == []
+        assert not (world.la_root / f"{external.label}.plist.staged.1").exists()
+        assert (world.la_root / f"{external.label}.plist").is_file()
 
 
 class TestLifecycle:

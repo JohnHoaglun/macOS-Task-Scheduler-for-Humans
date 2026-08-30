@@ -306,3 +306,19 @@ class TestStaging:
 
         with pytest.raises(FileNotFoundError):
             store.activate_staged("x", store.root / "x.plist.staged.9")
+
+    def test_remove_sibling_removes_then_missing(self, tmp_path: Path) -> None:
+        store = LaunchAgentStore(tmp_path / "agents")
+        sibling = store.stage_plist("x", b"p")
+
+        assert store.remove_sibling(sibling) is True
+        assert store.remove_sibling(sibling) is False
+
+    def test_remove_sibling_rejects_outside_root(self, tmp_path: Path) -> None:
+        store = LaunchAgentStore(tmp_path / "agents")
+        (tmp_path / "outside.plist").write_bytes(b"x")
+
+        with pytest.raises(ValueError, match="outside the LaunchAgent root"):
+            store.remove_sibling(tmp_path / "outside.plist")
+
+        assert (tmp_path / "outside.plist").is_file()

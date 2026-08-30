@@ -231,19 +231,86 @@ class TaskCommandService:
         return self._codec.encode_bytes(job).decode("utf-8")
 
     def install_json(self, path: Path) -> InstallResult:
-        """Install a job from JSON: catalog import, then write + bootstrap.
+        """Install a job from a JSON file (validated, then installed)."""
+        return self.install(self._repository.load(path))
+
+    def install(self, job: JobDefinition) -> InstallResult:
+        """Install a job: catalog import, plist write, bootstrap.
 
         Create-only: ``JobConflictError`` when the catalog id already
-        exists, ``FileExistsError`` when the plist already exists. A failed
-        bootstrap retains the catalog record and the plist for diagnosis.
+        exists, ``FileExistsError`` when the plist already exists.
+        A failed bootstrap retains the catalog record and the plist for
+        diagnosis — no rollback is claimed.
         """
-        job = self._repository.load(path)
+        job = self.validate_job(job)
         self._jobs.import_job(job)
         result = self._backend.install(job)
+        return self._install_result(
+            job,
+            result.process,
+            [InstallPhase("bootstrap", result.process)],
+            ["bootstrap"] if result.process.exit_code == 0 else [],
+            [],
+        )
+
+    def reinstall(self, label: str) -> InstallResult:
+        """Reinstall the managed job for *label*.
+
+        Transaction: stage the freshly generated plist as a unique sibling,
+        boot the label out, preserve the deployed plist as a unique backup
+        sibling, activate the staged plist, bootstrap. On a failed bootout
+        the staged sibling is retained; on a failed bootstrap the backup
+        sibling is retained. A successful reinstall removes the backup and
+        retains nothing. The primary result is always the last phase's.
+        """
+        job = self._jobs.resolve(label)
+        phases: list[InstallPhase] = []
+        completed: list[str] = []
+        retained: list[Path] = []
+
+        staged = self._store.stage_plist(label, self._codec.encode_bytes(job))
+        retained.append(staged)
+
+        bootout = self._backend.bootout(label)
+        phases.append(InstallPhase("bootout", bootout.process))
+        if bootout.process.exit_code != 0:
+            return self._install_result(
+                job, bootout.process, phases, completed, retained
+            )
+        completed.append("bootout")
+
+        backup = self._store.backup_plist(label)
+        if backup is not None:
+            retained.append(backup)
+        self._store.activate_staged(label, staged)
+        retained.remove(staged)
+
+        bootstrap = self._backend.bootstrap(label)
+        phases.append(InstallPhase("bootstrap", bootstrap.process))
+        if bootstrap.process.exit_code != 0:
+            return self._install_result(
+                job, bootstrap.process, phases, completed, retained
+            )
+        completed.append("bootstrap")
+        if backup is not None:
+            self._store.remove_sibling(backup)
+        return self._install_result(job, bootstrap.process, phases, completed, [])
+
+    def _install_result(
+        self,
+        job: JobDefinition,
+        process: ProcessResult,
+        phases: list[InstallPhase],
+        completed: list[str],
+        retained: list[Path],
+    ) -> InstallResult:
         return InstallResult(
             job=job,
             plist_path=self._store.destination_for(job.label),
-            process=result.process,
+            process=process,
+            phases=tuple(phases),
+            completed_phases=tuple(completed),
+            retained_artifacts=tuple(retained),
         )
 
     # -- editor (in-memory, non-deploying) ---

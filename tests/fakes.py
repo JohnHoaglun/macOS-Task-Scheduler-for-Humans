@@ -144,13 +144,17 @@ class FakeTaskWorld:
         tmp_path: Path,
         *,
         launch: ProcessResult | None = None,
+        launches: list[ProcessResult] | None = None,
         test: ProcessResult | None = None,
     ) -> None:
         self.catalog_root = tmp_path / "catalog"
         self.la_root = tmp_path / "launchagents"
         self.store = LaunchAgentStore(self.la_root)
         self.jobs = JobService(self.catalog_root)
-        self.launch_runner = FakeProcessRunner(result=launch or OK_PROCESS)
+        if launches is not None:
+            self.launch_runner = FakeProcessRunner(results=launches)
+        else:
+            self.launch_runner = FakeProcessRunner(result=launch or OK_PROCESS)
         self.test_runner = FakeProcessRunner(result=test or OK_PROCESS)
         self.backend = LaunchAgentBackend(self.store, self.launch_runner, uid=1000)
         self.services = TaskCommandService(

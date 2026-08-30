@@ -163,3 +163,13 @@ class LaunchAgentStore:
         self._filesystem.replace(staged, destination)
         self._filesystem.remove_file(staged)
         return destination
+
+    def remove_sibling(self, path: Path) -> bool:
+        """Remove a staging/backup sibling file by exact path.
+
+        Only direct children of the root are accepted; ``True`` when the
+        file was removed, ``False`` when it was already absent.
+        """
+        if path.parent != self._root:
+            raise ValueError(f"path is outside the LaunchAgent root: {path}")
+        return self._filesystem.remove_file(path)
