@@ -38,6 +38,7 @@ from task_scheduler.storage import JsonJobRepository
 __all__ = [
     "DiscoveredInspectReport",
     "InspectReport",
+    "InstallPhase",
     "InstallResult",
     "ListingKind",
     "TaskCommandService",
@@ -90,12 +91,30 @@ class InspectReport:
 
 
 @dataclass(frozen=True, slots=True)
+class InstallPhase:
+    """The outcome of one launchctl phase of an install/reinstall transaction."""
+
+    name: str
+    process: ProcessResult
+
+
+@dataclass(frozen=True, slots=True)
 class InstallResult:
-    """Outcome of installing a job from a JSON file."""
+    """Outcome of an install or reinstall transaction.
+
+    ``process`` is the primary (final) result. ``phases`` records every
+    launchctl phase attempted, in order; ``completed_phases`` marks the
+    phases that finished successfully; ``retained_artifacts`` lists staged
+    or backup plists kept for diagnosis when a later phase fails — the
+    transaction never claims a rollback.
+    """
 
     job: JobDefinition
     plist_path: Path
     process: ProcessResult
+    phases: tuple[InstallPhase, ...] = ()
+    completed_phases: tuple[str, ...] = ()
+    retained_artifacts: tuple[Path, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -274,13 +293,17 @@ class TaskCommandService:
 
     # -- lifecycle -----------------------------------------------------------
 
-    def uninstall(self, label: str) -> UninstallResult:
-        """Boot the job out and remove its catalog record only on success."""
+    def _require_managed(self, label: str) -> JobDefinition:
+        """Validate *label* and resolve it through the catalog (managed-only)."""
         validate_label(label)
-        job = self._jobs.find(label)
+        return self._jobs.resolve(label)
+
+    def uninstall(self, label: str) -> UninstallResult:
+        """Boot the managed job out and remove its catalog record on success."""
+        job = self._require_managed(label)
         result = self._backend.uninstall(label)
         catalog_removed = False
-        if result.process.exit_code == 0 and job is not None:
+        if result.process.exit_code == 0:
             catalog_removed = self._jobs.remove(job.id)
         return UninstallResult(
             label=label, process=result.process, catalog_removed=catalog_removed
@@ -288,22 +311,22 @@ class TaskCommandService:
 
     def enable(self, label: str) -> LaunchctlResult:
         """Re-enable a managed job (launchctl enable)."""
-        validate_label(label)
+        self._require_managed(label)
         return self._backend.enable(label)
 
     def disable(self, label: str) -> LaunchctlResult:
         """Disable a managed job (launchctl disable)."""
-        validate_label(label)
+        self._require_managed(label)
         return self._backend.disable(label)
 
     def status(self, label: str) -> LaunchAgentStatus:
-        """Report whether the job is loaded in launchd."""
-        validate_label(label)
+        """Report whether the managed job is loaded in launchd."""
+        self._require_managed(label)
         return self._backend.status(label)
 
     def run_now(self, label: str) -> LaunchctlResult:
-        """Ask launchd to run the job now (kickstart -k)."""
-        validate_label(label)
+        """Ask launchd to run the managed job now (kickstart -k)."""
+        self._require_managed(label)
         return self._backend.trigger(label)
 
     # -- testing and logs -----------------------------------------------------

@@ -11,6 +11,7 @@ from task_scheduler.application.job_service import (
 from task_scheduler.application.log_service import JobLogs, LogService, LogStream
 from task_scheduler.application.task_command_service import (
     InspectReport,
+    InstallPhase,
     InstallResult,
     ListingKind,
     TaskCommandService,
@@ -23,6 +24,7 @@ __all__ = [
     "DirectTestResult",
     "DirectTestService",
     "InspectReport",
+    "InstallPhase",
     "InstallResult",
     "JobConflictError",
     "JobLogs",

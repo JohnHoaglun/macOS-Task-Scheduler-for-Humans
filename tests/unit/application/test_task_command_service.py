@@ -314,6 +314,14 @@ class TestInstall:
         assert result.plist_path.is_file()
         assert world.jobs.find(job.label) is not None
 
+    def test_install_result_phases_default_empty(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        job = make_job()
+        result = world.services.install_json(job_file(tmp_path, job))
+        assert result.phases == ()
+        assert result.completed_phases == ()
+        assert result.retained_artifacts == ()
+
 
 class TestLifecycle:
     def test_uninstall_success_removes_plist_and_catalog(self, tmp_path: Path) -> None:
@@ -343,13 +351,34 @@ class TestLifecycle:
         assert (world.la_root / f"{job.label}.plist").is_file()
         assert (world.catalog_root / f"{job.id}.json").is_file()
 
-    def test_uninstall_external_label_has_no_catalog_record(self, tmp_path: Path) -> None:
+    def test_uninstall_external_label_rejected_without_backend_call(
+        self, tmp_path: Path
+    ) -> None:
         world = FakeTaskWorld(tmp_path)
         external = make_job(label="com.example.external", id=OTHER_ID)
         world.store.write(external)
-        result = world.services.uninstall(external.label)
-        assert result.catalog_removed is False
-        assert not (world.la_root / f"{external.label}.plist").exists()
+        with pytest.raises(JobNotFoundError):
+            world.services.uninstall(external.label)
+        assert world.launch_runner.specs == []
+        assert (world.la_root / f"{external.label}.plist").is_file()
+        assert not (world.catalog_root / f"{external.id}.json").exists()
+
+    def test_lifecycle_rejects_external_label_without_backend_call(
+        self, tmp_path: Path
+    ) -> None:
+        world = FakeTaskWorld(tmp_path)
+        external = make_job(label="com.example.external", id=OTHER_ID)
+        world.store.write(external)
+        for action in (
+            world.services.enable,
+            world.services.disable,
+            world.services.status,
+            world.services.run_now,
+        ):
+            with pytest.raises(JobNotFoundError):
+                action(external.label)
+        assert world.launch_runner.specs == []
+        assert (world.la_root / f"{external.label}.plist").is_file()
 
     def test_uninstall_invalid_label_raises(self, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
@@ -358,7 +387,9 @@ class TestLifecycle:
 
     def test_enable_and_disable(self, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
-        label = make_job().label
+        job = make_job()
+        world.manage(job)
+        label = job.label
         enabled = world.services.enable(label)
         disabled = world.services.disable(label)
         assert enabled.action is LaunchctlAction.ENABLE
@@ -369,25 +400,32 @@ class TestLifecycle:
         assert actions == ["enable", "disable"]
 
     def test_status_loaded_unloaded_and_unknown(self, tmp_path: Path) -> None:
+        def managed_services(root: Path, launch: ProcessResult | None = None):
+            world = FakeTaskWorld(root, launch=launch)
+            world.manage(make_job())
+            return world.services
+
         label = make_job().label
-        loaded = FakeTaskWorld(tmp_path).services.status(label)
+        loaded = managed_services(tmp_path).status(label)
         assert loaded.loaded is True
-        unloaded = FakeTaskWorld(
-            tmp_path, launch=ProcessResult(exit_code=5)
-        ).services.status(label)
+        unloaded = managed_services(
+            tmp_path / "unloaded", launch=ProcessResult(exit_code=5)
+        ).status(label)
         assert unloaded.loaded is False
-        unknown = FakeTaskWorld(
-            tmp_path,
+        unknown = managed_services(
+            tmp_path / "unknown",
             launch=ProcessResult(
                 exit_code=None,
                 launch_failure=ProcessLaunchFailure(kind="not_found", message="gone"),
             ),
-        ).services.status(label)
+        ).status(label)
         assert unknown.loaded is None
 
     def test_run_now_uses_kickstart(self, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
-        label = make_job().label
+        job = make_job()
+        world.manage(job)
+        label = job.label
         result = world.services.run_now(label)
         assert result.action is LaunchctlAction.TRIGGER
         assert world.launch_runner.specs[0].argv == [

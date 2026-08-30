@@ -149,6 +149,8 @@ def create_app(services: TaskCommandService) -> typer.Typer:
         """Uninstall a job: boot it out, then remove plist and catalog record."""
         try:
             result = services.uninstall(label)
+        except JobNotFoundError as exc:
+            _fail(str(exc), EXIT_USAGE)
         except ValueError as exc:
             _fail(str(exc), EXIT_USAGE)
         if result.process.exit_code != EXIT_SUCCESS:
@@ -163,6 +165,8 @@ def create_app(services: TaskCommandService) -> typer.Typer:
         """Re-enable a disabled job."""
         try:
             result = services.enable(label)
+        except JobNotFoundError as exc:
+            _fail(str(exc), EXIT_USAGE)
         except ValueError as exc:
             _fail(str(exc), EXIT_USAGE)
         if result.process.exit_code != EXIT_SUCCESS:
@@ -176,6 +180,8 @@ def create_app(services: TaskCommandService) -> typer.Typer:
         """Disable a job."""
         try:
             result = services.disable(label)
+        except JobNotFoundError as exc:
+            _fail(str(exc), EXIT_USAGE)
         except ValueError as exc:
             _fail(str(exc), EXIT_USAGE)
         if result.process.exit_code != EXIT_SUCCESS:
@@ -189,6 +195,8 @@ def create_app(services: TaskCommandService) -> typer.Typer:
         """Show whether a job is loaded in launchd."""
         try:
             status = services.status(label)
+        except JobNotFoundError as exc:
+            _fail(str(exc), EXIT_USAGE)
         except ValueError as exc:
             _fail(str(exc), EXIT_USAGE)
         if status.loaded is None:
@@ -208,6 +216,8 @@ def create_app(services: TaskCommandService) -> typer.Typer:
         """Run a job now via launchd (kickstart -k)."""
         try:
             result = services.run_now(label)
+        except JobNotFoundError as exc:
+            _fail(str(exc), EXIT_USAGE)
         except ValueError as exc:
             _fail(str(exc), EXIT_USAGE)
         if result.process.exit_code != EXIT_SUCCESS:

@@ -271,9 +271,22 @@ def test_uninstall_invalid_label_exits_usage(tmp_path: Path) -> None:
 
 def test_enable_success(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
+    world.manage(make_job(label="com.example.job"))
     result = invoke(world, "enable", "com.example.job")
     assert result.exit_code == 0
     assert "enabled com.example.job" in result.stdout
+
+
+def test_lifecycle_external_labels_exit_usage(tmp_path: Path) -> None:
+    """Every lifecycle command rejects a non-managed label with no backend call."""
+    world = FakeTaskWorld(tmp_path)
+    external = make_job(label="com.example.external", id=OTHER_ID)
+    world.store.write(external)
+    for command in ("uninstall", "enable", "disable", "status", "run"):
+        result = invoke(world, command, external.label)
+        assert result.exit_code == 2
+        assert "no managed job with label" in result.stderr
+    assert world.launch_runner.specs == []
 
 
 def test_enable_invalid_label_exits_usage(tmp_path: Path) -> None:
@@ -287,6 +300,7 @@ def test_enable_failure_exits_failure(tmp_path: Path) -> None:
     world = FakeTaskWorld(
         tmp_path, launch=ProcessResult(exit_code=1, stderr="enable failed")
     )
+    world.manage(make_job(label="com.example.job"))
     result = invoke(world, "enable", "com.example.job")
     assert result.exit_code == 1
     assert "enable failed for com.example.job: exit code 1" in result.stderr
@@ -294,6 +308,7 @@ def test_enable_failure_exits_failure(tmp_path: Path) -> None:
 
 def test_disable_success(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
+    world.manage(make_job(label="com.example.job"))
     result = invoke(world, "disable", "com.example.job")
     assert result.exit_code == 0
     assert "disabled com.example.job" in result.stdout
@@ -310,6 +325,7 @@ def test_disable_failure_exits_failure(tmp_path: Path) -> None:
     world = FakeTaskWorld(
         tmp_path, launch=ProcessResult(exit_code=1, stderr="deny")
     )
+    world.manage(make_job(label="com.example.job"))
     result = invoke(world, "disable", "com.example.job")
     assert result.exit_code == 1
     assert "disable failed for com.example.job: exit code 1" in result.stderr
@@ -318,6 +334,7 @@ def test_disable_failure_exits_failure(tmp_path: Path) -> None:
 
 def test_status_loaded(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
+    world.manage(make_job(label="com.example.job"))
     result = invoke(world, "status", "com.example.job")
     assert result.exit_code == 0
     assert "com.example.job: loaded in launchd" in result.stdout
@@ -325,6 +342,7 @@ def test_status_loaded(tmp_path: Path) -> None:
 
 def test_status_unloaded_still_exits_success(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path, launch=ProcessResult(exit_code=7))
+    world.manage(make_job(label="com.example.job"))
     result = invoke(world, "status", "com.example.job")
     assert result.exit_code == 0
     assert "not loaded in launchd" in result.stdout
@@ -339,6 +357,7 @@ def test_status_launch_failure_exits_failure(tmp_path: Path) -> None:
             launch_failure=ProcessLaunchFailure(kind="not_found", message="gone"),
         ),
     )
+    world.manage(make_job(label="com.example.job"))
     result = invoke(world, "status", "com.example.job")
     assert result.exit_code == 1
     assert "status unknown for com.example.job" in result.stderr
@@ -354,6 +373,7 @@ def test_status_invalid_label_exits_usage(tmp_path: Path) -> None:
 
 def test_run_success(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
+    world.manage(make_job(label="com.example.job"))
     result = invoke(world, "run", "com.example.job")
     assert result.exit_code == 0
     assert "requested run of com.example.job" in result.stdout
@@ -370,6 +390,7 @@ def test_run_failure_exits_failure(tmp_path: Path) -> None:
     world = FakeTaskWorld(
         tmp_path, launch=ProcessResult(exit_code=1, stderr="kickstart failed")
     )
+    world.manage(make_job(label="com.example.job"))
     result = invoke(world, "run", "com.example.job")
     assert result.exit_code == 1
     assert "run failed for com.example.job: exit code 1" in result.stderr
