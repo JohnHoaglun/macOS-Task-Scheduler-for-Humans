@@ -211,6 +211,7 @@ class JobEditor(QDialog):
         """Push the edited label into the draft, stripped of surrounding whitespace."""
         if self._draft is not None:
             self._controller.set_label(self._draft, text.strip())
+        self._save_button.setEnabled(True)
 
     def _path_row(
         self, line_edit_name: str, button_name: str, mode: str

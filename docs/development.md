@@ -52,9 +52,35 @@ The GUI is tested with pytest-qt and runs fully headless:
 * `make check` runs the GUI tests on every change; line coverage of the
   whole package stays at 100%.
 
+## Editor Dialog Test Conventions
+
+The job editor tests (Crawl Increment 10) follow the setup above and add:
+
+* `qtbot.addWidget` keeps the window or dialog under test alive for the
+  test's duration.
+* Editor widgets carry stable `objectName`s (`editor-name`, `editor-save`,
+  `editor-weekday-monday`, ...); tests resolve them through small
+  `findChild` helper functions rather than index-based access, so layout
+  changes do not break tests.
+* `FakeTaskWorld` (`tests/fakes.py`) builds the full service graph on
+  `tmp_path` roots: catalog and LaunchAgents store under temporary
+  directories, with the real `JobService`, `LaunchAgentStore`, and
+  `LaunchAgentBackend` (over a `FakeProcessRunner`), plus `PlistCodec`,
+  `DirectTestService`, and `LogService` composed into a
+  `TaskCommandService`. `world.manage(job)` seeds a managed job (catalog
+  record plus plist); `world.store.write(job)` adds an external agent.
+  `world.launch_runner.specs` records every launchctl invocation, so a
+  test can assert that saving a draft invoked none — the non-deployment
+  guarantee.
+* Modal dialogs are tested by scheduling the close or save with
+  `QTimer.singleShot(0, ...)` before triggering the action
+  (`new_task_action.trigger()`, `edit_task_action.trigger()`). A
+  synchronous `exec()` would deadlock under single-threaded pytest-qt;
+  status-bar hints are awaited with `qtbot.waitUntil`.
+
 ## Current State
 
-Crawl increments 0–9 establish:
+Crawl increments 0–10 establish:
 
 - project/tooling foundation
 - normalized job domain model with Pydantic validation
@@ -68,6 +94,8 @@ Crawl increments 0–9 establish:
   uninstall, enable, disable, status, run, test, logs
 - read-only PySide6 GUI discovery browser (`mactask-gui`) over the shared
   `TaskCommandService` facade
+- GUI job editor (`mactask-gui`): New Task / Edit Managed Task dialog with
+  validation, plist preview, and catalog-only save
 
 Unit and GUI widget tests run against synthetic fakes and temporary
 directories and never touch `~/Library/LaunchAgents` or invoke real

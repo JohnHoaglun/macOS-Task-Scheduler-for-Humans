@@ -2,6 +2,13 @@
 
 ## Changelog
 
+### v0.0.10
+- Crawl Increment 10: GUI Job Creation, Edit, Save, and Validation — `mactask-gui` File > New Task... (Cmd+N) and File > Edit Managed Task... open the modal `JobEditor` dialog: Identity (auto-derived managed label, manually editable), Command (Python/Shell/Executable pages with argument row tables and a detected-interpreter row — script edits run `detect_python`, candidates show as `path (source)` with a Use button that also fills a blank working directory), Schedule (HH:MM + weekday checkboxes + the launchd sleep/wake note), Environment, Advanced (working directory + optional stdout/stderr log paths, default root `~/Library/Logs/macOS Task Scheduler for Humans/<job-id>/`), and a read-only plist preview
+- Qt-free `EditorController` over a mutable `JobDraft` DTO (stable UUID, label-touched flag) returning frozen `EditorOutcome`/`PreviewOutcome`/`SaveOutcome` with field errors keyed by stable field names; `JobService.new_managed_job` factory (deterministic label/working-dir/log defaults, no writes) + `JobService.save` (immutable-ID overwrite, label-conflict rejection)
+- Save policy: Save initially enabled, disabled only after a known-invalid result, re-enabled on any draft change; invalid drafts never persist; save is non-deploying (catalog JSON only — no plist, no launchctl, no log directories); Edit gated to selected managed rows resolved by label, with status-bar hints for unparseable listings and catalog misses; post-save refresh preserves selection by path
+- Generic `RowTable` widget (add/remove rows, single `rowsChanged` signal); main-window actions refresh on save with no lifecycle calls; docs (README/architecture/development) cover the editor contracts, GUI boundary, and offscreen Qt test conventions
+- 131 new unit tests, 544 total, 100% line coverage across the whole package, ruff + mypy strict clean
+
 ### Planning: Crawl Increment 10 Detail (approved)
 - Pinned product decisions: managed label policy (`io.github.macos-task-scheduler.user.<slug>-<8-hex>` of the job UUID), draft UUID retained for the draft's lifetime, logging expressed via cleared stdout/stderr paths (no toggle), Save validates on click and disables only after a known-invalid result, Edit limited to the selected Managed discovery row resolved by label, New Task opens with a blank schedule and no command paths
 - Application surface: `JobService.new_managed_job` (factory with deterministic label/working-dir/log defaults, no directory creation) + `JobService.save` (immutable-ID overwrite, label-conflict rejection); `TaskCommandService` in-memory `validate_job` / `generate_plist_for` / `save_managed_job` (catalog-only, non-deploying) / `detect_python` / `resolve_managed_job`

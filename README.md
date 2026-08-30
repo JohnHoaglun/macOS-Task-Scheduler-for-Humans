@@ -411,7 +411,7 @@ stderr.
 
 ## Graphical Interface
 
-A read-only discovery GUI is available (Crawl Increment 9).
+A discovery GUI with a job editor is available (Crawl Increments 9–10).
 
 Launch it from the repository root with the virtual environment active:
 
@@ -437,6 +437,52 @@ catalog), **External** (a valid plist outside the catalog), or **Invalid**
 (malformed or unsupported). The Refresh action (File menu, `Cmd+R`) re-runs
 discovery; the selected agent is preserved across refreshes when possible.
 
+The File menu also offers **New Task...** (`Cmd+N`) and **Edit Managed
+Task...**. Both open a modal editor dialog for a managed job:
+
+* **New Task** starts blank — no command paths and no schedule — and is
+  invalid until the name, the command fields of the selected kind, a valid
+  `HH:MM` time, and at least one weekday are filled in.
+* **Edit Managed Task** works only for a selected row classified as
+  **Managed**, and resolves the catalog job by its launchd label. A
+  selection that cannot be parsed, or a label missing from the catalog,
+  surfaces as a status-bar hint instead of opening the dialog.
+
+The dialog is a scrollable form with the following sections:
+
+* **Identity** — the job name and the managed label. The label is
+  auto-derived as `io.github.macos-task-scheduler.user.<slug>-<8-hex>` (the
+  name slug plus the first 8 hex characters of the job's UUID); it stays
+  manually editable and is validated like any other field.
+* **Command** — a Python / Shell / Executable selector with a page per
+  kind, each with a row table of arguments. On the Python page, editing
+  the script path runs interpreter detection: candidates are listed as
+  `path (source)` (sources: `.venv`, `venv`, `current`, `path`), and the
+  **Use** button fills the interpreter field — and the working directory
+  while it is blank — from the detection result. Informative notes cover
+  the idle and no-match cases.
+* **Schedule** — an `HH:MM` time and seven weekday checkboxes, plus a note
+  on launchd behavior: if the Mac is asleep at the scheduled time it is
+  not woken, and missed runs are not retried.
+* **Environment** — key/value rows for the job's environment variables.
+* **Advanced** — the working directory and optional stdout/stderr log
+  paths; leave a path empty to disable that stream. The default log root
+  for managed jobs is
+  `~/Library/Logs/macOS Task Scheduler for Humans/<job-id>/`.
+* **Preview** — the generated plist XML, read-only.
+
+**Validate**, **Preview**, **Save**, and **Close** act on the draft. Save
+validates before writing anything; it starts enabled, is disabled after a
+known-invalid result, and is re-enabled by any subsequent draft change. An
+invalid draft is never persisted.
+
+**Save does not deploy.** Saving a new or edited task writes or overwrites
+the job's catalog JSON only — same immutable job id, and a label conflict
+with a different managed job is rejected. It writes no plist, invokes no
+`launchctl`, and creates no log directories. Deploying a saved change
+still requires the lifecycle commands, which arrive in a later Crawl
+increment.
+
 **Read-only external-job policy:** the GUI discovers and displays external
 and invalid agents but never modifies them. No edit, install, enable,
 disable, or removal controls exist for agents the application does not
@@ -461,10 +507,12 @@ Current implementation scope:
   enable, disable, status, run, test, logs)
 * read-only PySide6 GUI discovery browser (`mactask-gui`) with
   managed/external/invalid classification and detail inspector
+* GUI job editor (`mactask-gui`): New Task / Edit Managed Task dialog with
+  validation, plist preview, and catalog-only save
 
 Not yet implemented:
 
-* GUI job editing, lifecycle actions, and diagnostics (later Crawl
+* GUI lifecycle actions and diagnostics (later Crawl
   increments)
 * Python virtual-environment detection
 * LaunchDaemon support
