@@ -1,4 +1,4 @@
-# TODOS.md (v0.0.8)
+# TODOS.md (v0.0.9)
 
 ## Crawl Increment 0 — Project Foundation (DONE)
 - [x] Create project directory
@@ -72,64 +72,67 @@
 - [x] Docs: README CLI usage + exit codes; architecture/development doc updates
 - [x] `make check` green, 328 tests, 100% coverage, file-size review; bumped 0.0.7 → 0.0.8
 
-## Crawl Increment 9 — GUI Read/Discovery (PENDING)
+## Crawl Increment 9 — GUI Read/Discovery (DONE)
 
 ### Shared Foundation
-- [ ] Add PySide6 runtime dependency to pyproject.toml
-- [ ] Add pytest-qt development dependency
-- [ ] Add offscreen Qt test configuration (qt_api + headless platform plugin)
-- [ ] Extract build_services() from cli/app.py into task_scheduler/bootstrap/build_services()
-- [ ] CLI build_services() imports the shared root
-- [ ] Add GUI entry point: task_scheduler/gui/app.py:main
-- [ ] Add focused tests proving CLI and GUI composition roots receive the same service graph
+- [x] Add PySide6 runtime dependency to pyproject.toml
+- [x] Add pytest-qt development dependency
+- [x] Add offscreen Qt test configuration (`qt_api = "pyside6"`, `QT_QPA_PLATFORM=offscreen` in tests/conftest.py)
+- [x] Extract build_services() from cli/app.py into task_scheduler/bootstrap.py:build_services()
+- [x] CLI build_services() imports the shared root
+- [x] Add GUI entry point: task_scheduler/gui/app.py:main (`mactask-gui` script)
+- [x] Tests proving CLI and GUI composition roots receive the same service graph (tests/unit/test_bootstrap.py + gui composition tests)
 
 ### Application-Service Work
-- [ ] Add DiscoveredInspectReport DTO (path, parsed, managed, status)
-- [ ] Add TaskCommandService.inspect_discovered(path) — root containment, read-only, never mutates
-- [ ] Pin classification display mapping: Managed/External/Invalid/Partially-supported
-- [ ] Add presenters for classification display labels
-- [ ] Unit tests: inspect_discovered() root containment, read-only behavior, missing root, malformed plist, invalid/no-label status, presentation formatting with DTO fixtures
+- [x] Add DiscoveredInspectReport DTO (path, parsed, managed, status)
+- [x] Add TaskCommandService.inspect_discovered(path) — root containment, read-only, never mutates
+- [x] Pin classification display mapping: Managed/External/Invalid (invalid wins over managed)
+- [x] Add presenters for classification and field display labels (pure Python, no Qt)
+- [x] Unit tests: inspect_discovered() root containment, read-only behavior, missing root, malformed plist, invalid/no-label status, presentation formatting with DTO fixtures
 
 ### GUI — Main Window
-- [ ] Create src/task_scheduler/gui/ package structure (app.py, main_window.py, controllers/, models/, presenters/, widgets/, dialogs/)
-- [ ] Create QApplication entry point (gui/app.py)
-- [ ] Create two-pane main window: left list, right inspector
-- [ ] Top-level Refresh action
-- [ ] Empty state when no user LaunchAgents exist
-- [ ] Non-modal error banner/dialog if discovery fails
+- [x] Create src/task_scheduler/gui/ package structure (app.py, main_window.py, controllers/, models/, presenters/, widgets/)
+- [x] Create QApplication entry point (gui/app.py)
+- [x] Create two-pane main window: left list (QTreeView), right inspector
+- [x] Top-level Refresh action (File menu, Cmd+R shortcut)
+- [x] Empty state when no user LaunchAgents exist ("No tasks found.")
+- [x] Error state when discovery fails (inspector error text + status bar, table emptied)
 
 ### GUI — List/Model
-- [ ] AgentTableModel: QAbstractTableModel mapping list[AgentListing]
-- [ ] Columns: name/label, command summary, schedule summary, classification, parse-support, launchd status
-- [ ] Refresh populates rows from list_agents() via controller
+- [x] AgentTableModel: QAbstractTableModel mapping list[AgentListing]
+- [x] Columns: name/label, command summary, schedule summary, classification, parse-support
+- [x] Refresh populates rows from list_agents() via controller; selection preserved by path across refreshes (fallback row 0)
 
 ### GUI — Inspector
-- [ ] AgentInspector widget: read-only managed/external/invalid detail rendering
-- [ ] Overview section: name, label, classification, plist path, enabled state, loaded status
-- [ ] Command section: executable, script/interpreter, arguments, working directory
-- [ ] Schedule section: plain-language text + native schedule fields in Advanced
-- [ ] Environment section: configured values (if parsed)
-- [ ] Warnings section: unsupported keys and parser warnings (always visible for partial/invalid)
-- [ ] Advanced section: raw plist representation + generated/parsed metadata
-- [ ] Display mapping lives in pure presenters, not widgets
+- [x] AgentInspector widget: read-only managed/external/invalid detail rendering
+- [x] Overview section: name, label, classification, plist path, enabled state, loaded status
+- [x] Command section: full command line, working directory
+- [x] Schedule section: plain-language text; raw plist fields in Advanced
+- [x] Environment section: configured values (if parsed)
+- [x] Warnings section: unsupported keys and parser warnings (always visible for partial/invalid)
+- [x] Advanced section: raw plist representation (read-only XML)
+- [x] Display mapping lives in pure presenters, not widgets
 
 ### Widget Tests (pytest-qt)
-- [ ] Main window loads with fake/injected services
-- [ ] Refresh renders discovered rows
-- [ ] Selecting each classification updates the inspector
-- [ ] External/invalid jobs have no edit/lifecycle controls
-- [ ] Warnings and raw plist details appear for partial/invalid jobs
-- [ ] Empty state and service-failure state render correctly
+- [x] Main window loads with fake/injected services (startup smoke)
+- [x] Refresh renders discovered rows
+- [x] Selecting managed/external/invalid agents updates the inspector
+- [x] External/invalid jobs have no edit/lifecycle controls (read-only inspector only)
+- [x] Warnings and raw plist details appear for partial/invalid jobs
+- [x] Empty state and service-failure state render correctly
 
 ### Documentation
-- [ ] README.md: GUI availability, launch instructions, discovery scope, read-only external-job policy
-- [ ] docs/architecture.md: GUI package boundary and shared composition root
-- [ ] docs/development.md: PySide6/Qt test setup and headless test requirements
-- [ ] PROJECT.md: Increment 9 complete; next: 10
-- [ ] TODOS.md: mark 9 complete, record verification
-- [ ] SUMMARY.md: Increment 9 scope, service contract changes, test total, coverage, lint/mypy
-- [ ] PLAN.md: update stale Increment 8 focus with Increment 9 completed and Increment 10 strategy
-- [ ] Version: 0.0.8 → 0.0.9
+- [x] README.md: GUI availability, launch instructions, discovery scope, read-only external-job policy
+- [x] docs/architecture.md: GUI package boundary and shared composition root
+- [x] docs/development.md: PySide6/Qt test setup and headless test requirements
+- [x] PROJECT.md: Increment 9 complete; next: 10
+- [x] TODOS.md: mark 9 complete, record verification
+- [x] SUMMARY.md: Increment 9 scope, service contract changes, test total, coverage, lint/mypy
+- [x] PLAN.md: Increment 9 completed, focus moved to Increment 10
+- [x] Version: 0.0.8 → 0.0.9
+
+### Verification
+- [x] `make check` green: 413 tests, 100% line coverage (whole package), ruff + mypy strict clean
 
 ## Crawl Increment 10 — GUI Job Creation, Edit, Save, and Validation (PENDING)
 

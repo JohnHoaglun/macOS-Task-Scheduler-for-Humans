@@ -163,15 +163,13 @@ Current technology decisions:
 * Python 3.12+
 * Pydantic 2.x
 * Typer (CLI)
+* PySide6 / Qt Widgets (GUI)
 * `plistlib`
 * pytest
 * pytest-cov
+* pytest-qt
 * Ruff
 * mypy
-
-Planned later in Crawl:
-
-* PySide6 / Qt Widgets
 
 The project intentionally avoids introducing a web backend or JavaScript frontend unless a future requirement makes one necessary.
 
@@ -185,6 +183,7 @@ src/
     ├── application/
     ├── cli/
     ├── domain/
+    ├── gui/
     ├── platform/
     │   └── macos/
     └── storage/
@@ -410,6 +409,40 @@ Exit codes:
 Reports and generated plist XML go to stdout; errors and diagnostics go to
 stderr.
 
+## Graphical Interface
+
+A read-only discovery GUI is available (Crawl Increment 9).
+
+Launch it from the repository root with the virtual environment active:
+
+```bash
+mactask-gui
+```
+
+The main window lists every LaunchAgent discovered under
+`~/Library/LaunchAgents` — application-managed jobs, external agents created
+by other software, and malformed or unsupported plists — and inspects the
+selected agent in a read-only detail panel:
+
+* Overview: name, label, classification, source plist path, enabled state,
+  launchd load status
+* Command: full command line and working directory
+* Schedule: plain-language schedule text
+* Environment: configured environment variables
+* Warnings: parser warnings and unsupported plist keys
+* Advanced: the raw plist (XML)
+
+Each agent is classified as **Managed** (managed by this application's job
+catalog), **External** (a valid plist outside the catalog), or **Invalid**
+(malformed or unsupported). The Refresh action (File menu, `Cmd+R`) re-runs
+discovery; the selected agent is preserved across refreshes when possible.
+
+**Read-only external-job policy:** the GUI discovers and displays external
+and invalid agents but never modifies them. No edit, install, enable,
+disable, or removal controls exist for agents the application does not
+manage; lifecycle operations for managed jobs arrive in later Crawl
+increments.
+
 ## Current Status
 
 The project is currently in the **Crawl** phase.
@@ -426,10 +459,13 @@ Current implementation scope:
 * application services (job service, log service, task command service)
 * `mactask` CLI (list, inspect, validate, generate, install, uninstall,
   enable, disable, status, run, test, logs)
+* read-only PySide6 GUI discovery browser (`mactask-gui`) with
+  managed/external/invalid classification and detail inspector
 
 Not yet implemented:
 
-* GUI
+* GUI job editing, lifecycle actions, and diagnostics (later Crawl
+  increments)
 * Python virtual-environment detection
 * LaunchDaemon support
 * privileged helpers

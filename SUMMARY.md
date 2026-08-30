@@ -2,6 +2,14 @@
 
 ## Changelog
 
+### v0.0.9
+- Crawl Increment 9: GUI Read/Discovery — PySide6 read-only discovery browser (`mactask-gui`): two-pane main window (agent table + read-only inspector) over the shared application services
+- Shared composition root extracted to `task_scheduler.bootstrap.build_services()`; the `mactask` CLI and the `mactask-gui` entry point wire the identical service graph
+- `TaskCommandService.inspect_discovered(path)` (root containment, read-only, never mutates) + `DiscoveredInspectReport` DTO (path, parsed, managed, status)
+- GUI package boundary: PySide6 imported only inside `gui/`; pure presenters own all display mapping, a pure-Python `DiscoveryController` bridges to the service and converts failures to error text; the GUI never imports `cli/`, `platform/`, `storage/`, `subprocess`, or `os.environ`
+- Read-only external-job policy: Managed/External/Invalid classification (invalid wins); external and invalid agents render in Overview/Command/Schedule/Environment/Warnings/Advanced (raw plist) with no edit or lifecycle controls; selection preserved across refreshes, empty state and discovery-failure states
+- PySide6 6.11.2 + pytest-qt; headless widget tests (`QT_QPA_PLATFORM=offscreen`, `qt_api = "pyside6"`); 85 new tests, 413 total, 100% line coverage across the whole package, ruff + mypy strict clean
+
 ### Planning: Crawl Increments 9–13 (GUI + Packaging)
 - Detailed implementation plan written to PLAN.md covering 5 increments:
   - **Increment 9:** GUI Read/Discovery — PySide6 main window, discover/list/inspect external and managed LaunchAgents, read-only external-job policy

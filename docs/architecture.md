@@ -20,7 +20,7 @@ Each layer may depend on the layer below it, but never on layers above it. No la
 
 | Layer | Purpose | Status |
 |---|---|---|
-| **GUI (PySide6)** | Native macOS desktop interface | Planned (next: Increment 9) |
+| **GUI (PySide6)** | Native macOS desktop interface | Implemented (Increment 9: read/discovery) |
 | **CLI (Typer)** | Terminal task management interface (`mactask`) | Implemented (Increment 8) |
 | **Application Services** | Use cases, orchestration, coordination (`TaskCommandService` facade, `JobService`, `LogService`) | Implemented (Increments 7–8) |
 | **Domain** | Core model: Job, Schedule, Command, Environment | Implemented |
@@ -62,3 +62,31 @@ All `launchctl` argument vectors and LaunchAgent plist writes stay inside
 `launchctl` commands or touch plist files directly. Process execution is
 injected (a `ProcessRunner` protocol), so the entire stack is unit-testable
 without invoking real `launchctl` or touching the live filesystem.
+
+## GUI Package Boundary and Shared Composition Root
+
+The GUI lives in `src/task_scheduler/gui/` and is the only place PySide6 is
+imported. UI views are kept thin:
+
+```text
+gui/
+├── app.py              # QApplication entry point (mactask-gui)
+├── main_window.py      # two-pane window: agent table + inspector
+├── controllers/        # pure-Python bridges to TaskCommandService (no Qt)
+├── models/             # QAbstractTableModel adapters
+├── presenters/         # pure-Python display mapping (no Qt, no services)
+└── widgets/            # read-only detail panels
+```
+
+* Controllers own service calls and convert failures into plain error
+  strings; presenters own every domain-to-string mapping; widgets only lay
+  out and display. Neither controllers nor presenters import PySide6.
+* Both entry points share one composition root:
+  `task_scheduler.bootstrap.build_services()` builds the identical service
+  graph (repository, job service, store, backend, codec, test service, log
+  service) for the `mactask` CLI and the `mactask-gui` entry point, so CLI
+  and GUI behavior cannot drift.
+* The GUI is read-only (Increment 9): it calls only `list_agents()` and
+  `inspect_discovered()`, neither of which writes files or mutates launchd
+  state. The GUI never imports `cli/`, `platform/`, `storage/`,
+  `subprocess`, or `os.environ`.

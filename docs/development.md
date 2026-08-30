@@ -38,9 +38,23 @@ pytest --cov=task_scheduler --cov-report=term-missing
 
 The source package maintains 100% line coverage.
 
+## GUI (PySide6) Test Setup
+
+The GUI is tested with pytest-qt and runs fully headless:
+
+* `tests/conftest.py` sets `QT_QPA_PLATFORM=offscreen`, so no display
+  server is required on the test machine.
+* `pyproject.toml` pins `qt_api = "pyside6"` for pytest-qt.
+* Widget tests use the `qtbot` fixture together with the same
+  `FakeTaskWorld`/`FakeProcessRunner` fakes and `tmp_path` roots as the CLI
+  tests; no test may touch `~/Library/LaunchAgents` or invoke real
+  `launchctl`.
+* `make check` runs the GUI tests on every change; line coverage of the
+  whole package stays at 100%.
+
 ## Current State
 
-Crawl increments 0–8 establish:
+Crawl increments 0–9 establish:
 
 - project/tooling foundation
 - normalized job domain model with Pydantic validation
@@ -52,8 +66,11 @@ Crawl increments 0–8 establish:
   `TaskCommandService` facade
 - `mactask` CLI (Typer): list, inspect, validate, generate, install,
   uninstall, enable, disable, status, run, test, logs
+- read-only PySide6 GUI discovery browser (`mactask-gui`) over the shared
+  `TaskCommandService` facade
 
-No GUI exists yet. Unit tests run against synthetic fakes and temporary
+Unit and GUI widget tests run against synthetic fakes and temporary
 directories and never touch `~/Library/LaunchAgents` or invoke real
-`launchctl`; OS integration tests are gated behind
+`launchctl`; GUI tests run headless via the offscreen Qt platform (see the
+GUI test setup above). OS integration tests are gated behind
 `MACTASK_ALLOW_SYSTEM_TESTS=1`.

@@ -1,7 +1,7 @@
 # PLAN.md
 
 ## Current State
-Crawl Increments 0–8 complete and pushed to `sched_dev_opencode` (commits through `a8a3e27`, version 0.0.8):
+Crawl Increments 0–9 complete and pushed to `sched_dev_opencode` (version 0.0.9):
 - **Increment 0:** project foundation (pyproject, Makefile, package structure, docs, tooling)
 - **Increment 1:** Pydantic domain model + schema-versioned JSON persistence
 - **Increment 2:** plist encoder (`PlistCodec`) + golden fixtures
@@ -11,9 +11,10 @@ Crawl Increments 0–8 complete and pushed to `sched_dev_opencode` (commits thro
 - **Increment 6:** LaunchAgent storage (`LaunchAgentStore` write/remove/discover + `LaunchAgentFilesystem`) + tests
 - **Increment 7:** launchctl adapter (`LaunchAgentBackend` install/uninstall/status/enable/disable/trigger) + protected integration tests
 - **Increment 8:** Typer CLI (`mactask`) with 12 commands + exit codes; `TaskCommandService` façade; `JobService` managed catalog
-- Verification at v0.0.8: 328 tests, 100% coverage, ruff + mypy strict clean
+- **Increment 9:** PySide6 GUI read/discovery (`mactask-gui`): shared `bootstrap.build_services()` composition root, `inspect_discovered` + `DiscoveredInspectReport`, pure presenters/controller, `AgentTableModel`, `AgentInspector`, two-pane `MainWindow`; read-only external-job policy; 413 tests
+- Verification at v0.0.9: 413 tests, 100% coverage, ruff + mypy strict clean
 
-Current focus: **Crawl Increments 9–13 — GUI + Packaging** (all PENDING).
+Current focus: **Crawl Increment 10 — GUI Job Creation, Edit, Save, and Validation** (PENDING); Increments 11–13 (GUI lifecycle, diagnostics/logs, packaging) planned below.
 
 ---
 
