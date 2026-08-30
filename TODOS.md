@@ -134,77 +134,51 @@
 ### Verification
 - [x] `make check` green: 413 tests, 100% line coverage (whole package), ruff + mypy strict clean
 
-## Crawl Increment 10 — GUI Job Creation, Edit, Save, and Validation (PENDING)
+## Crawl Increment 10 — GUI Job Creation, Edit, Save, and Validation (IN PROGRESS — plan approved, pinned decisions in PLAN.md)
 
-### Application-Service Work — New-job Defaults
-- [ ] Add new_managed_job(name, command, schedule) factory in application layer
-- [ ] Generate UUID and derive valid managed label by documented deterministic policy
-- [ ] Set enabled=True
-- [ ] Apply default working directory when a script is selected
-- [ ] Apply default stdout/stderr log paths: ~/Library/Logs/macOS Task Scheduler for Humans/<job-id>/stdout|stderr.log
-- [ ] Do not create log directories on default/factory; directory creation belongs to install/deploy
-- [ ] Unit tests: UUID, label, working-directory, log-default policies
+### Application — Factory and Save Policy (JobService)
+- [ ] `new_managed_job(name, command, schedule, *, job_id=None) -> JobDefinition`: schema_version=1, UUID (generated or injected), label `io.github.macos-task-scheduler.user.<slug>-<8-hex>`, enabled=True, working_directory=script.parent for PythonCommand only, default log paths under `~/Library/Logs/macOS Task Scheduler for Humans/<job-id>/`; no directory creation, no file writes
+- [ ] Label slug policy: lowercase ASCII, non-alphanumeric runs → `-`, edge dashes trimmed, blank → `task`
+- [ ] `JobService.save(job) -> Path`: writes `<job.id>.json`, overwrites only the same immutable id, `JobConflictError` on a label owned by a different id; `import_job` stays create-only
+- [ ] Tests: UUID generate/inject, label determinism + slug fallback, per-command-type working-directory default, log-path defaults, save new/existing/conflict/invalid label/immutable ID, no deployment side effects
 
-### Application-Service Work — Draft Validation and Plist Preview
-- [ ] Add TaskCommandService.validate_job(job: JobDefinition) -> JobDefinition
-- [ ] Add TaskCommandService.generate_plist_for(job: JobDefinition) -> str
-- [ ] Add TaskCommandService.detect_python(script: Path) -> PythonDetectionResult
-- [ ] Unit tests: draft validation, plist preview from in-memory job, Python detection delegation
+### Application — In-Memory Facade (TaskCommandService)
+- [ ] `new_managed_job(...)` delegating to the JobService factory
+- [ ] `validate_job(job) -> JobDefinition` (re-validate via `model_validate`)
+- [ ] `generate_plist_for(job) -> str` (validate first, PlistCodec, no temporary JSON)
+- [ ] `save_managed_job(job) -> Path` (catalog only: no plist, no launchctl, no log directories)
+- [ ] `detect_python(script: Path) -> PythonDetectionResult` (delegate to platform detection)
+- [ ] `resolve_managed_job(label: str) -> JobDefinition` (JobNotFoundError when absent)
+- [ ] Tests via FakeTaskWorld: each method, save catalog-only assertions (LaunchAgent root + process runner untouched), resolve-missing error
+- [ ] `make check` green + 100% package coverage after the application layer
 
-### Application-Service Work — Managed Catalog Save/Update
-- [ ] Add JobService.save(job: JobDefinition) -> Path
-- [ ] Add TaskCommandService.save_managed_job(job: JobDefinition) -> Path
-- [ ] New job creates its <uuid>.json catalog entry
-- [ ] Existing managed job overwrites only its own record by immutable job.id
-- [ ] Save rejects an existing label owned by another managed job
-- [ ] Save does not write plist, invoke launchctl, or create log directories
-- [ ] Save does not permit treating an external plist as an editable managed record
-- [ ] Label edits allowed only if new label is valid and unique in catalog
-- [ ] Unit tests: new save, existing save, conflict, invalid label, immutable-ID, no deployment side effects
+### GUI — Pure Editor Controller
+- [ ] `gui/controllers/editor_controller.py`: Qt-free draft DTO (uuid, name, label + auto-label flag, enabled, command kind + fields, argument rows, time, weekdays, working dir + auto flag, env rows, stdout/stderr paths)
+- [ ] Frozen outcomes: validate (job or field errors), preview (job + XML or errors), save (path + job or error), detect (candidates + recommendation or error); errors mapped to stable field names
+- [ ] Retained draft UUID; auto defaults (label, script working dir, log paths) applied only while the corresponding fields remain automatic
+- [ ] `tests/unit/gui/test_editor_controller.py`: DTO→domain conversion, field-error mapping, auto vs manual fields, preview gating, save non-deployment, detection outcomes
 
-### GUI — Editor
-- [ ] JobEditor widget with General, Command, Schedule, Working Directory, Environment, Logging, Advanced sections
-- [ ] General section: name, label, command type selector
-- [ ] Command section: type-specific fields (Python interpreter/script/args, Shell exe/args, Exe exe/args) + argument list editor
-- [ ] Schedule section: time picker + weekday checkboxes
-- [ ] Working Directory section: visible default/recommendation + manual override
-- [ ] Environment section: key/value table with explicit add/remove controls
-- [ ] Logging section: default paths shown, editable absolute paths, explanation text
-- [ ] Advanced section: generated plist preview + immutable job ID
-- [ ] Argument table or one-argument-per-row editor (no free-text shell parsing)
-- [ ] New Task button + Edit Managed Task gated behind managed selection
+### GUI — Job Editor Dialog
+- [ ] `gui/widgets/row_table.py`: generic add/remove row table (1 column for arguments, 2 for environment key/value)
+- [ ] `gui/widgets/job_editor.py` (QDialog, stable objectNames): General (name, label, type selector), Command (stacked Python/Shell/Executable fields + argument table, no shell parsing), Schedule (time + weekday checkboxes + sleep/wake disclaimer), Working Directory (editable + recommendation), Environment (key/value table), Logging (optional stdout/stderr absolute paths + explanation), Advanced (immutable UUID + read-only XML preview)
+- [ ] New Task: blank schedule, no command paths — draft invalid until required fields + time + ≥1 weekday
+- [ ] Validate action + before-Save validation; field-level errors + summary; Save initially enabled, disabled only after a known-invalid result, re-enabled when the draft changes; preview only from the validated canonical job
+- [ ] Python script selection triggers detection: candidates in priority order with source, selecting a candidate populates the interpreter field, detection failure informative, manual absolute interpreter always allowed
+- [ ] `tests/unit/gui/test_job_editor.py`: all pinned widget scenarios (forms, argument rows, schedule validation, candidates, working directory, env add/remove, logging disabled by clearing, preview, Save toggle on invalid states, save through fakes only)
 
-### GUI — Validation UX
-- [ ] Validate on explicit action and before Save
-- [ ] Display field-level validation errors + summary panel/dialog
-- [ ] Disable Save while the current draft is known invalid
-- [ ] Do not persist invalid drafts
-- [ ] Display sleep/wake disclaimer beside the schedule
+### GUI — Main Window Integration
+- [ ] `new_task_action` + `edit_managed_task_action` in the File menu; editor controller constructed in the `gui/app.py` composition
+- [ ] Edit enabled only for a selected managed row with a valid parsed label; resolves the catalog job by label; external/invalid rows stay read-only
+- [ ] After successful save: refresh discovery preserving selection by path; no lifecycle calls
+- [ ] Extend `tests/unit/gui/test_main_window.py`: New Task action, Edit gating by classification, save-then-refresh, no lifecycle/process calls
 
-### GUI — Python Selection UX
-- [ ] Script selection triggers detect_python()
-- [ ] Show candidates in priority order with source/recommendation
-- [ ] Selecting a candidate populates the interpreter field
-- [ ] Detection failure is informative, not blocking; user can enter an absolute interpreter path manually
-
-### Widget Tests
-- [ ] New-task defaults
-- [ ] Switching among Python, Shell, and Executable forms
-- [ ] Time and weekday validation
-- [ ] Interpreter-candidate rendering and manual selection
-- [ ] Working-directory recommendation/override
-- [ ] Environment-variable add/remove
-- [ ] Plist preview from a valid draft
-- [ ] Invalid form states and error rendering
-- [ ] Managed job edit enabled; external job edit unavailable
-- [ ] Save writes through fake services only and does not call lifecycle methods
-
-### Documentation
+### Closeout
+- [ ] `make check` + explicit whole-package 100% coverage + offscreen GUI import smoke
 - [ ] README.md: creating, editing, validating, saving, Python detection, schedule limits, log defaults, "Save does not deploy"
-- [ ] docs/architecture.md: new draft/save application contracts and managed JSON lifecycle
-- [ ] docs/development.md: GUI form-test conventions and fake service setup
-- [ ] PROJECT.md, TODOS.md, PLAN.md, SUMMARY.md
-- [ ] Version: 0.0.9 → 0.0.10
+- [ ] docs/architecture.md: draft/controller/service contracts and managed JSON lifecycle
+- [ ] docs/development.md: editor test conventions, offscreen Qt, fake service setup
+- [ ] PROJECT.md / TODOS.md / PLAN.md / SUMMARY.md updates
+- [ ] Version 0.0.9 → 0.0.10 (registry + stale-reference grep), commit + push
 
 ## Crawl Increment 11 — GUI Installation and Lifecycle (PENDING)
 

@@ -2,6 +2,12 @@
 
 ## Changelog
 
+### Planning: Crawl Increment 10 Detail (approved)
+- Pinned product decisions: managed label policy (`io.github.macos-task-scheduler.user.<slug>-<8-hex>` of the job UUID), draft UUID retained for the draft's lifetime, logging expressed via cleared stdout/stderr paths (no toggle), Save validates on click and disables only after a known-invalid result, Edit limited to the selected Managed discovery row resolved by label, New Task opens with a blank schedule and no command paths
+- Application surface: `JobService.new_managed_job` (factory with deterministic label/working-dir/log defaults, no directory creation) + `JobService.save` (immutable-ID overwrite, label-conflict rejection); `TaskCommandService` in-memory `validate_job` / `generate_plist_for` / `save_managed_job` (catalog-only, non-deploying) / `detect_python` / `resolve_managed_job`
+- GUI: Qt-free `EditorController` with a draft DTO and frozen outcomes; `JobEditor` dialog with seven sections (argument/environment row tables, stacked command forms, sleep/wake disclaimer, plist preview); main-window New Task and Edit Managed Task actions with managed-only gating
+- Execution: micro-slice subagent tasks with on-disk verification; 0.0.9 → 0.0.10 at closeout
+
 ### v0.0.9
 - Crawl Increment 9: GUI Read/Discovery — PySide6 read-only discovery browser (`mactask-gui`): two-pane main window (agent table + read-only inspector) over the shared application services
 - Shared composition root extracted to `task_scheduler.bootstrap.build_services()`; the `mactask` CLI and the `mactask-gui` entry point wire the identical service graph

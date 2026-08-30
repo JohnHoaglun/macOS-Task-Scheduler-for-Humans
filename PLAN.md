@@ -170,6 +170,16 @@ All tests must use temporary roots and fakes. No default unit test may touch rea
 ### Goal
 Allow users to create and edit application-managed job definitions in the GUI, validate them through the domain model, save them to the managed JSON catalog, and preview the generated plist without deploying it.
 
+### Pinned Decisions (approved 2026-08-29)
+1. **Managed label policy:** `io.github.macos-task-scheduler.user.<slug>-<8-hex>` — slug = the job name lowercased to ASCII with runs of non-alphanumerics collapsed to `-` and edge `-` trimmed (blank falls back to `task`); 8-hex = first 8 hex chars of the job UUID. Generated while the label is untouched; a manual edit is kept and must pass domain validation plus catalog uniqueness.
+2. **Draft UUID:** created once when a draft is opened (New Task or Edit) and retained for the draft's lifetime so label/working-directory/log-path defaults stay stable across Validate → Save.
+3. **Logging:** no toggle — the paths are the model. New drafts default both streams to `~/Library/Logs/macOS Task Scheduler for Humans/<job-id>/`; clearing a path disables that stream, clearing both disables logging.
+4. **Save-validity UX:** Save starts enabled and validates on click. After a validation failure Save is disabled until the draft changes. A known-invalid draft is never persisted.
+5. **Edit scope:** only the selected **Managed** discovery row with a valid parsed label. The catalog job is resolved by label (`resolve_managed_job`); external/invalid rows and catalog-only (non-deployed) jobs are out of scope this increment.
+6. **New Task defaults:** blank schedule (no preselected time or weekdays), no command paths, Python form preselected. The draft is invalid until the user supplies a valid command plus a time plus at least one weekday.
+7. **Facade surface (all in-memory, GUI-safe):** `new_managed_job`, `validate_job` (re-validates via Pydantic, not an identity method), `generate_plist_for` (validate then encode; no temporary JSON), `save_managed_job` (catalog only — no plist, no launchctl, no log directories), `detect_python` (delegates to platform detection), `resolve_managed_job`.
+8. **Execution:** micro-slice subagent tasks (one source or test group per slice), on-disk verification before each commit, `make check` + 100% package coverage per slice; docs and the 0.0.9 → 0.0.10 bump land in one closeout commit.
+
 ### Requirements
 - Add **New Task**, **Edit Managed Task**, **Save**, and **Validate** actions.
 - Support three command forms:
