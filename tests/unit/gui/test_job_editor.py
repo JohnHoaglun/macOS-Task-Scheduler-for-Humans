@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFileDialog,
+    QLabel,
     QLineEdit,
     QPlainTextEdit,
     QPushButton,
@@ -27,6 +28,11 @@ from task_scheduler.domain import (
 from task_scheduler.gui.controllers.editor_controller import EditorController
 from task_scheduler.gui.widgets.job_editor import JobEditor
 from task_scheduler.gui.widgets.row_table import RowTable
+from task_scheduler.platform.macos import (
+    CandidateSource,
+    InterpreterCandidate,
+    PythonDetectionResult,
+)
 from tests.conftest import make_job
 from tests.fakes import FakeTaskWorld
 
@@ -98,6 +104,28 @@ def fill_valid_python(editor: JobEditor) -> None:
     line_edit(editor, "editor-script").setText("/tmp/nightly.py")
     line_edit(editor, "editor-time").setText("01:00")
     checkbox(editor, "monday").setChecked(True)
+
+
+def _detection_result(
+    script_text: str, candidates, working_directory=None,
+) -> PythonDetectionResult:
+    """A canned detection result for dialog tests."""
+    return PythonDetectionResult(
+        script=Path(script_text),
+        candidates=candidates,
+        working_directory=working_directory,
+    )
+
+
+def fake_detection(
+    editor: JobEditor,
+    candidates,
+    working_directory=None,
+) -> None:
+    """Replace the controller's detect_python with a canned responder."""
+    editor._controller.detect_python = lambda script: _detection_result(
+        str(script), candidates, working_directory
+    )
 
 
 def errors(editor: JobEditor) -> QPlainTextEdit:
@@ -362,3 +390,85 @@ class TestUnopenedDialog:
         button(editor, "editor-save").click()
         assert not errors(editor).isVisible()
         assert editor.result() == 0
+
+
+class TestPythonDetection:
+    def test_note_initial(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """A fresh python page shows the idle detection note."""
+        _, editor, _ = make_editor(qtbot, tmp_path)
+        note = editor.findChild(QLabel, "editor-detection-note")
+        assert note is not None
+        assert note.text() == "Select a script to detect its interpreter."
+
+    def test_script_change_populates_candidates(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """Editing the script fills the candidate combo with sources."""
+        _, editor, _ = make_editor(qtbot, tmp_path)
+        fake_detection(
+            editor,
+            [
+                InterpreterCandidate(
+                    path=Path("/tmp/proj/.venv/bin/python"), source=CandidateSource.VENV
+                ),
+                InterpreterCandidate(path=Path("/usr/bin/python3"), source=CandidateSource.PATH),
+            ],
+        )
+        editor.findChild(QLineEdit, "editor-script").setText("/tmp/proj/main.py")
+        combo = editor.findChild(QComboBox, "editor-candidates")
+        assert combo is not None
+        assert combo.count() == 2
+        assert combo.itemText(0) == "/tmp/proj/.venv/bin/python (.venv)"
+        use = button(editor, "editor-use-candidate")
+        assert use.isEnabled()
+
+    def test_use_candidate_populates_interpreter_and_working_dir(
+        self, qtbot: QtBot, tmp_path: Path
+    ) -> None:
+        """Using a candidate fills the interpreter and the empty working dir."""
+        _, editor, _ = make_editor(qtbot, tmp_path)
+        fake_detection(
+            editor,
+            [
+                InterpreterCandidate(
+                    path=Path("/tmp/proj/.venv/bin/python"), source=CandidateSource.VENV
+                )
+            ],
+            working_directory=Path("/tmp/proj"),
+        )
+        editor.findChild(QLineEdit, "editor-script").setText("/tmp/proj/main.py")
+        combo = editor.findChild(QComboBox, "editor-candidates")
+        assert combo is not None
+        combo.setCurrentIndex(0)
+        button(editor, "editor-use-candidate").click()
+        assert line_edit(editor, "editor-interpreter").text() == "/tmp/proj/.venv/bin/python"
+        assert line_edit(editor, "editor-working-directory").text() == "/tmp/proj"
+
+    def test_no_candidates_informs(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """An empty candidate list disables Use and shows the no-match note."""
+        _, editor, _ = make_editor(qtbot, tmp_path)
+        fake_detection(editor, [])
+        editor.findChild(QLineEdit, "editor-script").setText("/tmp/proj/main.py")
+        combo = editor.findChild(QComboBox, "editor-candidates")
+        assert combo is not None
+        assert combo.count() == 0
+        assert not button(editor, "editor-use-candidate").isEnabled()
+        note = editor.findChild(QLabel, "editor-detection-note")
+        assert note is not None
+        assert note.text() == (
+            "No interpreters detected for this script. Type the interpreter path above."
+        )
+
+    def test_script_cleared_resets_detection(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """Blanking the script clears candidates and resets the note."""
+        _, editor, _ = make_editor(qtbot, tmp_path)
+        fake_detection(
+            editor,
+            [InterpreterCandidate(path=Path("/usr/bin/python3"), source=CandidateSource.PATH)],
+        )
+        script = line_edit(editor, "editor-script")
+        script.setText("/tmp/proj/main.py")
+        combo = editor.findChild(QComboBox, "editor-candidates")
+        assert combo is not None
+        assert combo.count() == 1
+        script.setText("")
+        assert combo.count() == 0
+        assert not button(editor, "editor-use-candidate").isEnabled()

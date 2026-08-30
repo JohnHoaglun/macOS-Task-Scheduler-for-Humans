@@ -46,6 +46,7 @@ class JobEditor(QDialog):
         self._draft: JobDraft | None = None
         self._saved_path: Path | None = None
         self._saved_label: str | None = None
+        self._working_dir_hint: Path | None = None
         content = QWidget()
         content_layout = QVBoxLayout(content)
         content_layout.addWidget(self._build_identity())
@@ -80,6 +81,9 @@ class JobEditor(QDialog):
         self._name.textEdited.connect(self._on_draft_changed)
         self._label.textEdited.connect(self._on_label_edited)
         self._time.textEdited.connect(self._on_draft_changed)
+        self._script.textEdited.connect(self._on_draft_changed)
+        self._script.textChanged.connect(self._on_script_changed)
+        self._use_candidate.clicked.connect(self._on_use_candidate)
         for checkbox in self._weekdays:
             checkbox.toggled.connect(self._on_draft_changed)
         self._kind_combo.currentIndexChanged.connect(self._on_kind_changed)
@@ -126,6 +130,23 @@ class JobEditor(QDialog):
         self._python_args = RowTable(1, python_page)
         self._python_args.setObjectName("editor-python-arguments")
         python_form.addRow("Arguments", self._python_args)
+        detection_row = QWidget(python_page)
+        detection_layout = QHBoxLayout(detection_row)
+        detection_layout.setContentsMargins(0, 0, 0, 0)
+        self._candidates = QComboBox(detection_row)
+        self._candidates.setObjectName("editor-candidates")
+        self._use_candidate = QPushButton("Use", detection_row)
+        self._use_candidate.setObjectName("editor-use-candidate")
+        self._use_candidate.setEnabled(False)
+        detection_layout.addWidget(QLabel("Detected interpreters:"))
+        detection_layout.addWidget(self._candidates)
+        detection_layout.addWidget(self._use_candidate)
+        python_form.addRow(detection_row)
+        self._detection_note = QLabel(python_page)
+        self._detection_note.setObjectName("editor-detection-note")
+        self._detection_note.setWordWrap(True)
+        self._detection_note.setText("Select a script to detect its interpreter.")
+        python_form.addRow(self._detection_note)
         self._stack.addWidget(python_page)
         shell_page = QWidget(self._stack)
         shell_form = QFormLayout(shell_page)
@@ -153,6 +174,34 @@ class JobEditor(QDialog):
     def _on_kind_changed(self, index: int) -> None:
         """Switch the command page when the kind selection changes."""
         self._stack.setCurrentIndex(index)
+
+    def _on_script_changed(self, text: str) -> None:
+        """Detect interpreter candidates for the current script path."""
+        text = text.strip()
+        if not text:
+            self._candidates.clear()
+            self._use_candidate.setEnabled(False)
+            self._working_dir_hint = None
+            self._detection_note.setText("Select a script to detect its interpreter.")
+            return
+        result = self._controller.detect_python(Path(text))
+        self._working_dir_hint = result.working_directory
+        self._candidates.clear()
+        for candidate in result.candidates:
+            self._candidates.addItem(f"{candidate.path} ({candidate.source.value})", candidate.path)
+        self._use_candidate.setEnabled(self._candidates.count() > 0)
+        if result.candidates:
+            self._detection_note.setText("Choose a candidate or type an interpreter path above.")
+        else:
+            self._detection_note.setText(
+                "No interpreters detected for this script. Type the interpreter path above."
+            )
+
+    def _on_use_candidate(self) -> None:
+        """Populate the interpreter field with the selected candidate."""
+        self._interpreter.setText(str(self._candidates.currentData()))
+        if self._working_dir_hint is not None and not self._working_directory.text().strip():
+            self._working_directory.setText(str(self._working_dir_hint))
 
     def _on_draft_changed(self, *_: object) -> None:
         """Enable Save once any draft field has been edited."""
