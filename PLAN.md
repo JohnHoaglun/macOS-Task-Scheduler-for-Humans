@@ -1,7 +1,7 @@
 # PLAN.md
 
 ## Current State
-Crawl Increments 0–9 complete and pushed to `sched_dev_opencode` (version 0.0.9):
+Crawl Increments 0–10 complete and pushed to `sched_dev_opencode` (version 0.0.10):
 - **Increment 0:** project foundation (pyproject, Makefile, package structure, docs, tooling)
 - **Increment 1:** Pydantic domain model + schema-versioned JSON persistence
 - **Increment 2:** plist encoder (`PlistCodec`) + golden fixtures
@@ -12,9 +12,10 @@ Crawl Increments 0–9 complete and pushed to `sched_dev_opencode` (version 0.0.
 - **Increment 7:** launchctl adapter (`LaunchAgentBackend` install/uninstall/status/enable/disable/trigger) + protected integration tests
 - **Increment 8:** Typer CLI (`mactask`) with 12 commands + exit codes; `TaskCommandService` façade; `JobService` managed catalog
 - **Increment 9:** PySide6 GUI read/discovery (`mactask-gui`): shared `bootstrap.build_services()` composition root, `inspect_discovered` + `DiscoveredInspectReport`, pure presenters/controller, `AgentTableModel`, `AgentInspector`, two-pane `MainWindow`; read-only external-job policy; 413 tests
-- Verification at v0.0.9: 413 tests, 100% coverage, ruff + mypy strict clean
+- **Increment 10:** GUI job creation/edit/save/validate: `JobService.new_managed_job` managed label policy + catalog-only `save`, `TaskCommandService` in-memory editor façade (`validate_job`/`generate_plist_for`/`save_managed_job`/`detect_python`/`resolve_managed_job`), Qt-free `EditorController` + `JobDraft`, `RowTable`, `JobEditor` dialog, New Task / Edit Managed Task actions; 544 tests
+- Verification at v0.0.10: 544 tests, 100% coverage, ruff + mypy strict clean
 
-Current focus: **Crawl Increment 10 — GUI Job Creation, Edit, Save, and Validation** (PENDING); Increments 11–13 (GUI lifecycle, diagnostics/logs, packaging) planned below.
+Current focus: **Crawl Increment 11 — GUI Installation and Lifecycle** (IN PROGRESS, approved plan below); Increments 12–13 (diagnostics/logs, packaging) planned below.
 
 ---
 
@@ -296,6 +297,11 @@ Use an argument table or one-argument-per-row editor. Do not parse free-text she
 ### Goal
 Allow users to explicitly deploy saved managed jobs and control their lifecycle through launchd, while protecting external jobs from modification.
 
+### Pinned Decisions (approved 2026-08-30)
+1. **Saved jobs are visible and installable:** catalog-only managed jobs (saved but not deployed) are merged into the main listing as an explicit **Saved, not installed** state — one unified table and selection model, no separate Saved section.
+2. **Managed-only lifecycle is enforced at both boundaries:** `TaskCommandService` rejects every lifecycle operation whose target is not a managed catalog job (application boundary), and the GUI additionally disables lifecycle actions for non-managed rows (presentation boundary). The previous ability to operate on external labels by raw label is intentionally removed.
+3. **Lifecycle state UI is truthful:** state = persisted desired configuration (`JobDefinition.enabled`) + runtime loaded state from launchctl status. Displayed states: **Saved, not installed** / **Installed, configured enabled (loaded/not loaded)** / **Installed, configured disabled (loaded/not loaded)** / **Status unknown**. No speculative launchd runtime enable-state parser in this increment.
+
 ### Requirements
 - Add **Install**, **Reinstall**, **Uninstall**, **Enable**, **Disable**, and **Run Now** actions for managed jobs.
 - Keep **Reinstall** explicit. It applies saved managed JSON changes to a previously installed LaunchAgent.
@@ -307,6 +313,11 @@ Allow users to explicitly deploy saved managed jobs and control their lifecycle 
 
 ### Application-Service Work
 
+**Unified task listing (merged catalog + discovery):**
+- Introduce a unified listing DTO (`TaskListing`) carrying: listing kind (`saved` catalog-only / `discovered`), optional plist path, optional parsed plist, classification (managed/external/invalid), canonical `JobDefinition` when managed, and launchd status where available.
+- `TaskCommandService.list_agents()` merges discovered LaunchAgents with catalog jobs that have no deployed plist, deterministically sorted.
+- `AgentTableModel`, presenters, and the inspector consume the unified DTO; a catalog-only row displays **Saved, not installed** and exposes no plist/Advanced details.
+
 **Pinned lifecycle contracts:**
 ```python
 TaskCommandService.install(job: JobDefinition) -> InstallResult
@@ -316,8 +327,15 @@ TaskCommandService.reinstall(label: str) -> InstallResult
 - **Install:** save/import managed JSON, create deployment plist, bootstrap the agent.
 - **Reinstall:** resolve the saved managed JSON, safely replace its deployed plist, and reload/bootstrap.
 - **Uninstall:** boot out the LaunchAgent and remove only the matching managed catalog record after successful bootout.
-- **Enable/Disable/Run Now/Status:** remain label-based but GUI gating requires a managed selected agent.
+- **Enable/Disable/Run Now/Status:** remain label-based but every label resolves through the managed catalog first.
 - Every lifecycle operation preserves the underlying `ProcessResult`.
+
+**Managed-only lifecycle guards (application boundary):**
+- `uninstall`, `enable`, `disable`, `status`, `run_now`, and `reinstall` resolve the label through the catalog before any backend call; a non-managed label raises the managed-job-not-found error instead of touching launchd.
+- CLI commands surface the managed-only rejection with the established exit codes; service tests prove no backend call occurs for external labels.
+
+**InstallResult enrichment (pinned return type kept):**
+- `InstallResult` keeps its primary `ProcessResult` and gains optional bootout/bootstrap phase results, a completed-phase marker, and retained artifact paths (staged/backup) so failures are diagnosable without claiming rollback.
 
 **Reinstall transaction semantics:**
 1. Resolve managed job and validate label.
@@ -329,21 +347,37 @@ TaskCommandService.reinstall(label: str) -> InstallResult
 7. Do not claim rollback succeeded unless it is verified.
 8. Do not silently overwrite an existing plist.
 
+**Staging primitives (minimal):**
+- Extend `LaunchAgentFilesystem` + `FakeFilesystem` with the atomic move/replace primitives required: stage a uniquely named sibling plist via create-exclusive semantics, preserve the deployed plist as a uniquely named backup sibling, and an explicit activate step.
+- `LaunchAgentStore` staging API: stage → backup → activate; never silently overwrites an existing plist.
+- `LaunchAgentBackend` gains the separate bootout and bootstrap phase methods used by the reinstall sequence.
+
 Add only the minimal store/backend capability needed for the explicit replace/reload path, with tests for its failure behavior.
 
 ### GUI Design
 
-- Enable actions only when a managed task is selected.
-- Clearly distinguish: Saved but not installed; Installed and enabled; Installed and disabled; Status unknown.
-- Confirm Uninstall and Reinstall, with task name/label and scope stated plainly.
+**Lifecycle actions:**
+- A **Lifecycle** menu with stable public `QAction` attributes: `install_action`, `reinstall_action`, `uninstall_action`, `enable_action`, `disable_action`, `run_now_action`.
+- A saved (not installed) managed row enables only **Install**.
+- An installed managed row enables **Reinstall**, **Uninstall**, **Enable**, **Disable**, and **Run Now**.
+- External and invalid rows have no lifecycle actions.
+
+**State presentation:**
+- Clearly distinguish: **Saved, not installed** / **Installed, configured enabled (loaded/not loaded)** / **Installed, configured disabled (loaded/not loaded)** / **Status unknown**.
+- `JobDefinition.enabled` is presented as configured state, never asserted as a launchd runtime enable state.
+
+**Confirmations and results:**
+- Confirm **Uninstall** and **Reinstall**, naming the task, the exact managed label, and the scope (current-user LaunchAgent only).
 - Operation-result dialog/panel containing:
   - Human-readable action result.
   - Exit code.
-  - Launchd output/error details.
-  - "View technical details" expandable section.
-- Run each service call in a worker/controller operation layer. Marshal result DTOs back to the main thread.
-- Disable duplicate action buttons while an operation is in flight.
-- Refresh discovery and selected-agent status after successful lifecycle actions.
+  - Launchd output/error details (stdout/stderr, launch-failure details).
+  - "View technical details" expandable section (phase results, retained artifact paths).
+
+**Worker boundary:**
+- Qt-free lifecycle controller (`LifecycleAction` enum, immutable outcome DTOs, managed-target validation) plus a `QObject` worker moved to a `QThread`; all mutating service calls run off the main Qt thread; immutable results marshal back via Qt signals.
+- All lifecycle controls (and conflicting New/Edit actions) disable while an operation is in flight — no duplicate dispatch; UI state restores on completion or worker exception.
+- Refresh the merged listing after successful lifecycle actions; preserve the selected identity where possible and fall back predictably after uninstall.
 
 ### Testing
 
@@ -363,8 +397,22 @@ Add only the minimal store/backend capability needed for the explicit replace/re
 - Failure result display with stdout/stderr/exit code.
 - External/invalid task actions remain unavailable.
 - Worker completion/error propagation without calling real platform services.
+- Multi-phase transaction tests script ordered results through `FakeProcessRunner`/`FakeTaskWorld` (stage → bootout → backup → activate → bootstrap) and assert per-phase artifact retention on failure.
+- Modal confirmation/result dialogs are exercised with the established `QTimer.singleShot(0, ...)` pattern before the synchronous action trigger (pytest-qt runs single-threaded).
 
 Retain existing protected system integration tests. Add real launchctl integration coverage only for behavior that fake-backed tests cannot establish, guarded by `MACTASK_ALLOW_SYSTEM_TESTS=1`.
+
+### Approved Execution Plan (micro-slices, approved 2026-08-30)
+1. Unified `TaskListing` DTO + merged `list_agents()` + presenter/table/inspector support (+ tests).
+2. Managed-only service guards + CLI rejection + `InstallResult` enrichment (+ tests).
+3. Filesystem/store staging primitives + backend bootout/bootstrap phase methods (+ failure tests).
+4. `install(job)` / `reinstall(label)` service behavior + exhaustive transaction tests.
+5. Qt-free lifecycle controller + `QThread` worker (+ controller/worker tests).
+6. Lifecycle menu actions, confirmations, result dialog, state presentation (+ widget tests).
+7. GUI integration tests; restore 100% whole-package coverage.
+8. Docs + version 0.0.10 → 0.0.11 closeout (README, architecture, development, PROJECT/TODOS/PLAN/SUMMARY), `make check`, commit, push.
+
+Each slice: on-disk verification, `make check` + 100% package coverage, commit before the next slice.
 
 ### Documentation at Increment 11 Close
 - `README.md`: install, reinstall, uninstall, enable, disable, run-now workflow and user-only safety boundary.
