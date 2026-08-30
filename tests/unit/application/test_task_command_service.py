@@ -8,6 +8,7 @@ invokes the real launchctl.
 from __future__ import annotations
 
 import plistlib
+import sys
 from datetime import timedelta
 from pathlib import Path
 from uuid import UUID
@@ -18,17 +19,24 @@ from tests.conftest import make_job
 from tests.fakes import FakeTaskWorld
 
 from task_scheduler.application import JobConflictError, JobNotFoundError
+from task_scheduler.application.job_service import (
+    default_job_logs_root,
+    managed_label,
+)
 from task_scheduler.domain import (
     EnvironmentConfig,
+    JobDefinition,
     LoggingConfig,
     UnsupportedSchemaVersionError,
 )
 from task_scheduler.domain.command import command_argv
 from task_scheduler.platform.macos import (
     LAUNCHCTL_PATH,
+    CandidateSource,
     LaunchAgentStatus,
     LaunchctlAction,
     ParseSupport,
+    PlistCodec,
     ProcessLaunchFailure,
     ProcessResult,
 )
@@ -40,6 +48,13 @@ def job_file(tmp_path: Path, job) -> Path:
     path = tmp_path / "job.json"
     path.write_text(job.model_dump_json(exclude_none=True), encoding="utf-8")
     return path
+
+
+def broken_job(job: JobDefinition) -> JobDefinition:
+    """A job whose label fails validation, bypassing the model's checks."""
+    data = job.model_dump()
+    data["label"] = "bad label"
+    return JobDefinition.model_construct(**data)
 
 
 class TestListAgents:
@@ -388,3 +403,112 @@ class TestDirectTestAndLogs:
         logs = world.services.read_logs(job.label)
         assert logs.stdout.content == "job stdout\n"
         assert logs.stderr.path is None
+
+
+class TestEditorFacade:
+    def test_new_managed_job_builds_in_memory_job_without_persisting(
+        self, tmp_path: Path
+    ) -> None:
+        world = FakeTaskWorld(tmp_path)
+        base = make_job()
+        job = world.services.new_managed_job(
+            "Daily Backup", base.command, base.schedule, job_id=OTHER_ID
+        )
+        assert job.id == OTHER_ID
+        assert job.name == "Daily Backup"
+        assert job.label == managed_label("Daily Backup", OTHER_ID)
+        assert job.enabled is True
+        assert not world.catalog_root.exists()
+        assert world.jobs.find(job.label) is None
+        assert not world.la_root.exists()
+        assert world.launch_runner.specs == []
+        assert world.test_runner.specs == []
+
+    def test_validate_job_returns_validated_job(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        job = make_job()
+        assert world.services.validate_job(job).model_dump() == job.model_dump()
+
+    def test_validate_job_revalidates_through_the_model(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        with pytest.raises(ValueError):
+            world.services.validate_job(broken_job(make_job()))
+
+    def test_generate_plist_for_matches_codec(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        job = make_job()
+        text = world.services.generate_plist_for(job)
+        assert text == PlistCodec().encode_bytes(job).decode("utf-8")
+        assert text.startswith("<?xml")
+        assert job.label in text
+
+    def test_generate_plist_for_rejects_invalid_job(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        with pytest.raises(ValueError):
+            world.services.generate_plist_for(broken_job(make_job()))
+
+    def test_save_new_job_persists_catalog_only(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        job = make_job()
+        path = world.services.save_managed_job(job)
+        assert path == world.catalog_root / f"{job.id}.json"
+        assert path.is_file()
+        assert world.services.resolve_managed_job(job.label).id == job.id
+        assert not world.store.destination_for(job.label).exists()
+        assert world.launch_runner.specs == []
+        assert not (default_job_logs_root() / job.id.hex).exists()
+
+    def test_save_update_overwrites_own_record(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        job = make_job()
+        world.services.save_managed_job(job)
+        world.services.save_managed_job(job.model_copy(update={"name": "Renamed"}))
+        assert list(world.catalog_root.glob("*.json")) == [
+            world.catalog_root / f"{job.id}.json"
+        ]
+        assert world.services.resolve_managed_job(job.label).name == "Renamed"
+
+    def test_save_conflict_keeps_original_record(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        job = make_job()
+        path = world.services.save_managed_job(job)
+        original = path.read_bytes()
+        with pytest.raises(JobConflictError):
+            world.services.save_managed_job(job.model_copy(update={"id": OTHER_ID}))
+        assert path.read_bytes() == original
+        assert not (world.catalog_root / f"{OTHER_ID}.json").exists()
+
+    def test_save_invalid_job_writes_nothing(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        with pytest.raises(ValueError):
+            world.services.save_managed_job(broken_job(make_job()))
+        assert not world.catalog_root.exists()
+
+    def test_detect_python_reports_candidates_for_script(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        script = tmp_path / "run.py"
+        script.write_text("print('hello')\n", encoding="utf-8")
+        venv_python = tmp_path / ".venv" / "bin" / "python"
+        venv_python.parent.mkdir(parents=True)
+        venv_python.write_bytes(b"")
+        venv_python.chmod(0o755)
+        result = world.services.detect_python(script)
+        assert result.script == script
+        assert result.candidates
+        current = [
+            candidate
+            for candidate in result.candidates
+            if candidate.source is CandidateSource.CURRENT
+        ]
+        assert current and current[0].path == Path(sys.executable)
+
+    def test_resolve_managed_job_returns_saved_job(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        job = make_job()
+        world.services.save_managed_job(job)
+        assert world.services.resolve_managed_job(job.label).id == job.id
+
+    def test_resolve_unknown_label_raises(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        with pytest.raises(JobNotFoundError):
+            world.services.resolve_managed_job("missing.label")

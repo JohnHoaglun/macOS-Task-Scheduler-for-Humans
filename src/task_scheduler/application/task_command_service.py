@@ -11,11 +11,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from uuid import UUID
 
 from task_scheduler.application.job_service import JobService
 from task_scheduler.application.log_service import JobLogs, LogService
 from task_scheduler.application.test_service import DirectTestResult, DirectTestService
-from task_scheduler.domain import JobDefinition
+from task_scheduler.domain import Command, JobDefinition, Schedule
 from task_scheduler.platform.macos import (
     DiscoveredLaunchAgent,
     LaunchAgentBackend,
@@ -25,8 +26,12 @@ from task_scheduler.platform.macos import (
     ParsedLaunchAgent,
     PlistCodec,
     ProcessResult,
+    PythonDetectionResult,
     parse_path,
     validate_label,
+)
+from task_scheduler.platform.macos import (
+    detect_python as platform_detect_python,
 )
 from task_scheduler.storage import JsonJobRepository
 
@@ -184,6 +189,51 @@ class TaskCommandService:
             plist_path=self._store.destination_for(job.label),
             process=result.process,
         )
+
+    # -- editor (in-memory, non-deploying) ---
+
+    def new_managed_job(
+        self,
+        name: str,
+        command: Command,
+        schedule: Schedule,
+        *,
+        job_id: UUID | None = None,
+    ) -> JobDefinition:
+        """Builds the in-memory managed job; nothing is persisted; see
+        JobService.new_managed_job for label policy and defaults.
+        """
+        return self._jobs.new_managed_job(name, command, schedule, job_id=job_id)
+
+    def validate_job(self, job: JobDefinition) -> JobDefinition:
+        """Re-validates the given job through the model (catches cross-field
+        and schema drift), returning the validated instance.
+        """
+        return JobDefinition.model_validate(job.model_dump())
+
+    def generate_plist_for(self, job: JobDefinition) -> str:
+        """Returns the XML plist text for the job after re-validation; no file
+        is written.
+        """
+        validated = self.validate_job(job)
+        return self._codec.encode_bytes(validated).decode("utf-8")
+
+    def save_managed_job(self, job: JobDefinition) -> Path:
+        """Persists to the catalog only (no plist write, no launchctl, no log
+        directories); raises JobConflictError when another job id claims the
+        label.
+        """
+        return self._jobs.save(self.validate_job(job))
+
+    def detect_python(self, script: Path) -> PythonDetectionResult:
+        """Finds candidate interpreters and a working-directory recommendation
+        for a selected script.
+        """
+        return platform_detect_python(script)
+
+    def resolve_managed_job(self, label: str) -> JobDefinition:
+        """Returns the managed job for label; raises JobNotFoundError when absent."""
+        return self._jobs.resolve(label)
 
     # -- lifecycle -----------------------------------------------------------
 
