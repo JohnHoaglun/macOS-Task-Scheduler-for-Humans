@@ -364,7 +364,7 @@ class JobEditor(QDialog):
             return
         outcome = self._controller.preview(self._draft)
         if outcome.ok:
-            self._preview.setText(outcome.xml)
+            self._preview.setPlainText(outcome.xml)
             self._errors.hide()
         else:
             self._show_errors(outcome)
