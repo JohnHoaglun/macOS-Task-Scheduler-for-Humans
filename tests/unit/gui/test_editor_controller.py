@@ -625,3 +625,47 @@ class TestFieldErrors:
             JobDefinition.model_validate(data)
         result = controller._field_errors(excinfo.value)
         assert list(result) == ["job"]
+
+
+class TestBulkMutators:
+    def test_set_arguments_python(self, tmp_path: Path) -> None:
+        """set_arguments replaces the python argument list."""
+        world, controller = make_controller(tmp_path)
+        d = controller.open_new()
+        controller.set_arguments(d, "python", ["--mode", "full"])
+        assert d.python_arguments == ["--mode", "full"]
+
+    def test_set_arguments_shell_and_executable(self, tmp_path: Path) -> None:
+        """set_arguments targets the right per-kind list."""
+        world, controller = make_controller(tmp_path)
+        d = controller.open_new()
+        controller.set_arguments(d, "shell", ["-c", "true"])
+        assert d.shell_arguments == ["-c", "true"]
+        assert d.python_arguments == []
+        controller.set_arguments(d, "executable", ["--verbose"])
+        assert d.executable_arguments == ["--verbose"]
+        assert d.shell_arguments == ["-c", "true"]
+
+    def test_set_arguments_does_not_alias_input(self, tmp_path: Path) -> None:
+        """The draft stores a copy, not the caller's list."""
+        world, controller = make_controller(tmp_path)
+        d = controller.open_new()
+        values = ["a"]
+        controller.set_arguments(d, "python", values)
+        values.append("mutated")
+        assert d.python_arguments == ["a"]
+
+    def test_set_environment_replaces(self, tmp_path: Path) -> None:
+        """set_environment replaces all environment rows."""
+        world, controller = make_controller(tmp_path)
+        d = controller.open_new()
+        controller.set_environment(d, [("HOME", "/tmp"), ("PATH", "/usr/bin")])
+        assert d.environment == [("HOME", "/tmp"), ("PATH", "/usr/bin")]
+
+    def test_set_environment_empty_clears(self, tmp_path: Path) -> None:
+        """An empty row list clears the environment."""
+        world, controller = make_controller(tmp_path)
+        d = controller.open_new()
+        controller.set_environment(d, [("A", "1")])
+        controller.set_environment(d, [])
+        assert d.environment == []
