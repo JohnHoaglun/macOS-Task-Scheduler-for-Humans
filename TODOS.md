@@ -241,42 +241,49 @@ Approved plan: 8 micro-slices (PLAN.md "Approved Execution Plan", approved 2026-
 - [x] Version 0.0.10 → 0.0.11 (registry + stale-reference grep)
 - [x] make check, commit, push
 
-## Crawl Increment 12 — GUI Diagnostics and Logs (PENDING)
+## Crawl Increment 12 — GUI Diagnostics and Logs (IN PROGRESS)
 
-### Application-Service Work
-- [ ] Add TaskCommandService.test_job(job, *, detection=None) -> DirectTestResult
-- [ ] Existing test(label) resolves saved managed job and invokes the same path
-- [ ] For Python jobs, detect candidates before testing; pass detection into DirectTestService for interpreter-mismatch diagnostics
-- [ ] Add TaskCommandService.compare_environment(job, terminal_environment) -> EnvironmentDifference
-- [ ] Environment comparison receives os.environ copy from GUI layer; platform comparison remains pure
-- [ ] Logs remain read-only through LogService
-- [ ] Unit tests: draft and saved-job direct tests, Python detection via diagnostics, all diagnostic rule outcomes, environment comparison via GUI-process env mapping, logs (content, empty, missing, unreadable, unconfigured)
+Approved plan: 6 micro-slices (PLAN.md "Approved Execution Plan", approved 2026-08-30). Pinned: (1) two entry points — main-window selected managed task + editor validated draft, (2) job-based `read_logs_for(job)` façade with `read_logs(label)` delegating, (3) environment disclosure names-only (no reveal control), (4) direct tests via QObject worker on QThread. Each slice: on-disk verification, `make check` + 100% package coverage, commit before the next slice.
 
-### GUI — Diagnostics/Logs Panel
-- [ ] Test summary: pass/fail state, exit code, elapsed duration
-- [ ] Diagnostics section: severity, title, explanation, suggested action
-- [ ] Direct stdout and Direct stderr tabs
-- [ ] Persisted logs: stdout/stderr tabs with Refresh button
-- [ ] Environment comparison: terminal/app-only, scheduled-only, differing values
-- [ ] Python recommendation: candidate list, selected interpreter, recommended change
-- [ ] Accurate direct-test wording: "Test runs this command directly... does not prove launchd can run it on schedule"
-- [ ] Do not render arbitrary raw environment values by default if they may contain secrets
+### Slice 1 — Façade Contracts (PENDING)
+- [ ] TaskCommandService.test_job(job, *, detection=None) -> DirectTestResult (auto-detects Python candidates when detection is None)
+- [ ] Existing test(label) resolves the saved managed job and delegates to the same path
+- [ ] TaskCommandService.compare_environment(job, terminal_environment) -> EnvironmentDifference (delegates to the pure platform function)
+- [ ] TaskCommandService.read_logs_for(job) -> JobLogs; read_logs(label) delegates
+- [ ] gui_environment() in the composition layer (bootstrap); no os.environ/subprocess imports under gui/
+- [ ] Unit tests: draft + saved paths, detection forwarding, comparison immutability, no side effects
+- [ ] make check, commit, push
 
-### Widget Tests
-- [ ] Direct-test wording and result rendering
-- [ ] stdout/stderr tabs and empty output
-- [ ] Diagnostic severity and suggested-action rendering
-- [ ] Python recommendation display
-- [ ] Environment-difference categories and disclosure text
-- [ ] Persisted-log Refresh behavior
+### Slice 2 — Diagnostics Controller + Worker (PENDING)
+- [ ] Qt-free DiagnosticsController: request_test/execute/finish + synchronous read_logs/compare_environment, outcome DTOs carrying the job label for the late-result guard
+- [ ] QObject test worker on a QThread (mirror the lifecycle pattern)
+- [ ] Controller + worker tests
+- [ ] make check, commit, push
+
+### Slice 3 — Diagnostics Presentation + Panel (PENDING)
+- [ ] Presenters: test summary (pass/fail, exit code, duration, launch failure), diagnostics (severity/title/explanation/suggested action), environment difference (names only + disclosure text), Python detection (candidates + recommendation)
+- [ ] DiagnosticLogsPanel: four log tabs (Direct stdout/stderr, Persisted stdout/stderr), Refresh button, environment + Python groups, `diagnostics-*` object names
+- [ ] Widget tests: wording, tabs, empty output, severity/action rendering, disclosure, log states (content, empty, missing, unreadable, unconfigured)
+- [ ] make check, commit, push
+
+### Slice 4 — MainWindow + JobEditor Integration (PENDING)
+- [ ] MainWindow: panel below the inspector, Test action gated on selection state, busy state, late-result label guard, fourth controller wired (services + gui_environment())
+- [ ] JobEditor: "Test Draft" button (validated current draft) opening a modal DirectTestDialog hosting the shared panel
+- [ ] Widget tests for both entry points
+- [ ] make check, commit, push
+
+### Slice 5 — Tests and Coverage (PENDING)
 - [ ] Error states with fake readers/services
+- [ ] 100% whole-package coverage
+- [ ] make check, commit, push
 
-### Documentation
+### Slice 6 — Closeout (PENDING)
 - [ ] README.md: test semantics, direct-test limitations, diagnostics, environment-comparison disclosure, logs, security guidance against storing secrets in job definitions
 - [ ] docs/architecture.md: diagnostics/test façade contracts and presentation-safe environment comparison
 - [ ] docs/development.md: diagnostic/log test fixtures and safety rules
-- [ ] PROJECT.md, TODOS.md, PLAN.md, SUMMARY.md
-- [ ] Version: 0.0.11 → 0.0.12
+- [ ] PROJECT.md / TODOS.md / PLAN.md / SUMMARY.md updates
+- [ ] Version 0.0.11 → 0.0.12 (registry + stale-reference grep)
+- [ ] make check, commit, push
 
 ## Crawl Increment 13 — Packaging (PENDING)
 

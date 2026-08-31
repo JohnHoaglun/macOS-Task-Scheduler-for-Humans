@@ -430,6 +430,12 @@ Each slice: on-disk verification, `make check` + 100% package coverage, commit b
 ### Goal
 Complete the primary troubleshooting workflow: directly test managed or validated draft jobs, show stdout/stderr and structured diagnostics, compare environments, recommend Python interpreters, and view persisted logs.
 
+### Pinned Decisions (approved 2026-08-30)
+1. **Two entry points:** diagnostics for the selected managed task in the main window, and for the currently validated draft in the job editor (no draft persistence).
+2. **Persisted logs are draft-capable:** a job-based façade `read_logs_for(job)` that works for validated drafts, with `read_logs(label)` retained for managed jobs and delegating to it.
+3. **Environment disclosure is name-only:** category headings and variable names by default; no reveal control in this increment.
+4. **Direct tests run off-thread:** through a `QObject` worker on a `QThread` (same pattern as lifecycle); never on the UI thread.
+
 ### Requirements
 - Add **Test** for direct execution (Mode A).
 - Display direct-test exit code, duration, stdout, stderr, launch failures, and structured diagnostics.
@@ -497,11 +503,23 @@ Do not render arbitrary raw environment values by default if they may contain se
 - Persisted-log Refresh behavior.
 - Error states with fake readers/services.
 
+### Approved Execution Plan (micro-slices, approved 2026-08-30)
+1. **Façade contracts:** `test_job(job, *, detection=None)`, `test(label)` refactored to resolve + delegate, `compare_environment(job, terminal_environment)`, `read_logs_for(job)` with `read_logs(label)` delegating, and `gui_environment()` in the composition layer (+ unit tests).
+2. **Diagnostics controller + worker:** Qt-free `DiagnosticsController` (request/execute/finish plus synchronous `read_logs`/`compare_environment`) and a `QObject` test worker on a `QThread` (+ controller/worker tests).
+3. **Diagnostics presentation + panel:** presenters for test outcome, diagnostics, environment difference, and Python detection; `DiagnosticLogsPanel` with four log tabs, Refresh, and environment/Python groups (`diagnostics-*` object names) (+ widget tests).
+4. **MainWindow + JobEditor integration:** panel below the inspector with a selection-gated Test action and the fourth controller wired; "Test Draft" in the editor opens a modal `DirectTestDialog` hosting the shared panel (+ widget tests).
+5. **Tests and coverage:** error states with fake readers/services; restore 100% whole-package coverage.
+6. **Docs + version 0.0.11 → 0.0.12 closeout** (README, architecture, development, PROJECT/TODOS/PLAN/SUMMARY), `make check`, commit, push.
+
+Each slice: on-disk verification, `make check` + 100% package coverage, commit before the next slice.
+
 ### Documentation at Increment 12 Close
 - `README.md`: test semantics, direct-test limitations, diagnostics, environment-comparison disclosure, logs, and security guidance against storing secrets in job definitions.
 - `docs/architecture.md`: diagnostics/test façade contracts and presentation-safe environment comparison.
 - `docs/development.md`: diagnostic/log test fixtures and safety rules.
 - `PROJECT.md`, `TODOS.md`, `PLAN.md`, and `SUMMARY.md`.
+
+**Version: 0.0.11 → 0.0.12**
 
 **Version: 0.0.11 → 0.0.12**
 
