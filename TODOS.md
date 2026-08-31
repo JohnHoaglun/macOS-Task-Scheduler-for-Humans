@@ -1,4 +1,4 @@
-# TODOS.md (v0.0.11)
+# TODOS.md (v0.0.12)
 
 ## Crawl Increment 0 — Project Foundation (DONE)
 - [x] Create project directory
@@ -241,7 +241,7 @@ Approved plan: 8 micro-slices (PLAN.md "Approved Execution Plan", approved 2026-
 - [x] Version 0.0.10 → 0.0.11 (registry + stale-reference grep)
 - [x] make check, commit, push
 
-## Crawl Increment 12 — GUI Diagnostics and Logs (IN PROGRESS)
+## Crawl Increment 12 — GUI Diagnostics and Logs (DONE — 638ad43)
 
 Approved plan: 6 micro-slices (PLAN.md "Approved Execution Plan", approved 2026-08-30). Pinned: (1) two entry points — main-window selected managed task + editor validated draft, (2) job-based `read_logs_for(job)` façade with `read_logs(label)` delegating, (3) environment disclosure names-only (no reveal control), (4) direct tests via QObject worker on QThread. Each slice: on-disk verification, `make check` + 100% package coverage, commit before the next slice.
 
@@ -281,13 +281,13 @@ Refinements approved 2026-08-31: DirectTestDialog wires the panel Refresh to a s
 - [x] 100% whole-package coverage (3115 statements)
 - [x] make check, commit, push
 
-### Slice 6 — Closeout (PENDING)
-- [ ] README.md: test semantics, direct-test limitations, diagnostics, environment-comparison disclosure, logs, security guidance against storing secrets in job definitions
-- [ ] docs/architecture.md: diagnostics/test façade contracts and presentation-safe environment comparison
-- [ ] docs/development.md: diagnostic/log test fixtures and safety rules
-- [ ] PROJECT.md / TODOS.md / PLAN.md / SUMMARY.md updates
-- [ ] Version 0.0.11 → 0.0.12 (registry + stale-reference grep)
-- [ ] make check, commit, push
+### Slice 6 — Closeout (DONE — 638ad43)
+- [x] README.md: test semantics, direct-test limitations, diagnostics, environment-comparison disclosure, logs, security guidance against storing secrets in job definitions
+- [x] docs/architecture.md: diagnostics/test façade contracts and presentation-safe environment comparison
+- [x] docs/development.md: diagnostic/log test fixtures and safety rules
+- [x] PROJECT.md / TODOS.md / PLAN.md / SUMMARY.md updates
+- [x] Version 0.0.11 → 0.0.12 (registry + stale-reference grep)
+- [x] make check, commit, push
 
 ## Crawl Increment 13 — Packaging (PENDING)
 
