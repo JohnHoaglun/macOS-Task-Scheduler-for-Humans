@@ -254,11 +254,11 @@ Approved plan: 6 micro-slices (PLAN.md "Approved Execution Plan", approved 2026-
 - [x] Unit tests: draft + saved paths, detection forwarding, comparison immutability, no side effects
 - [x] make check, commit, push
 
-### Slice 2 — Diagnostics Controller + Worker (PENDING)
-- [ ] Qt-free DiagnosticsController: request_test/execute/finish + synchronous read_logs/compare_environment, outcome DTOs carrying the job label for the late-result guard
-- [ ] QObject test worker on a QThread (mirror the lifecycle pattern)
-- [ ] Controller + worker tests
-- [ ] make check, commit, push
+### Slice 2 — Diagnostics Controller + Worker (DONE)
+- [x] Qt-free DiagnosticsController: request_test/execute/finish + synchronous read_logs/compare_environment, outcome DTOs carrying the job label for the late-result guard
+- [x] QObject test worker on a QThread (mirror the lifecycle pattern)
+- [x] Controller + worker tests
+- [x] make check, commit, push
 
 ### Slice 3 — Diagnostics Presentation + Panel (PENDING)
 - [ ] Presenters: test summary (pass/fail, exit code, duration, launch failure), diagnostics (severity/title/explanation/suggested action), environment difference (names only + disclosure text), Python detection (candidates + recommendation)
