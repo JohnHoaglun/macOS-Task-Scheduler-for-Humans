@@ -20,9 +20,9 @@ Each layer may depend on the layer below it, but never on layers above it. No la
 
 | Layer | Purpose | Status |
 |---|---|---|
-| **GUI (PySide6)** | Native macOS desktop interface | Implemented (Increments 9–11: discovery, job editor, lifecycle) |
+| **GUI (PySide6)** | Native macOS desktop interface | Implemented (Increments 9–12: discovery, job editor, lifecycle, diagnostics/logs) |
 | **CLI (Typer)** | Terminal task management interface (`mactask`) | Implemented (Increment 8) |
-| **Application Services** | Use cases, orchestration, coordination (`TaskCommandService` facade, `JobService`, `LogService`) | Implemented (Increments 7–10) |
+| **Application Services** | Use cases, orchestration, coordination (`TaskCommandService` facade, `JobService`, `LogService`, `DirectTestService`) | Implemented (Increments 7–12) |
 | **Domain** | Core model: Job, Schedule, Command, Environment | Implemented |
 | **Platform Adapters** | macOS plist codec, LaunchAgent store, launchctl backend, log reader | Implemented |
 | **launchd** | Underlying macOS scheduler (external) | Not part of the codebase |
@@ -199,6 +199,68 @@ out, (3) preserves the deployed plist as a uniquely named backup sibling
 bootstraps. Each `launchctl` phase is recorded (`InstallPhase`), completed
 phases are tracked, and any artifact a failed phase could not clean up is
 reported in `InstallResult.retained_artifacts` — the transaction never
-claims a rollback. The primary result is always the last phase's
-`ProcessResult`. Uninstall is the inverse order: bootout first, plist and
-catalog record removed only on success.
+   claims a rollback. The primary result is always the last phase's
+   `ProcessResult`. Uninstall is the inverse order: bootout first, plist and
+   catalog record removed only on success.
+
+## Diagnostics and Log Contracts (Increment 12)
+
+The GUI's diagnostics and logs path (test a managed task or a validated
+draft, view structured diagnostics, persisted logs, environment comparison,
+and Python interpreter recommendations) extends the façade with job-based
+contracts so both entry points — the selected managed task in the main
+window and the currently validated draft in the job editor — share one
+code path.
+
+**Façade contracts.** `TaskCommandService.test_job(job, *, detection=None)`
+runs the given job's command directly (Mode A) through the injected
+`ProcessRunner`, evaluates the structured diagnostics, and returns an
+immutable `DirectTestResult` (`process: ProcessResult`,
+`diagnostics: list[Diagnostic]`) — which is never persisted into the job.
+It works for validated, unsaved drafts as well as saved jobs; the CLI's
+`test(label)` resolves the label through the catalog and delegates. For
+Python jobs the caller passes a `PythonDetectionResult` so
+interpreter-mismatch diagnostics are available.
+`compare_environment(job, terminal_environment)` validates the job and
+delegates to the pure platform comparison of the supplied mappings.
+`read_logs_for(job)` reads the job's configured stdout/stderr files
+(read-only, via `LogService`) and returns `JobLogs` (two `LogStream`s:
+`path` is `None` when unconfigured; otherwise exactly one of `content` —
+possibly empty — or `error` — missing/unreadable — is set); `read_logs(label)`
+resolves and delegates.
+
+**Controller / worker split.** `DiagnosticsController`
+(`gui/controllers/diagnostics_controller.py`) imports no Qt. It vets a
+`request_test(job)` into a `RequestVerdict` (`ACCEPTED` / `BUSY` /
+`INVALID_JOB`), holds exactly one accepted request, and `execute()` runs the
+test through the service, converting every exception into an error
+`TestOutcome`; the busy state is always cleared by `finish()`. It also
+answers the synchronous `read_logs(job)` / `compare_environment(job)`
+re-reads (used by the panel's Refresh). `DiagnosticsWorker`
+(`gui/controllers/diagnostics_worker.py`) is the Qt half: a QObject moved
+onto a `QThread`, invoked via queued connection, that calls `execute()`
+then `finish()` and emits the immutable `TestOutcome` back to the main
+thread — the same pattern as the lifecycle worker, never on the UI thread.
+
+**Presentation-safe environment comparison.** The GUI itself never reads
+`os.environ`. The composition layer (`bootstrap.gui_environment()`) takes a
+snapshot `dict(os.environ)` once and hands it to the diagnostics controller;
+the platform comparison function is pure, comparing the two supplied
+mappings and returning `EnvironmentDifference` (`terminal_only`,
+`scheduled_only`, and `different`, whose values are never logged or
+persisted by that module). Presentation is name-only: the panel renders
+difference categories and variable names, not raw values, because a GUI
+process environment cannot be assumed safe to display.
+
+**Entry points.** The main window's Diagnostics menu **Test** action is
+gated to a selected managed task and owns the selection/stale-result guard
+(a late `TestOutcome` for a different label is ignored); the busy state
+disables the action while a test is in flight. The job editor's **Test
+Draft** button validates the current draft (field errors otherwise), builds
+the job in memory, and opens the modal `DirectTestDialog`
+(`gui/widgets/direct_test_dialog.py`) hosting the shared
+`DiagnosticLogsPanel` — persisting nothing. Both host the same
+`DiagnosticLogsPanel` (`gui/widgets/diagnostic_logs_panel.py`) with the
+test summary, diagnostics list, direct stdout/stderr tabs, persisted
+stdout/stderr tabs plus Refresh (synchronous re-read), the environment
+comparison, and the Python recommendation group.

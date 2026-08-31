@@ -411,8 +411,8 @@ stderr.
 
 ## Graphical Interface
 
-A discovery GUI with a job editor and lifecycle controls is available
-(Crawl Increments 9–11).
+A discovery GUI with a job editor, lifecycle controls, and diagnostics/logs
+is available (Crawl Increments 9–12).
 
 Launch it from the repository root with the virtual environment active:
 
@@ -548,6 +548,49 @@ and invalid agents but never modifies them. No edit, install, enable,
 disable, or removal controls exist for agents the application does not
 manage.
 
+**Diagnostics and logs.** The Diagnostics menu's **Test** action runs the
+selected managed task's command directly — using its configured executable,
+arguments, working directory, and environment. It shows:
+
+* a test summary (passed/failed, exit code, elapsed duration), or a launch
+  failure / could-not-run message,
+* structured diagnostics (severity, title, description, suggested action)
+  for the common failure causes — wrong or missing interpreter, missing
+  script, missing shell executable, missing executable, interpreter mismatch
+  with a detected candidate,
+* the direct test's stdout and stderr in separate tabs,
+* the job's persisted stdout/stderr logs (read-only) with a **Refresh**
+  button that re-reads the configured files,
+* an environment comparison between the GUI process environment and the
+  task's configured scheduled environment (which variables appear only on
+  one side, and which names differ),
+* Python interpreter recommendations: the detected candidates, the
+  interpreter the job actually configured, and the recommended change when
+  they disagree.
+
+The panel labels the direct test accurately: it runs the command directly
+and **does not prove launchd can run it on schedule** — a direct test that
+passes can still fail when scheduled because launchd provides a different
+environment. There is no log tailing/following and no execution history in
+this release.
+
+Log streams render their state distinctly: configured with content (the
+content), configured and empty, missing or unreadable
+(`Log unavailable: <reason>`), and unconfigured (no capture path set).
+
+**Test Draft.** The job editor's **Test Draft** button runs the same direct
+test for the currently edited draft after validating it (invalid drafts show
+their field errors instead). It tests only: it saves nothing — no catalog
+record, no plist, no lifecycle side effect.
+
+**Environment disclosure and secrets.** The environment comparison shows
+variable **names** and difference categories, not values, because the GUI
+process environment (unlike the user's Terminal) cannot be assumed to be
+safe to display, and job definitions are human-readable JSON that may be
+shared or committed. **Do not store secrets in job definitions** — never
+put API keys, tokens, or passwords in a job's environment variables or
+command arguments.
+
 ## Current Status
 
 The project is currently in the **Crawl** phase.
@@ -571,10 +614,13 @@ Current implementation scope:
 * GUI lifecycle controls (`mactask-gui`): install, reinstall, uninstall,
   enable, disable, and run now; saved (not-installed) jobs listed with the
   managed jobs; staged reinstall transaction with retained artifacts
+* GUI diagnostics and logs (`mactask-gui`): direct tests of managed tasks
+  and validated editor drafts with structured diagnostics, direct and
+  persisted stdout/stderr with Refresh, name-only environment comparison,
+  and Python interpreter recommendations
 
 Not yet implemented:
 
-* GUI diagnostics and logs (Crawl Increment 12)
 * Python virtual-environment detection
 * LaunchDaemon support
 * privileged helpers

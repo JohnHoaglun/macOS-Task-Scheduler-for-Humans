@@ -109,6 +109,35 @@ The lifecycle tests follow the GUI setup above and add:
   discarded inside one expression is garbage-collected while the event loop
   still needs it.
 
+## Diagnostics/Log Test Conventions (Increment 12)
+
+The diagnostics and log tests follow the GUI setup above and add:
+
+* `FakeTaskWorld` takes a `test=ProcessResult(...)` keyword for the direct
+  test outcome (default: a successful exit-0 run). Error states are
+  produced by monkeypatching `world.services.test_job` (service failure) or
+  `world.services.validate_job` (invalid job), and by pointing the job's
+  `LoggingConfig` at files under `tmp_path`.
+* Log fixtures cover the four stream states directly: write a file for
+  content, create an empty file for the empty case, leave the path missing
+  for `Log unavailable: log file not found: ...`, and leave the path unset
+  for `Log path not configured.`.
+* Main-window tests keep the worker synchronous with a
+  `_run_tests_synchronously` helper that patches `window._start_test_worker`
+  to connect `finished` and run the worker inline; dialog tests use the
+  real `QThread` path and wait as described below.
+* Thread-teardown safety: a `QThread` must be on its way out before the
+  test ends, or PySide aborts at teardown. `waitUntil(not busy)` is not
+  enough — `busy` clears on the worker thread before the main loop
+  dispatches the queued `finished`/`thread.quit`. Instead, wait on the
+  main-thread-rendered artifact (e.g. the panel summary changing) in the
+  same queued-signal batch, or, when nothing renders (the close-guard test),
+  add a short `qtbot.wait(...)` after the busy wait to flush the queued
+  quit and `deleteLater`.
+* Environment comparisons are tested with an explicitly supplied
+  terminal-environment mapping — never the real `os.environ` — and assert
+  on names/categories, not values.
+
 ## Opt-in System Integration Tests
 
 The `tests/integration/` tests exercise the real
@@ -126,7 +155,7 @@ in fixture teardown, touching only the test-owned plist. Plain `pytest`,
 
 ## Current State
 
-Crawl increments 0–11 establish:
+Crawl increments 0–12 establish:
 
 - project/tooling foundation
 - normalized job domain model with Pydantic validation
@@ -146,6 +175,10 @@ Crawl increments 0–11 establish:
   enable, disable, run now over a Qt-free controller and `QThread` worker;
   saved jobs listed as `Saved, not installed`; staged reinstall transaction
   with retained artifacts on failure
+- GUI diagnostics and logs (`mactask-gui`): direct tests of managed tasks
+  and validated editor drafts (job-based façade contracts, `Test Draft`
+  persists nothing), structured diagnostics, direct/persisted stdout/stderr
+  with Refresh, name-only environment comparison, Python recommendations
 
 Unit and GUI widget tests run against synthetic fakes and temporary
 directories and never touch `~/Library/LaunchAgents` or invoke real

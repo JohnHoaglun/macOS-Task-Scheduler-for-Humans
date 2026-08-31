@@ -1,7 +1,7 @@
 # PLAN.md
 
 ## Current State
-Crawl Increments 0–11 complete and pushed to `sched_dev_opencode` (version 0.0.11):
+Crawl Increments 0–12 complete and pushed to `sched_dev_opencode` (version 0.0.12):
 - **Increment 0:** project foundation (pyproject, Makefile, package structure, docs, tooling)
 - **Increment 1:** Pydantic domain model + schema-versioned JSON persistence
 - **Increment 2:** plist encoder (`PlistCodec`) + golden fixtures
@@ -15,8 +15,10 @@ Crawl Increments 0–11 complete and pushed to `sched_dev_opencode` (version 0.0
 - **Increment 10:** GUI job creation/edit/save/validate: `JobService.new_managed_job` managed label policy + catalog-only `save`, `TaskCommandService` in-memory editor façade (`validate_job`/`generate_plist_for`/`save_managed_job`/`detect_python`/`resolve_managed_job`), Qt-free `EditorController` + `JobDraft`, `RowTable`, `JobEditor` dialog, New Task / Edit Managed Task actions; 544 tests
 - **Increment 11:** GUI installation/lifecycle: unified `TaskListing` (discovered plists + catalog-only saved rows shown as `Saved, not installed`), managed-only service guards, staged reinstall transaction (stage → bootout → backup → activate → bootstrap with retained artifacts, no rollback claim), Qt-free `LifecycleController` + `QThread` `LifecycleWorker` marshaling immutable `LifecycleOutcome`, Lifecycle menu (install/reinstall/uninstall/enable/disable/run now) with gating, confirmations, and result dialog; 676 tests
 - Verification at v0.0.11: 676 tests, 100% coverage, ruff + mypy strict clean
+- **Increment 12:** GUI diagnostics/logs: job-based façade contracts (`test_job(job, *, detection=None)`, `test(label)` delegating, `compare_environment(job, terminal_environment)`, `read_logs_for(job)` with `read_logs(label)` delegating, `gui_environment()` in the composition layer), Qt-free `DiagnosticsController` + `QThread` `DiagnosticsWorker`, shared `DiagnosticLogsPanel` (test summary, diagnostics, direct/persisted stdout/stderr with Refresh, name-only environment comparison, Python recommendations), main-window Test action with selection/stale-result guard, `DirectTestDialog` for the editor's Test Draft (persists nothing); 766 tests
+- Verification at v0.0.12: 766 tests, 100% coverage, ruff + mypy strict clean
 
-Current focus: **Crawl Increment 12 — GUI Diagnostics and Logs** (planned below); Increment 13 (packaging) also planned below.
+Current focus: **Crawl Increment 13 — Packaging** (planned below).
 
 ---
 

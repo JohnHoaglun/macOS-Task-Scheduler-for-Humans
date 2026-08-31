@@ -2,6 +2,15 @@
 
 ## Changelog
 
+### v0.0.12
+- Crawl Increment 12: GUI Diagnostics and Logs — `mactask-gui` direct-test entry points for the selected managed task (Diagnostics > Test) and for the job editor's currently validated draft (Test Draft; validates first, persists nothing — no catalog record, plist, or lifecycle side effect)
+- Job-based façade contracts: `TaskCommandService.test_job(job, *, detection=None)` (works for unsaved drafts; Python jobs carry detection into interpreter-mismatch diagnostics; `test(label)` resolves and delegates), `compare_environment(job, terminal_environment)`, `read_logs_for(job)` with `read_logs(label)` delegating, and `gui_environment()` in the composition layer
+- `DirectTestResult` (immutable, never persisted) with `ProcessResult` + structured `Diagnostic` list (severity, code, title, description, suggested action); the panel labels the direct test accurately — it does not prove launchd can run the job on schedule
+- Shared `DiagnosticLogsPanel` (test summary, diagnostics list, direct stdout/stderr tabs, persisted stdout/stderr tabs with Refresh, environment comparison, Python recommendation) hosted by the main window (below the inspector) and by the modal `DirectTestDialog` for the editor; distinct log states — configured with content, empty, missing/unreadable (`Log unavailable: <reason>`), unconfigured
+- Presentation-safe environment comparison: `bootstrap.gui_environment()` snapshots `os.environ` once (the GUI never reads it), the platform comparison stays pure on supplied mappings, and the panel renders difference categories and variable names only — never raw values
+- Qt-free `DiagnosticsController` (single-slot `request_test` → `RequestVerdict` ACCEPTED/BUSY/INVALID_JOB, exception-safe `execute()`, busy reset in `finish()`, synchronous `read_logs`/`compare_environment` re-reads) + `DiagnosticsWorker` QObject on a `QThread`; main window owns the selection/stale-result guard and busy gating; Test Draft is draft-only
+- 90 new tests, 766 total, 100% line coverage across the whole package, ruff + mypy strict clean
+
 ### v0.0.11
 - Crawl Increment 11: GUI Installation and Lifecycle — `mactask-gui` Lifecycle menu (Install, Reinstall…, Uninstall…, Enable, Disable, Run Now) over the shared `TaskCommandService`, with managed-only gating at both the service and the GUI (saved rows: Install only; installed managed rows: the other five; external/invalid/unselected: none) and Reinstall/Uninstall confirmations naming the task, exact label, and current-user LaunchAgents scope
 - Unified `TaskListing` DTO: `list_agents()` merges discovered plists (discovery order, managed rows carrying the canonical catalog job) with catalog-only saved jobs (sorted by label, shown as `Saved, not installed`); presenter/inspector pinned state strings — `Installed, configured enabled (loaded)`, `Installed, configured enabled (not loaded)`, `Installed, configured disabled (loaded)`, `Installed, configured disabled (not loaded)`, `Status unknown`
