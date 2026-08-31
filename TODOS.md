@@ -293,32 +293,40 @@ Refinements approved 2026-08-31: DirectTestDialog wires the panel Refresh to a s
 
 Pinned (approved 2026-08-31): `main()` returns the Qt event-loop exit code with a `__main__` launcher; root `pysidedeploy.spec` (title `macOS Task Scheduler for Humans`, `input_file = src/task_scheduler/gui/app.py`, `exec_directory = dist`, `mode = standalone`, PySide6 fallback icon); final artifact `dist/macOS Task Scheduler for Humans.app` with `deployment/` intermediates ignored; `make package` (non-interactive `pyside6-deploy -c pysidedeploy.spec -f`) + `make run-gui`; deployment fixes in the spec only; no full bundle builds in `make check` (PLAN.md "Pinned Decisions").
 
-### Slice 1 — Entry Point and Build Interface (PENDING)
-- [ ] `main() -> int` returns the Qt event-loop exit code; `if __name__ == "__main__"` launcher
-- [ ] Entry-point test asserts the returned code; console-script mapping test retained
-- [ ] `make run-gui` (venv development startup) and `make package` (non-interactive pyside6-deploy)
-- [ ] `.gitignore`: `deployment/` intermediate directory
-- [ ] make check + 100% coverage, commit, push
+### Slice 1 — Entry Point and Build Interface (DONE — 389fc2d)
+- [x] `main() -> int` returns the Qt event-loop exit code; `if __name__ == "__main__"` launcher
+- [x] Entry-point test asserts the returned code (`main() == 42`, no SystemExit); runpy `__main__` launcher test (pytest-qt-safe fake app: classmethod `instance()` delegating to the real QApplication — plain fake patching breaks pytest-qt's `_process_events` hook)
+- [x] `make run-gui` (venv development startup, verified offscreen alive >5s) and `make package` (non-interactive pyside6-deploy)
+- [x] `.gitignore`: `deployment/` intermediate directory
+- [x] make check + 100% coverage (767 tests, 3117 stmts), commit, push
 
-### Slice 2 — Deployment Configuration (PENDING)
-- [ ] Root `pysidedeploy.spec`: title, project_dir, input_file, exec_directory=dist, standalone mode, fallback icon
-- [ ] First `make package` build produces `dist/macOS Task Scheduler for Humans.app`
-- [ ] Missing Qt dependencies fixed in the spec only (no runtime-path hacks)
-- [ ] make check + 100% coverage, commit, push
+### Slice 2 — Deployment Configuration (DONE — a2d73aa)
+- [x] Root `pysidedeploy.spec`: title, project_dir, input_file, exec_directory=dist, standalone mode, fallback icon
+- [x] First `make package` build produces `dist/macOS Task Scheduler for Humans.app` (Nuitka 4.2 in temp env, arm64, standalone frameworks + darwin platform plugin)
+- [x] Missing Qt dependencies fixed in the spec only (no runtime-path hacks); tool rewrote spec with resolved `modules = Core,DBus,Gui,Widgets` + plugin list (reproducible)
+- [x] make check + 100% coverage, commit, push
+- [x] Standalone run verified: bundle binary under `env -i` (no PATH/venv/HOME) alive 8s, no crash
 
-### Slice 3 — Standalone Bundle Verification (PENDING)
-- [ ] Launch .app from Finder/open
-- [ ] Main window opens without Terminal or activated venv
-- [ ] Discovery loads safely
-- [ ] New Task opens
-- [ ] No lifecycle operation runs at app startup
-- [ ] App uses current-user LaunchAgent scope only
-- [ ] Fake/non-destructive path works
+### Slice 3 — Standalone Bundle Verification (IN PROGRESS — checkpoint 2026-08-31, pre-restart)
+
+User decisions 2026-08-31: (a) user saves a job via the GUI for the real save-flow proof, then I verify its `~/Library/LaunchAgents` location; (b) bundle identity `app` fixed by post-processing `Info.plist` in `make package` (PLAN.md decision 7).
+
+- [x] Launch .app from Finder/open — launched twice via `open`, alive at 7s and 10s (PIDs 98931, 526)
+- [x] Main window opens without Terminal or activated venv — user-confirmed: window renders discovery (New Task action not yet checked)
+- [x] Discovery loads safely — no crash reports; clean exit of first instance with no report; `env -i` standalone binary run alive 8s
+- [ ] New Task opens — re-verify after opencode restart (GUI/automation access expected)
+- [x] No lifecycle operation runs at app startup — `~/Library/LaunchAgents` before/after diff: unchanged (baselines `/tmp/before_user_la.txt`, `/tmp/after_user_la.txt`)
+- [x] App uses current-user LaunchAgent scope only — `/Library/LaunchAgents` before/after diff: unchanged; catalog `~/Library/Application Support/macOS Task Scheduler for Humans/jobs` untouched
+- [x] Fake/non-destructive path works — save path covered by fake-world tests; non-destructive real path = read-only discovery, exercised live
+- [ ] Real save-flow proof: user saves via GUI → verify plist lands under `~/Library/LaunchAgents` (test-owned label; clean up after)
 - [ ] If real lifecycle manually tested, unique test-owned label with cleanup
+- [ ] NEW (PLAN.md decision 7): `make package` post-processes `Contents/Info.plist` identity (currently all `app` — Nuitka `app.py` stem default); rebuild + re-verify launch + standalone run
+- [ ] Note: bundle process/executable name is `app` (CFBundleExecutable) — AppleScript must target `process "app"`, not the display name
+
 - [ ] Record artifact + smoke results in TODOS.md, commit, push
 
 ### Slice 4 — Closeout (PENDING)
-- [ ] README.md: prerequisites, package command, artifact location, local architecture scope, launch instructions, explicit signing/notarization status
+- [ ] README.md: prerequisites, package command, artifact location, local architecture scope, launch instructions, explicit signing/notarization status, bundle identity post-processing note (PLAN.md decision 7)
 - [ ] docs/development.md: package build, cleanup, and bundle smoke-test procedure
 - [ ] docs/architecture.md: GUI entry point and packaging boundary
 - [ ] PROJECT.md: Crawl GUI/package state and next product-phase direction

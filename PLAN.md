@@ -565,6 +565,7 @@ Produce a locally usable, double-clickable `macOS Task Scheduler for Humans.app`
 4. **Build interface:** `make package` invokes `.venv/bin/pyside6-deploy -c pysidedeploy.spec -f` (non-interactive); `make run-gui` starts the development GUI through the venv. Full bundle builds are not part of `make check`.
 5. **Config-only deployment fixes:** missing Qt plugins/frameworks are fixed in the spec (`[qt]`, `[nuitka]`), never with ad hoc runtime-path code in application modules.
 6. **Icon policy:** ship with the PySide6 fallback icon; no custom `.icns` in this increment.
+7. **Bundle identity amendment (approved 2026-08-31):** Nuitka derives `CFBundleIdentifier`/`CFBundleName`/`CFBundleDisplayName` from the `app.py` stem (all come out as `app`); no spec flag exists to set them. Approved exception to decision 5: `make package` post-processes the generated `Contents/Info.plist` (build tooling only — never runtime-path code) to set the identity fields. The rebuilt bundle must re-verify launch + standalone execution before the identity fix is considered done.
 
 ### Approved Execution Plan (micro-slices, approved 2026-08-31)
 1. **Entry point + build interface:** `main() -> int` + module launcher, entry-point test update, `make run-gui`, `make package`, `deployment/` ignore rule (+ `make check`, coverage, commit).
