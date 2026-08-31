@@ -1,6 +1,6 @@
 PYTHON ?= .venv/bin/python
 
-.PHONY: test integration lint format typecheck check
+.PHONY: test integration lint format typecheck check run-gui package
 
 test:
 	$(PYTHON) -m pytest tests/
@@ -19,3 +19,11 @@ typecheck:
 	$(PYTHON) -m mypy src/task_scheduler/
 
 check: lint typecheck test
+
+# Development startup of the GUI through the project virtual environment.
+run-gui:
+	$(PYTHON) -m task_scheduler.gui.app
+
+# Builds the standalone macOS .app bundle into dist/ via pyside6-deploy.
+package:
+	.venv/bin/pyside6-deploy -c pysidedeploy.spec -f

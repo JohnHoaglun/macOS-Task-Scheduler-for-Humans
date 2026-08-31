@@ -10,6 +10,7 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+deployment/
 
 # Virtual environments
 .venv/

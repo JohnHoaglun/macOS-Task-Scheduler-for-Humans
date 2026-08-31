@@ -27,9 +27,13 @@ def create_main_window(services: TaskCommandService) -> MainWindow:
     )
 
 
-def main() -> None:
-    """Build the production services, show the main window, and exit on close."""
+def main() -> int:
+    """Build the production services, show the main window, and return on close."""
     app = QApplication(sys.argv)
     window = create_main_window(build_services())
     window.show()
-    sys.exit(app.exec())
+    return app.exec()
+
+
+if __name__ == "__main__":
+    sys.exit(main())
