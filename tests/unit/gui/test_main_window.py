@@ -6,7 +6,7 @@ from pathlib import Path
 from uuid import UUID
 
 import pytest
-from PySide6.QtCore import QItemSelection, QTimer
+from PySide6.QtCore import QItemSelection, QModelIndex, QTimer
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -28,7 +28,15 @@ from task_scheduler.application.task_command_service import (
     TaskListing,
     UninstallResult,
 )
-from task_scheduler.domain import JobDefinition
+from task_scheduler.domain import JobDefinition, LoggingConfig
+from task_scheduler.gui.controllers.diagnostics_controller import (
+    DiagnosticsController,
+    TestOutcome,
+)
+from task_scheduler.gui.controllers.diagnostics_controller import (
+    RequestVerdict as TestVerdict,
+)
+from task_scheduler.gui.controllers.diagnostics_worker import DiagnosticsWorker
 from task_scheduler.gui.controllers.discovery_controller import DiscoveryController
 from task_scheduler.gui.controllers.editor_controller import EditorController
 from task_scheduler.gui.controllers.lifecycle_controller import (
@@ -97,6 +105,7 @@ def _window(
         controller,
         editor or EditorController(controller._services),
         LifecycleController(controller._services),
+        DiagnosticsController(controller._services, {}),
     )
     qtbot.addWidget(window)
     window.show()
@@ -187,6 +196,7 @@ class TestRefreshPopulates:
             controller,
             EditorController(controller._services),
             LifecycleController(controller._services),
+            DiagnosticsController(controller._services, {}),
         )
         qtbot.addWidget(window)
         assert window.refresh_action is not None
@@ -560,6 +570,28 @@ def _capture_lifecycle(
 
     monkeypatch.setattr(window, "_start_worker", _start)
     return outcomes
+
+
+def _run_tests_synchronously(
+    window: MainWindow, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Run test workers synchronously and deliver their finished signal."""
+
+    def _start(worker: DiagnosticsWorker) -> None:
+        worker.finished.connect(window._on_test_finished)
+        worker.run()
+
+    monkeypatch.setattr(window, "_start_test_worker", _start)
+
+
+def _panel_text(window: MainWindow, object_name: str) -> str:
+    """The panel's named text element (label or log tab), asserted present."""
+    found = window.panel.findChild(object, object_name)
+    assert found is not None
+    if isinstance(found, QPlainTextEdit):
+        return found.toPlainText()
+    assert isinstance(found, QLabel)
+    return found.text()
 
 
 def _lifecycle_actions(window: MainWindow) -> list[QAction]:
@@ -962,3 +994,211 @@ class TestProductionLifecycleFlows:
         assert "catalog record removed: True" in details.toPlainText()
         assert window.table.model().rowCount() == 2
         assert world.jobs.find(managed.label) is None
+
+
+class TestDiagnosticsGating:
+    def test_managed_row_enables_test(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world, managed, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        _select_managed(world, window, managed)
+        assert window.test_action.isEnabled()
+
+    def test_saved_row_enables_test(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        saved = make_job(
+            id=SECOND_JOB_ID, label="io.github.macos-task-scheduler.user.saved-only"
+        )
+        world.jobs.import_job(saved)
+        window = _window(qtbot, DiscoveryController(world.services))
+        model = window.table.model()
+        window.table.setCurrentIndex(model.index(0, 0))
+        assert window.test_action.isEnabled()
+
+    def test_external_row_disables_test(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world, _, external_a, _ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        _select_managed(world, window, external_a)
+        assert not window.test_action.isEnabled()
+
+    def test_invalid_row_disables_test(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        path = world.la_root / f"{INVALID_LABEL}.plist"
+        world.la_root.mkdir(parents=True)
+        path.write_bytes(b"not a plist at all")
+        window = _window(qtbot, DiscoveryController(world.services))
+        model = window.table.model()
+        row = _row_by_path(model, path)
+        window.table.setCurrentIndex(model.index(row, 0))
+        assert not window.test_action.isEnabled()
+
+    def test_no_selection_disables_test(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        window.table.setCurrentIndex(QModelIndex())
+        assert not window.test_action.isEnabled()
+
+    def test_busy_disables_test(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world, managed, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        _select_managed(world, window, managed)
+        window._diagnostics_busy = True
+        window._update_lifecycle_actions()
+        assert not window.test_action.isEnabled()
+        window._diagnostics_busy = False
+        window._update_lifecycle_actions()
+        assert window.test_action.isEnabled()
+
+
+class TestDiagnosticsTrigger:
+    def test_test_action_runs_and_renders(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        world = FakeTaskWorld(
+            tmp_path, test=ProcessResult(exit_code=0, stdout="direct out")
+        )
+        job = make_job()
+        world.manage(job)
+        window = _window(qtbot, DiscoveryController(world.services))
+        _run_tests_synchronously(window, monkeypatch)
+        _select_managed(world, window, job)
+        window.test_action.trigger()
+        assert not window._diagnostics_busy
+        assert _panel_text(window, "diagnostics-summary") == (
+            "Passed (exit code 0) in 0.00s"
+        )
+        assert (
+            _panel_text(window, "diagnostics-direct-stdout") == "direct out"
+        )
+        assert (
+            _panel_text(window, "diagnostics-persisted-stdout")
+            == "Log path not configured."
+        )
+        assert "GUI process only: none" in _panel_text(
+            window, "diagnostics-environment-text"
+        )
+
+    def test_failing_run_renders_failure(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        world = FakeTaskWorld(tmp_path, test=ProcessResult(exit_code=2, stderr="boom"))
+        job = make_job()
+        world.manage(job)
+        window = _window(qtbot, DiscoveryController(world.services))
+        _run_tests_synchronously(window, monkeypatch)
+        _select_managed(world, window, job)
+        window.test_action.trigger()
+        assert _panel_text(window, "diagnostics-summary") == (
+            "Failed (exit code 2) in 0.00s"
+        )
+        assert _panel_text(window, "diagnostics-direct-stderr") == "boom"
+
+    def test_trigger_without_selection_shows_hint(
+        self, qtbot: QtBot, tmp_path: Path
+    ) -> None:
+        world, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        window.table.setCurrentIndex(QModelIndex())
+        window._on_test_triggered()
+        assert window.statusBar().currentMessage() == "Select a task first."
+
+    def test_trigger_on_external_row_shows_hint(
+        self, qtbot: QtBot, tmp_path: Path
+    ) -> None:
+        world, _, external_a, _ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        _select_managed(world, window, external_a)
+        window._on_test_triggered()
+        assert window.statusBar().currentMessage() == (
+            "This task is not a managed task; there is nothing to test."
+        )
+
+    def test_busy_request_is_refused(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world, managed, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        _select_managed(world, window, managed)
+        listing = window._model.listing_at(window.table.currentIndex().row())
+        assert listing is not None
+        assert (
+            window._diagnostics_controller.request_test(listing.job)
+            is TestVerdict.ACCEPTED
+        )
+        window._on_test_triggered()
+        assert window.statusBar().currentMessage() == "Cannot test: busy."
+
+    def test_stale_outcome_is_not_rendered(
+        self, qtbot: QtBot, tmp_path: Path
+    ) -> None:
+        world = FakeTaskWorld(tmp_path)
+        job = make_job()
+        world.manage(job)
+        job_b = make_job(
+            id=SECOND_JOB_ID, name="Second Job", label="zz.example.second"
+        )
+        world.manage(job_b)
+        window = _window(qtbot, DiscoveryController(world.services))
+        _select_managed(world, window, job)
+        window._on_test_finished(
+            TestOutcome(label=job_b.label, result=None, error="boom")
+        )
+        assert _panel_text(window, "diagnostics-summary") == (
+            "Run Test to check this task directly."
+        )
+        assert not window._diagnostics_busy
+
+    def test_finished_ignores_foreign_payloads(
+        self, qtbot: QtBot, tmp_path: Path
+    ) -> None:
+        world, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        window._on_test_finished("not an outcome")
+        assert window._diagnostics_busy is False
+        assert window._active_test_worker is None
+
+    def test_refresh_renders_logs_and_environment(
+        self, qtbot: QtBot, tmp_path: Path
+    ) -> None:
+        world = FakeTaskWorld(tmp_path)
+        out = tmp_path / "out.log"
+        out.write_text("persisted out\n")
+        job = make_job(logging=LoggingConfig(stdout_path=out, stderr_path=None))
+        world.manage(job)
+        window = _window(qtbot, DiscoveryController(world.services))
+        _select_managed(world, window, job)
+        window.panel.refresh_button.click()
+        assert _panel_text(window, "diagnostics-persisted-stdout") == (
+            "persisted out\n"
+        )
+        assert "GUI process only: none" in _panel_text(
+            window, "diagnostics-environment-text"
+        )
+
+    def test_refresh_without_job_shows_hint(
+        self, qtbot: QtBot, tmp_path: Path
+    ) -> None:
+        world, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        window.table.setCurrentIndex(QModelIndex())
+        window._on_diagnostics_refresh()
+        assert (
+            window.statusBar().currentMessage() == "Select a task to refresh its logs."
+        )
+
+    def test_production_thread_dispatch(
+        self, qtbot: QtBot, tmp_path: Path
+    ) -> None:
+        world = FakeTaskWorld(
+            tmp_path, test=ProcessResult(exit_code=0, stdout="direct out")
+        )
+        job = make_job()
+        world.manage(job)
+        window = _window(qtbot, DiscoveryController(world.services))
+        _select_managed(world, window, job)
+        window.test_action.trigger()
+        assert window._diagnostics_busy is True
+        qtbot.waitUntil(
+            lambda: window._diagnostics_busy is False,
+            timeout=5000,
+        )
+        assert _panel_text(window, "diagnostics-summary") == (
+            "Passed (exit code 0) in 0.00s"
+        )

@@ -260,18 +260,20 @@ Approved plan: 6 micro-slices (PLAN.md "Approved Execution Plan", approved 2026-
 - [x] Controller + worker tests
 - [x] make check, commit, push
 
-### Slice 3 — Diagnostics Presentation + Panel (DONE — pending commit)
+### Slice 3 — Diagnostics Presentation + Panel (DONE — 820b283)
 - [x] Presenters: test summary (pass/fail, exit code, duration, launch failure), diagnostics (severity/title/explanation/suggested action), environment difference (names only + disclosure text), Python detection (candidates + recommendation)
 - [x] DiagnosticLogsPanel: four log tabs (Direct stdout/stderr, Persisted stdout/stderr), Refresh button, environment + Python groups, `diagnostics-*` object names
 - [x] Controller amendment: `TestOutcome.detection` — execute() detects for Python jobs once and forwards to `test_job`, so the panel can show a recommendation
 - [x] Widget tests: wording, tabs, empty output, severity/action rendering, disclosure, log states (content, empty, missing, unreadable, unconfigured)
 - [x] make check (735 passed) + 100% coverage (2967 stmts)
-- [ ] commit, push
+- [x] commit, push
 
-### Slice 4 — MainWindow + JobEditor Integration (PENDING)
-- [ ] MainWindow: panel below the inspector, Test action gated on selection state, busy state, late-result label guard, fourth controller wired (services + gui_environment())
-- [ ] JobEditor: "Test Draft" button (validated current draft) opening a modal DirectTestDialog hosting the shared panel
-- [ ] Widget tests for both entry points
+### Slice 4 — MainWindow + JobEditor Integration (IN PROGRESS)
+Refinements approved 2026-08-31: DirectTestDialog wires the panel Refresh to a synchronous log/environment re-read; no dialog-level outcome-label guard; Test Draft persists nothing.
+- [x] MainWindow: panel below the inspector, Test action gated on selection state, busy state, late-result label guard, fourth controller wired (services + gui_environment())
+- [x] JobEditor: "Test Draft" button (validated current draft) opening a modal DirectTestDialog hosting the shared panel
+- [x] DirectTestDialog: modal panel host, worker on QThread, close guard, panel Refresh wired
+- [ ] Widget tests for both entry points (main window gating/trigger done; editor Test Draft + dialog pending)
 - [ ] make check, commit, push
 
 ### Slice 5 — Tests and Coverage (PENDING)

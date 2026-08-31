@@ -7,7 +7,8 @@ import sys
 from PySide6.QtWidgets import QApplication
 
 from task_scheduler.application.task_command_service import TaskCommandService
-from task_scheduler.bootstrap import build_services
+from task_scheduler.bootstrap import build_services, gui_environment
+from task_scheduler.gui.controllers.diagnostics_controller import DiagnosticsController
 from task_scheduler.gui.controllers.discovery_controller import DiscoveryController
 from task_scheduler.gui.controllers.editor_controller import EditorController
 from task_scheduler.gui.controllers.lifecycle_controller import LifecycleController
@@ -22,6 +23,7 @@ def create_main_window(services: TaskCommandService) -> MainWindow:
         DiscoveryController(services),
         EditorController(services),
         LifecycleController(services),
+        DiagnosticsController(services, gui_environment()),
     )
 
 

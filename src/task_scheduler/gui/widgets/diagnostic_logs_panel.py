@@ -124,6 +124,10 @@ class DiagnosticLogsPanel(QWidget):
         self._tabs.addTab(edit, title)
         return edit
 
+    def show_notice(self, text: str) -> None:
+        """Replace the summary line with a caller-supplied notice."""
+        self._summary.setText(text)
+
     def show_test_outcome(self, job: JobDefinition, outcome: TestOutcome) -> None:
         """Render the summary, diagnostics, direct-output tabs, and detection."""
         self._summary.setText(format_test_summary(outcome))

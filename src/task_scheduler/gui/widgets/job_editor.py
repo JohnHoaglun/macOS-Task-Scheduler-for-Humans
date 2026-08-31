@@ -25,12 +25,14 @@ from PySide6.QtWidgets import (
 )
 
 from task_scheduler.domain import JobDefinition
+from task_scheduler.gui.controllers.diagnostics_controller import DiagnosticsController
 from task_scheduler.gui.controllers.editor_controller import (
     CommandKind,
     EditorController,
     EditorOutcome,
     JobDraft,
 )
+from task_scheduler.gui.widgets.direct_test_dialog import DirectTestDialog
 from task_scheduler.gui.widgets.row_table import RowTable
 
 __all__ = ["JobEditor"]
@@ -39,10 +41,20 @@ __all__ = ["JobEditor"]
 class JobEditor(QDialog):
     """Form dialog bound to an EditorController draft; Save and Close are the only exits."""
 
-    def __init__(self, controller: EditorController, parent: QWidget | None = None) -> None:
-        """Build the scrollable form, hidden error pane, and the action button row."""
+    def __init__(
+        self,
+        controller: EditorController,
+        parent: QWidget | None = None,
+        diagnostics: DiagnosticsController | None = None,
+    ) -> None:
+        """Build the scrollable form, hidden error pane, and the action button row.
+
+        With a *diagnostics* controller the Test Draft button runs a direct
+        test of the validated draft; without one the button stays disabled.
+        """
         super().__init__(parent)
         self._controller = controller
+        self._diagnostics_controller = diagnostics
         self._draft: JobDraft | None = None
         self._saved_path: Path | None = None
         self._saved_label: str | None = None
@@ -66,12 +78,21 @@ class JobEditor(QDialog):
         validate_button.setObjectName("editor-validate")
         preview_button = QPushButton("Preview", self)
         preview_button.setObjectName("editor-preview")
+        self._test_draft_button = QPushButton("Test Draft", self)
+        self._test_draft_button.setObjectName("editor-test-draft")
+        self._test_draft_button.setEnabled(diagnostics is not None)
         self._save_button = QPushButton("Save", self)
         self._save_button.setObjectName("editor-save")
         close_button = QPushButton("Close", self)
         close_button.setObjectName("editor-close")
         buttons = QHBoxLayout()
-        for b in (validate_button, preview_button, self._save_button, close_button):
+        for b in (
+            validate_button,
+            preview_button,
+            self._test_draft_button,
+            self._save_button,
+            close_button,
+        ):
             buttons.addWidget(b)
         layout = QVBoxLayout(self)
         layout.addWidget(self._scroll)
@@ -93,6 +114,7 @@ class JobEditor(QDialog):
         self._environment.rowsChanged.connect(self._on_draft_changed)
         validate_button.clicked.connect(self._on_validate)
         preview_button.clicked.connect(self._on_preview)
+        self._test_draft_button.clicked.connect(self._on_test_draft)
         self._save_button.clicked.connect(self._on_save)
 
     def _build_identity(self) -> QGroupBox:
@@ -418,6 +440,19 @@ class JobEditor(QDialog):
             self._errors.hide()
         else:
             self._show_errors(outcome)
+
+    def _on_test_draft(self) -> None:
+        """Test the validated draft in a modal dialog, or show field errors."""
+        self._collect()
+        if self._draft is None or self._diagnostics_controller is None:
+            return
+        outcome = self._controller.validate(self._draft)
+        if not outcome.ok:
+            self._show_errors(outcome)
+            return
+        job = self._controller.build_job(self._draft)
+        dialog = DirectTestDialog(self._diagnostics_controller, job, self)
+        dialog.exec()
 
     def _on_save(self) -> None:
         """Save the draft to the catalog, or show any field errors."""

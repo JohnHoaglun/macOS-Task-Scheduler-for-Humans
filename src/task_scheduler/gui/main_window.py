@@ -10,11 +10,21 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QSplitter,
     QTreeView,
+    QVBoxLayout,
     QWidget,
 )
 
 from task_scheduler.application.job_service import JobNotFoundError
 from task_scheduler.application.task_command_service import ListingKind, TaskListing
+from task_scheduler.domain import JobDefinition
+from task_scheduler.gui.controllers.diagnostics_controller import (
+    DiagnosticsController,
+    TestOutcome,
+)
+from task_scheduler.gui.controllers.diagnostics_controller import (
+    RequestVerdict as TestVerdict,
+)
+from task_scheduler.gui.controllers.diagnostics_worker import DiagnosticsWorker
 from task_scheduler.gui.controllers.discovery_controller import DiscoveryController
 from task_scheduler.gui.controllers.editor_controller import EditorController
 from task_scheduler.gui.controllers.lifecycle_controller import (
@@ -26,6 +36,7 @@ from task_scheduler.gui.controllers.lifecycle_controller import (
 from task_scheduler.gui.controllers.lifecycle_worker import LifecycleWorker
 from task_scheduler.gui.models.agent_table_model import AgentTableModel
 from task_scheduler.gui.widgets.agent_inspector import AgentInspector
+from task_scheduler.gui.widgets.diagnostic_logs_panel import DiagnosticLogsPanel
 from task_scheduler.gui.widgets.job_editor import JobEditor
 from task_scheduler.gui.widgets.lifecycle_result import LifecycleResultDialog
 
@@ -40,6 +51,7 @@ class MainWindow(QMainWindow):
         controller: DiscoveryController,
         editor: EditorController,
         lifecycle: LifecycleController,
+        diagnostics: DiagnosticsController,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -48,7 +60,10 @@ class MainWindow(QMainWindow):
         self._lifecycle_controller = lifecycle
         self._lifecycle_busy = False
         self._active_worker: LifecycleWorker | None = None
-        self._editor = JobEditor(editor)
+        self._diagnostics_controller = diagnostics
+        self._diagnostics_busy = False
+        self._active_test_worker: DiagnosticsWorker | None = None
+        self._editor = JobEditor(editor, diagnostics=diagnostics)
         self._model = AgentTableModel()
         self.table = QTreeView()
         self.table.setModel(self._model)
@@ -59,9 +74,15 @@ class MainWindow(QMainWindow):
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.header().setStretchLastSection(True)
         self.inspector = AgentInspector()
+        self.panel = DiagnosticLogsPanel()
+        right_pane = QWidget()
+        right_layout = QVBoxLayout(right_pane)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.addWidget(self.inspector)
+        right_layout.addWidget(self.panel)
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self.table)
-        splitter.addWidget(self.inspector)
+        splitter.addWidget(right_pane)
         splitter.setSizes([600, 400])
         self.setCentralWidget(splitter)
         self.refresh_action = QAction("Refresh", self)
@@ -76,6 +97,12 @@ class MainWindow(QMainWindow):
         file_menu.addAction(self.new_task_action)
         file_menu.addAction(self.edit_task_action)
         file_menu.addAction(self.refresh_action)
+        self.test_action = QAction("Test Task", self)
+        self.test_action.setEnabled(False)
+        self.test_action.triggered.connect(self._on_test_triggered)
+        diagnostics_menu = self.menuBar().addMenu("Diagnostics")
+        diagnostics_menu.addAction(self.test_action)
+        self.panel.refresh_button.clicked.connect(self._on_diagnostics_refresh)
         self.install_action = QAction("Install", self)
         self.reinstall_action = QAction("Reinstall...", self)
         self.uninstall_action = QAction("Uninstall...", self)
@@ -196,6 +223,12 @@ class MainWindow(QMainWindow):
         self.run_now_action.setEnabled(LifecycleAction.RUN_NOW in allowed)
         self.new_task_action.setEnabled(not self._lifecycle_busy)
         self.edit_task_action.setEnabled(not self._lifecycle_busy)
+        self.test_action.setEnabled(
+            listing is not None
+            and listing.managed
+            and listing.job is not None
+            and not self._diagnostics_busy
+        )
 
     def _on_selection_changed(self, selected: QItemSelection, _deselected: QItemSelection) -> None:
         """Inspect the selected agent, or show a placeholder when the selection is empty."""
@@ -281,3 +314,71 @@ class MainWindow(QMainWindow):
             self.refresh()
         dialog = LifecycleResultDialog(outcome, self)
         dialog.exec()
+
+    # -- diagnostics ---------------------------------------------------------
+
+    def _on_test_triggered(self) -> None:
+        """Request a direct test of the selected job and dispatch a worker."""
+        listing = self._selected_listing()
+        if listing is None:
+            self.statusBar().showMessage("Select a task first.")
+            return
+        if not listing.managed or listing.job is None:
+            self.statusBar().showMessage(
+                "This task is not a managed task; there is nothing to test."
+            )
+            return
+        verdict = self._diagnostics_controller.request_test(listing.job)
+        if verdict is not TestVerdict.ACCEPTED:
+            self.statusBar().showMessage(f"Cannot test: {verdict.value}.")
+            return
+        self._diagnostics_busy = True
+        self._update_lifecycle_actions()
+        self.statusBar().showMessage("Testing task...")
+        worker = DiagnosticsWorker(self._diagnostics_controller)
+        self._active_test_worker = worker
+        self._start_test_worker(worker)
+
+    def _start_test_worker(self, worker: DiagnosticsWorker) -> None:
+        """Run the test worker on a QThread and invoke it through the queue."""
+        thread = QThread(self)
+        worker.moveToThread(thread)
+        worker.finished.connect(self._on_test_finished)
+        worker.finished.connect(worker.deleteLater)
+        worker.finished.connect(thread.quit)
+        thread.finished.connect(thread.deleteLater)
+        thread.start()
+        QMetaObject.invokeMethod(worker, "run", Qt.ConnectionType.QueuedConnection)
+
+    def _on_test_finished(self, outcome: object) -> None:
+        """Render the test result only when the selection still matches it."""
+        if not isinstance(outcome, TestOutcome):
+            return
+        self._diagnostics_busy = False
+        self._active_test_worker = None
+        self._update_lifecycle_actions()
+        self.statusBar().clearMessage()
+        listing = self._selected_listing()
+        if (
+            listing is None
+            or listing.job is None
+            or self._label_of(listing) != outcome.label
+        ):
+            return
+        self.panel.show_test_outcome(listing.job, outcome)
+        self._render_diagnostics(listing.job)
+
+    def _on_diagnostics_refresh(self) -> None:
+        """Re-read the selected job's persisted logs and environment diff."""
+        listing = self._selected_listing()
+        if listing is None or listing.job is None:
+            self.statusBar().showMessage("Select a task to refresh its logs.")
+            return
+        self._render_diagnostics(listing.job)
+
+    def _render_diagnostics(self, job: JobDefinition) -> None:
+        """Fill the panel with a job's persisted logs and environment diff."""
+        self.panel.show_logs_outcome(self._diagnostics_controller.read_logs(job))
+        self.panel.show_environment_outcome(
+            self._diagnostics_controller.compare_environment(job)
+        )

@@ -25,7 +25,9 @@ from task_scheduler.domain import (
     LoggingConfig,
     ShellCommand,
 )
+from task_scheduler.gui.controllers.diagnostics_controller import DiagnosticsController
 from task_scheduler.gui.controllers.editor_controller import EditorController
+from task_scheduler.gui.widgets.direct_test_dialog import DirectTestDialog
 from task_scheduler.gui.widgets.job_editor import JobEditor
 from task_scheduler.gui.widgets.row_table import RowTable
 from task_scheduler.platform.macos import (
@@ -391,6 +393,17 @@ class TestUnopenedDialog:
         assert not errors(editor).isVisible()
         assert editor.result() == 0
 
+    def test_test_draft_noop_without_draft(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """Test Draft no-ops on a dialog that was never opened."""
+        world = FakeTaskWorld(tmp_path)
+        editor = JobEditor(
+            EditorController(world.services),
+            diagnostics=DiagnosticsController(world.services, {}),
+        )
+        qtbot.addWidget(editor)
+        button(editor, "editor-test-draft").click()
+        assert not errors(editor).isVisible()
+
 
 class TestPythonDetection:
     def test_note_initial(self, qtbot: QtBot, tmp_path: Path) -> None:
@@ -472,3 +485,87 @@ class TestPythonDetection:
         script.setText("")
         assert combo.count() == 0
         assert not button(editor, "editor-use-candidate").isEnabled()
+
+
+def make_test_draft_editor(
+    qtbot: QtBot, tmp_path: Path, job: JobDefinition | None = None
+) -> tuple[FakeTaskWorld, JobEditor]:
+    """An editor with a diagnostics controller, ready to run Test Draft."""
+    world = FakeTaskWorld(tmp_path)
+    controller = EditorController(world.services)
+    editor = JobEditor(
+        controller, diagnostics=DiagnosticsController(world.services, {})
+    )
+    qtbot.addWidget(editor)
+    if job is None:
+        editor.open_new()
+    else:
+        editor.open_existing(job)
+    editor.show()
+    return world, editor
+
+
+def fake_dialog_exec(monkeypatch: pytest.MonkeyPatch) -> list[JobDefinition]:
+    """Replace DirectTestDialog.exec with a recorder; returns the captured jobs."""
+    opened: list[JobDefinition] = []
+
+    def fake_exec(self: DirectTestDialog) -> int:
+        opened.append(self._job)
+        return 1
+
+    monkeypatch.setattr(DirectTestDialog, "exec", fake_exec)
+    return opened
+
+
+class TestDirectTestDraft:
+    def test_button_disabled_without_diagnostics(
+        self, qtbot: QtBot, tmp_path: Path
+    ) -> None:
+        """Without a diagnostics controller, Test Draft stays disabled."""
+        _, editor, _ = make_editor(qtbot, tmp_path)
+        assert not button(editor, "editor-test-draft").isEnabled()
+
+    def test_button_enabled_with_diagnostics(
+        self, qtbot: QtBot, tmp_path: Path
+    ) -> None:
+        """With a diagnostics controller, Test Draft is enabled."""
+        _, editor = make_test_draft_editor(qtbot, tmp_path)
+        assert button(editor, "editor-test-draft").isEnabled()
+
+    def test_invalid_draft_shows_errors_and_opens_nothing(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An invalid draft shows field errors, opens no dialog, saves nothing."""
+        world, editor = make_test_draft_editor(qtbot, tmp_path)
+        opened = fake_dialog_exec(monkeypatch)
+        button(editor, "editor-test-draft").click()
+        assert opened == []
+        assert errors(editor).isVisible()
+        assert errors(editor).toPlainText().strip()
+        assert editor.saved_path is None
+        assert editor.saved_label is None
+
+    def test_valid_draft_opens_dialog_with_canonical_job(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A valid current draft opens the dialog holding the built job."""
+        world, editor = make_test_draft_editor(qtbot, tmp_path, job=make_job())
+        opened = fake_dialog_exec(monkeypatch)
+        button(editor, "editor-test-draft").click()
+        assert len(opened) == 1
+        assert opened[0].label == make_job().label
+        assert world.jobs.find(opened[0].label) is None
+        assert editor.saved_path is None
+        assert editor.saved_label is None
+
+    def test_test_draft_uses_current_edited_fields(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Fields edited before the click are part of the tested job."""
+        _, editor = make_test_draft_editor(qtbot, tmp_path, job=make_job())
+        opened = fake_dialog_exec(monkeypatch)
+        line_edit(editor, "editor-name").setText("Renamed Backup")
+        button(editor, "editor-test-draft").click()
+        assert len(opened) == 1
+        assert opened[0].name == "Renamed Backup"
+        assert opened[0].label == make_job().label

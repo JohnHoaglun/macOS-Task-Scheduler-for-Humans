@@ -513,13 +513,13 @@ Do not render arbitrary raw environment values by default if they may contain se
 
 Each slice: on-disk verification, `make check` + 100% package coverage, commit before the next slice.
 
+**Slice 4 refinements (approved 2026-08-31):** `DirectTestDialog` wires the shared panel's Refresh button to a synchronous re-read of persisted logs and the environment comparison. No dialog-level outcome-label guard: the controller permits a single in-flight request and MainWindow owns the selection/stale-result guard. Test Draft must not persist anything (no catalog record, plist, or lifecycle side effect).
+
 ### Documentation at Increment 12 Close
 - `README.md`: test semantics, direct-test limitations, diagnostics, environment-comparison disclosure, logs, and security guidance against storing secrets in job definitions.
 - `docs/architecture.md`: diagnostics/test façade contracts and presentation-safe environment comparison.
 - `docs/development.md`: diagnostic/log test fixtures and safety rules.
 - `PROJECT.md`, `TODOS.md`, `PLAN.md`, and `SUMMARY.md`.
-
-**Version: 0.0.11 → 0.0.12**
 
 **Version: 0.0.11 → 0.0.12**
 

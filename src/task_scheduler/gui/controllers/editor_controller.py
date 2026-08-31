@@ -270,7 +270,7 @@ class EditorController:
     def validate(self, draft: JobDraft) -> EditorOutcome:
         """Validate the draft, mapping failures to per-field form errors."""
         try:
-            job = self._build_job(draft)
+            job = self.build_job(draft)
             self._services.validate_job(job)
         except ValueError as exc:
             return EditorOutcome(
@@ -283,7 +283,7 @@ class EditorController:
     def preview(self, draft: JobDraft) -> PreviewOutcome:
         """Render the launchd plist for the draft, mapping failures to field errors."""
         try:
-            job = self._build_job(draft)
+            job = self.build_job(draft)
             xml = self._services.generate_plist_for(job)
         except ValueError as exc:
             return PreviewOutcome(
@@ -296,7 +296,7 @@ class EditorController:
     def save(self, draft: JobDraft) -> SaveOutcome:
         """Persist the draft to the catalog, mapping failures to outcomes."""
         try:
-            job = self._build_job(draft)
+            job = self.build_job(draft)
         except ValueError as exc:
             return SaveOutcome(
                 ok=False,
@@ -339,8 +339,12 @@ class EditorController:
                     return {"script": str(error["msg"])}
         return {"job": str(exc)}
 
-    def _build_job(self, draft: JobDraft) -> JobDefinition:
-        """Assemble a JobDefinition from the editor draft, raising on missing fields."""
+    def build_job(self, draft: JobDraft) -> JobDefinition:
+        """Assemble a JobDefinition from the editor draft, raising on missing fields.
+
+        Public because non-persisting consumers (e.g. the draft direct test)
+        need the validated job object itself, not a save.
+        """
         name = draft.name.strip()
         if not name:
             raise _DraftError("name", "a job name is required")
