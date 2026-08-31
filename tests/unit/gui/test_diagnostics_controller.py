@@ -10,12 +10,12 @@ import pytest
 from conftest import make_job
 from task_scheduler.application.test_service import DirectTestResult
 from task_scheduler.domain import EnvironmentConfig, JobDefinition, LoggingConfig
-from task_scheduler.domain.command import ShellCommand
+from task_scheduler.domain.command import PythonCommand, ShellCommand
 from task_scheduler.gui.controllers.diagnostics_controller import (
     DiagnosticsController,
     RequestVerdict,
 )
-from task_scheduler.platform.macos import ProcessResult
+from task_scheduler.platform.macos import CandidateSource, ProcessResult
 from tests.fakes import FakeTaskWorld
 
 JOB_LABEL = "io.github.macos-task-scheduler.user.daily-backup"
@@ -86,6 +86,49 @@ class TestExecute:
         assert outcome.result is not None
         assert outcome.result.process.exit_code == 2
         assert not outcome.is_success
+
+    def test_execute_detection_is_none_for_non_python_jobs(
+        self, tmp_path: Path
+    ) -> None:
+        world = FakeTaskWorld(tmp_path, test=ProcessResult(exit_code=0))
+        controller = DiagnosticsController(world.services, {})
+        controller.request_test(_shell_job())
+        outcome = controller.execute()
+        assert outcome.detection is None
+
+    def test_execute_forwards_detection_to_service(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        project = tmp_path / "project"
+        venv_python = project / ".venv" / "bin" / "python"
+        venv_python.parent.mkdir(parents=True)
+        venv_python.write_bytes(b"")
+        venv_python.chmod(0o755)
+        script = project / "main.py"
+        script.write_text("print('hi')\n", encoding="utf-8")
+        job = make_job(
+            command=PythonCommand(interpreter=venv_python, script=script, arguments=[])
+        )
+        world = FakeTaskWorld(tmp_path)
+        captured: dict[str, object] = {}
+
+        def spy(
+            j: JobDefinition, *, detection: object = None
+        ) -> DirectTestResult:
+            captured["detection"] = detection
+            return DirectTestResult(process=ProcessResult(exit_code=0))
+
+        monkeypatch.setattr(world.services, "test_job", spy)
+        controller = DiagnosticsController(world.services, {})
+        controller.request_test(job)
+        outcome = controller.execute()
+        assert outcome.detection is not None
+        assert any(
+            candidate.path == venv_python
+            and candidate.source is CandidateSource.VENV
+            for candidate in outcome.detection.candidates
+        )
+        assert captured["detection"] is outcome.detection
 
     def test_unexpected_error_becomes_error_outcome(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

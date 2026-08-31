@@ -260,11 +260,13 @@ Approved plan: 6 micro-slices (PLAN.md "Approved Execution Plan", approved 2026-
 - [x] Controller + worker tests
 - [x] make check, commit, push
 
-### Slice 3 — Diagnostics Presentation + Panel (PENDING)
-- [ ] Presenters: test summary (pass/fail, exit code, duration, launch failure), diagnostics (severity/title/explanation/suggested action), environment difference (names only + disclosure text), Python detection (candidates + recommendation)
-- [ ] DiagnosticLogsPanel: four log tabs (Direct stdout/stderr, Persisted stdout/stderr), Refresh button, environment + Python groups, `diagnostics-*` object names
-- [ ] Widget tests: wording, tabs, empty output, severity/action rendering, disclosure, log states (content, empty, missing, unreadable, unconfigured)
-- [ ] make check, commit, push
+### Slice 3 — Diagnostics Presentation + Panel (DONE — pending commit)
+- [x] Presenters: test summary (pass/fail, exit code, duration, launch failure), diagnostics (severity/title/explanation/suggested action), environment difference (names only + disclosure text), Python detection (candidates + recommendation)
+- [x] DiagnosticLogsPanel: four log tabs (Direct stdout/stderr, Persisted stdout/stderr), Refresh button, environment + Python groups, `diagnostics-*` object names
+- [x] Controller amendment: `TestOutcome.detection` — execute() detects for Python jobs once and forwards to `test_job`, so the panel can show a recommendation
+- [x] Widget tests: wording, tabs, empty output, severity/action rendering, disclosure, log states (content, empty, missing, unreadable, unconfigured)
+- [x] make check (735 passed) + 100% coverage (2967 stmts)
+- [ ] commit, push
 
 ### Slice 4 — MainWindow + JobEditor Integration (PENDING)
 - [ ] MainWindow: panel below the inspector, Test action gated on selection state, busy state, late-result label guard, fourth controller wired (services + gui_environment())

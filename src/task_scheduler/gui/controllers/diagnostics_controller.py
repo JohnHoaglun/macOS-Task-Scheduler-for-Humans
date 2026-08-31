@@ -17,8 +17,8 @@ from enum import StrEnum
 from task_scheduler.application import TaskCommandService
 from task_scheduler.application.log_service import JobLogs
 from task_scheduler.application.test_service import DirectTestResult
-from task_scheduler.domain import JobDefinition
-from task_scheduler.platform.macos import EnvironmentDifference
+from task_scheduler.domain import JobDefinition, PythonCommand
+from task_scheduler.platform.macos import EnvironmentDifference, PythonDetectionResult
 
 __all__ = [
     "DiagnosticsController",
@@ -44,12 +44,14 @@ class TestOutcome:
     ``label`` identifies the job the outcome belongs to so the UI can
     discard stale results after the selection changed. ``result`` is the
     service's structured result; ``error`` is the failure reason for
-    exceptions.
+    exceptions; ``detection`` is the interpreter detection the test was
+    run with (``None`` for non-Python commands or failed starts).
     """
 
     label: str
     result: DirectTestResult | None
     error: str | None
+    detection: PythonDetectionResult | None = None
 
     @property
     def is_success(self) -> bool:
@@ -128,10 +130,13 @@ class DiagnosticsController:
         assert self._current is not None
         job = self._current
         try:
-            result = self._services.test_job(job)
+            detection = self._detect(job)
+            result = self._services.test_job(job, detection=detection)
         except Exception as exc:
             return TestOutcome(label=job.label, result=None, error=str(exc))
-        return TestOutcome(label=job.label, result=result, error=None)
+        return TestOutcome(
+            label=job.label, result=result, error=None, detection=detection
+        )
 
     def finish(self) -> None:
         """Clear the busy state; called by the worker after ``execute()``."""
@@ -161,3 +166,10 @@ class DiagnosticsController:
         except Exception:
             return True
         return False
+
+    def _detect(self, job: JobDefinition) -> PythonDetectionResult | None:
+        """Detect candidate interpreters for Python jobs so the UI can show
+        a recommendation alongside the test result."""
+        if not isinstance(job.command, PythonCommand):
+            return None
+        return self._services.detect_python(job.command.script)
