@@ -184,54 +184,54 @@
 
 Approved plan: 8 micro-slices (PLAN.md "Approved Execution Plan", approved 2026-08-30). Pinned: (1) unified Saved-state listing, (2) managed-only enforcement at service + GUI, (3) truthful configured + loaded state UI. Each slice: on-disk verification, `make check` + 100% package coverage, commit before the next.
 
-### Slice 1 — Unified TaskListing (PENDING)
-- [ ] TaskListing DTO: kind (saved catalog-only / discovered), optional plist path, optional parsed plist, classification, canonical managed JobDefinition, status where available
-- [ ] TaskCommandService.list_agents() merges discovery + catalog-only saved jobs, deterministic sort
-- [ ] AgentTableModel / presenters / inspector consume the unified DTO; saved rows show "Saved, not installed" with no plist/Advanced details
-- [ ] Tests: merge ordering, saved-row shape, inspector state
-- [ ] make check + 100% coverage, commit
+### Slice 1 — Unified TaskListing (DONE — cf2b765)
+- [x] TaskListing DTO: kind (saved catalog-only / discovered), optional plist path, optional parsed plist, classification, canonical managed JobDefinition, status where available
+- [x] TaskCommandService.list_agents() merges discovery + catalog-only saved jobs, deterministic sort
+- [x] AgentTableModel / presenters / inspector consume the unified DTO; saved rows show "Saved, not installed" with no plist/Advanced details
+- [x] Tests: merge ordering, saved-row shape, inspector state
+- [x] make check + 100% coverage, commit
 
-### Slice 2 — Managed-only guards + result enrichment (PENDING)
-- [ ] uninstall/enable/disable/status/run_now/reinstall resolve the label through the catalog before any backend call
-- [ ] CLI surfaces managed-only rejection with the established exit codes
-- [ ] InstallResult enriched: optional phase results, completed-phase marker, retained artifact paths (primary ProcessResult preserved)
-- [ ] Tests: external labels rejected with no backend call; CLI exit codes
-- [ ] make check + 100% coverage, commit
+### Slice 2 — Managed-only guards + result enrichment (DONE — 1f43a89)
+- [x] uninstall/enable/disable/status/run_now/reinstall resolve the label through the catalog before any backend call
+- [x] CLI surfaces managed-only rejection with the established exit codes
+- [x] InstallResult enriched: optional phase results, completed-phase marker, retained artifact paths (primary ProcessResult preserved)
+- [x] Tests: external labels rejected with no backend call; CLI exit codes
+- [x] make check + 100% coverage, commit
 
-### Slice 3 — Staging primitives (PENDING)
-- [ ] LaunchAgentFilesystem + FakeFilesystem: atomic stage/backup/activate primitives (create-exclusive unique siblings)
-- [ ] LaunchAgentStore staging API: stage → backup → activate; never silently overwrites
-- [ ] LaunchAgentBackend: separate bootout and bootstrap phase methods
-- [ ] Failure tests at each phase
-- [ ] make check + 100% coverage, commit
+### Slice 3 — Staging primitives (DONE — 837dcd5)
+- [x] LaunchAgentFilesystem + FakeFilesystem: atomic stage/backup/activate primitives (create-exclusive unique siblings)
+- [x] LaunchAgentStore staging API: stage → backup → activate; never silently overwrites
+- [x] LaunchAgentBackend: separate bootout and bootstrap phase methods
+- [x] Failure tests at each phase
+- [x] make check + 100% coverage, commit
 
-### Slice 4 — install/reinstall service behavior (PENDING)
-- [ ] TaskCommandService.install(job) -> InstallResult (save catalog, create deployment plist, bootstrap)
-- [ ] TaskCommandService.reinstall(label) -> InstallResult (resolve, stage, bootout, backup, activate, bootstrap; retain artifacts on failure)
-- [ ] Uninstall boots out first, removes the matching catalog record only after successful bootout
-- [ ] Transaction tests: success + failure at each phase, catalog retention/removal, raw process output retention
-- [ ] make check + 100% coverage, commit
+### Slice 4 — install/reinstall service behavior (DONE — f0a2f65)
+- [x] TaskCommandService.install(job) -> InstallResult (save catalog, create deployment plist, bootstrap)
+- [x] TaskCommandService.reinstall(label) -> InstallResult (resolve, stage, bootout, backup, activate, bootstrap; retain artifacts on failure)
+- [x] Uninstall boots out first, removes the matching catalog record only after successful bootout
+- [x] Transaction tests: success + failure at each phase, catalog retention/removal, raw process output retention
+- [x] make check + 100% coverage, commit
 
-### Slice 5 — Lifecycle controller + worker (PENDING)
-- [ ] Qt-free lifecycle controller: LifecycleAction enum, immutable outcome DTOs, managed-target validation
-- [ ] QObject worker on QThread; mutating calls off the main thread; signals marshal immutable results
-- [ ] Controller/worker tests: validation, completion/exception signals restore busy state, no duplicate dispatch while busy
-- [ ] make check + 100% coverage, commit
+### Slice 5 — Lifecycle controller + worker (DONE — 925133a)
+- [x] Qt-free lifecycle controller: LifecycleAction enum, immutable outcome DTOs, managed-target validation
+- [x] QObject worker on QThread; mutating calls off the main thread; signals marshal immutable results
+- [x] Controller/worker tests: validation, completion/exception signals restore busy state, no duplicate dispatch while busy
+- [x] make check + 100% coverage, commit
 
-### Slice 6 — Lifecycle UI (PENDING)
-- [ ] Lifecycle menu: install_action, reinstall_action, uninstall_action, enable_action, disable_action, run_now_action
-- [ ] Gating: saved rows → Install only; installed managed rows → all six; external/invalid → none
-- [ ] State presentation: Saved, not installed / Installed, configured enabled|disabled (loaded/not loaded) / Status unknown
-- [ ] Confirmations for Reinstall/Uninstall (task name, exact label, current-user LaunchAgent scope)
-- [ ] Result dialog: human-readable outcome, exit code, stdout/stderr, expandable technical details (phase results, retained artifacts)
-- [ ] Busy state disables lifecycle + conflicting New/Edit actions; refresh after success preserves selection, predictable fallback after uninstall
-- [ ] Widget tests for all of the above (QTimer.singleShot modal pattern)
-- [ ] make check + 100% coverage, commit
+### Slice 6 — Lifecycle UI (DONE — 31f35ee)
+- [x] Lifecycle menu: install_action, reinstall_action, uninstall_action, enable_action, disable_action, run_now_action
+- [x] Gating: saved rows → Install only; installed managed rows → the other five; external/invalid → none
+- [x] State presentation: Saved, not installed / Installed, configured enabled|disabled (loaded/not loaded) / Status unknown
+- [x] Confirmations for Reinstall/Uninstall (task name, exact label, current-user LaunchAgent scope)
+- [x] Result dialog: human-readable outcome, exit code, stdout/stderr, expandable technical details (phase results, retained artifacts)
+- [x] Busy state disables lifecycle + conflicting New/Edit actions; refresh after success preserves selection, predictable fallback after uninstall
+- [x] Widget tests for all of the above (QTimer.singleShot modal pattern)
+- [x] make check + 100% coverage, commit
 
-### Slice 7 — GUI integration tests + coverage (PENDING)
-- [ ] Full GUI lifecycle flows through fakes (install, reinstall, uninstall, enable/disable, run now, confirmations, results, refresh)
-- [ ] Restore/verify 100% whole-package coverage
-- [ ] make check, commit
+### Slice 7 — GUI integration tests + coverage (DONE)
+- [x] Full GUI lifecycle flows through fakes (install, reinstall, uninstall, enable/disable, run now, confirmations, results, refresh)
+- [x] Restore/verify 100% whole-package coverage
+- [x] make check, commit
 
 ### Slice 8 — Closeout (PENDING)
 - [ ] README.md: install/reinstall/uninstall/enable/disable/run-now workflow, saved-vs-installed state, user-only safety boundary

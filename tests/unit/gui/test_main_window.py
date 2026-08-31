@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QPlainTextEdit,
     QPushButton,
     QScrollArea,
     QTextEdit,
@@ -905,3 +906,59 @@ class TestLifecycleEdgeCases:
         window._on_lifecycle_finished("not an outcome")
         assert window._lifecycle_busy is False
         assert window._active_worker is None
+
+
+class TestProductionLifecycleFlows:
+    def test_disable_flow_through_production_thread(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        world = FakeTaskWorld(tmp_path)
+        job = make_job()
+        world.manage(job)
+        window = _window(qtbot, DiscoveryController(world.services))
+        dialogs: list[LifecycleResultDialog] = []
+        monkeypatch.setattr(
+            LifecycleResultDialog,
+            "exec",
+            lambda self: dialogs.append(self) or QDialog.DialogCode.Accepted,
+        )
+        _select_managed(world, window, job)
+        window.disable_action.trigger()
+        qtbot.waitUntil(lambda: window._lifecycle_busy is False and bool(dialogs), timeout=5000)
+        dialog = dialogs[0]
+        title = dialog.findChild(QLabel, "lifecycle-result-title")
+        assert title is not None
+        assert title.text() == f"Disable succeeded for {job.label}."
+        assert any(spec.argv[1] == "disable" for spec in world.launch_runner.specs)
+
+    def test_uninstall_flow_through_production_thread(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        world, managed, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        dialogs: list[LifecycleResultDialog] = []
+        monkeypatch.setattr(
+            LifecycleResultDialog,
+            "exec",
+            lambda self: dialogs.append(self) or QDialog.DialogCode.Accepted,
+        )
+        monkeypatch.setattr(
+            QMessageBox,
+            "question",
+            lambda parent, title, text: QMessageBox.StandardButton.Yes,
+        )
+        _select_managed(world, window, managed)
+        window.uninstall_action.trigger()
+        qtbot.waitUntil(lambda: window._lifecycle_busy is False and bool(dialogs), timeout=5000)
+        dialog = dialogs[0]
+        title = dialog.findChild(QLabel, "lifecycle-result-title")
+        assert title is not None
+        assert title.text() == f"Uninstall succeeded for {managed.label}."
+        toggle = dialog.findChild(QPushButton, "lifecycle-details-toggle")
+        assert toggle is not None
+        toggle.setChecked(True)
+        details = dialog.findChild(QPlainTextEdit, "lifecycle-technical-details")
+        assert details is not None
+        assert "catalog record removed: True" in details.toPlainText()
+        assert window.table.model().rowCount() == 2
+        assert world.jobs.find(managed.label) is None
