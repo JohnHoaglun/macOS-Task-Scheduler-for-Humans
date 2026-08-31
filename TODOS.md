@@ -268,18 +268,18 @@ Approved plan: 6 micro-slices (PLAN.md "Approved Execution Plan", approved 2026-
 - [x] make check (735 passed) + 100% coverage (2967 stmts)
 - [x] commit, push
 
-### Slice 4 — MainWindow + JobEditor Integration (IN PROGRESS)
+### Slice 4 — MainWindow + JobEditor Integration (DONE — f8e59a3)
 Refinements approved 2026-08-31: DirectTestDialog wires the panel Refresh to a synchronous log/environment re-read; no dialog-level outcome-label guard; Test Draft persists nothing.
 - [x] MainWindow: panel below the inspector, Test action gated on selection state, busy state, late-result label guard, fourth controller wired (services + gui_environment())
 - [x] JobEditor: "Test Draft" button (validated current draft) opening a modal DirectTestDialog hosting the shared panel
 - [x] DirectTestDialog: modal panel host, worker on QThread, close guard, panel Refresh wired
-- [ ] Widget tests for both entry points (main window gating/trigger done; editor Test Draft + dialog pending)
-- [ ] make check, commit, push
+- [x] Widget tests for both entry points (main window gating/trigger; editor Test Draft + unopened no-op; dialog render/refresh/close-guard/stale/non-outcome)
+- [x] make check, commit, push
 
-### Slice 5 — Tests and Coverage (PENDING)
-- [ ] Error states with fake readers/services
-- [ ] 100% whole-package coverage
-- [ ] make check, commit, push
+### Slice 5 — Tests and Coverage (DONE — f8e59a3)
+- [x] Error states with fake readers/services (service error, busy, invalid job, missing log path)
+- [x] 100% whole-package coverage (3115 statements)
+- [x] make check, commit, push
 
 ### Slice 6 — Closeout (PENDING)
 - [ ] README.md: test semantics, direct-test limitations, diagnostics, environment-comparison disclosure, logs, security guidance against storing secrets in job definitions
