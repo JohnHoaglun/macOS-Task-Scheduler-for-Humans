@@ -289,32 +289,35 @@ Refinements approved 2026-08-31: DirectTestDialog wires the panel Refresh to a s
 - [x] Version 0.0.11 → 0.0.12 (registry + stale-reference grep)
 - [x] make check, commit, push
 
-## Crawl Increment 13 — Packaging (PENDING)
+## Crawl Increment 13 — Packaging (IN PROGRESS)
 
-### Implementation
-- [ ] Add/verify GUI executable entry point: QApplication -> composition root -> main window -> event-loop exit code
-- [ ] Add version-controlled PySide6 deployment configuration file (pyside6-deploy)
-- [ ] Define: app display name, bundle name, GUI entry point, output location (ignored by Git), architecture, icon policy
-- [ ] Add `make package` target that invokes the deployment configuration
-- [ ] Add `make run-gui` target for development startup
-- [ ] Generated app does not depend on source checkout or activated virtual environment
-- [ ] Keep deployment artifacts out of source control
+Pinned (approved 2026-08-31): `main()` returns the Qt event-loop exit code with a `__main__` launcher; root `pysidedeploy.spec` (title `macOS Task Scheduler for Humans`, `input_file = src/task_scheduler/gui/app.py`, `exec_directory = dist`, `mode = standalone`, PySide6 fallback icon); final artifact `dist/macOS Task Scheduler for Humans.app` with `deployment/` intermediates ignored; `make package` (non-interactive `pyside6-deploy -c pysidedeploy.spec -f`) + `make run-gui`; deployment fixes in the spec only; no full bundle builds in `make check` (PLAN.md "Pinned Decisions").
 
-### Verification
-- [ ] make check green
-- [ ] Explicit coverage run
-- [ ] make package succeeds
-- [ ] Manual macOS smoke checklist:
-  - [ ] Launch .app from Finder/open
-  - [ ] Main window opens without Terminal or activated venv
-  - [ ] Discovery loads safely
-  - [ ] New Task opens
-  - [ ] No lifecycle operation runs at app startup
-  - [ ] App uses current-user LaunchAgent scope only
-  - [ ] Fake/non-destructive path works
-  - [ ] If real lifecycle manually tested, unique test-owned label with cleanup
+### Slice 1 — Entry Point and Build Interface (PENDING)
+- [ ] `main() -> int` returns the Qt event-loop exit code; `if __name__ == "__main__"` launcher
+- [ ] Entry-point test asserts the returned code; console-script mapping test retained
+- [ ] `make run-gui` (venv development startup) and `make package` (non-interactive pyside6-deploy)
+- [ ] `.gitignore`: `deployment/` intermediate directory
+- [ ] make check + 100% coverage, commit, push
 
-### Documentation
+### Slice 2 — Deployment Configuration (PENDING)
+- [ ] Root `pysidedeploy.spec`: title, project_dir, input_file, exec_directory=dist, standalone mode, fallback icon
+- [ ] First `make package` build produces `dist/macOS Task Scheduler for Humans.app`
+- [ ] Missing Qt dependencies fixed in the spec only (no runtime-path hacks)
+- [ ] make check + 100% coverage, commit, push
+
+### Slice 3 — Standalone Bundle Verification (PENDING)
+- [ ] Launch .app from Finder/open
+- [ ] Main window opens without Terminal or activated venv
+- [ ] Discovery loads safely
+- [ ] New Task opens
+- [ ] No lifecycle operation runs at app startup
+- [ ] App uses current-user LaunchAgent scope only
+- [ ] Fake/non-destructive path works
+- [ ] If real lifecycle manually tested, unique test-owned label with cleanup
+- [ ] Record artifact + smoke results in TODOS.md, commit, push
+
+### Slice 4 — Closeout (PENDING)
 - [ ] README.md: prerequisites, package command, artifact location, local architecture scope, launch instructions, explicit signing/notarization status
 - [ ] docs/development.md: package build, cleanup, and bundle smoke-test procedure
 - [ ] docs/architecture.md: GUI entry point and packaging boundary
@@ -322,4 +325,5 @@ Refinements approved 2026-08-31: DirectTestDialog wires the panel Refresh to a s
 - [ ] TODOS.md: mark packaging complete with artifact and smoke-check result
 - [ ] PLAN.md: replace Crawl strategy with Walk-phase plan or mark Crawl complete
 - [ ] SUMMARY.md: packaging implementation, verification outcome, artifact location, deferred distribution scope
-- [ ] Version: 0.0.12 → 0.0.13
+- [ ] Version: 0.0.12 → 0.0.13 (registry + stale-reference grep)
+- [ ] make check, commit, push

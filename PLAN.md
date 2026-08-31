@@ -558,6 +558,22 @@ Produce a locally usable, double-clickable `macOS Task Scheduler for Humans.app`
 6. Ensure the generated app does not depend on the source checkout or activated virtual environment at runtime.
 7. Keep deployment artifacts out of source control.
 
+### Pinned Decisions (approved 2026-08-31)
+1. **Entry point:** `main()` returns the Qt event-loop exit code (`int`); a module launcher (`if __name__ == "__main__": sys.exit(main())`) provides direct and bundled execution; the installed `mactask-gui` console script exits with the returned code.
+2. **Deployment configuration:** version-controlled `pysidedeploy.spec` at the repository root — title/bundle name `macOS Task Scheduler for Humans`, `input_file = src/task_scheduler/gui/app.py`, `exec_directory = dist`, `mode = standalone`, no custom icon (PySide6 fallback icon until an approved asset exists).
+3. **Artifacts:** final bundle at `dist/macOS Task Scheduler for Humans.app`; the Nuitka intermediate directory (`deployment/`) and `dist/` are Git-ignored; the generated app must run without the source checkout or an activated virtual environment.
+4. **Build interface:** `make package` invokes `.venv/bin/pyside6-deploy -c pysidedeploy.spec -f` (non-interactive); `make run-gui` starts the development GUI through the venv. Full bundle builds are not part of `make check`.
+5. **Config-only deployment fixes:** missing Qt plugins/frameworks are fixed in the spec (`[qt]`, `[nuitka]`), never with ad hoc runtime-path code in application modules.
+6. **Icon policy:** ship with the PySide6 fallback icon; no custom `.icns` in this increment.
+
+### Approved Execution Plan (micro-slices, approved 2026-08-31)
+1. **Entry point + build interface:** `main() -> int` + module launcher, entry-point test update, `make run-gui`, `make package`, `deployment/` ignore rule (+ `make check`, coverage, commit).
+2. **Deployment configuration:** root `pysidedeploy.spec`; first real `make package` build producing `dist/macOS Task Scheduler for Humans.app`; spec-level adjustments if Qt dependencies are missing (+ `make check`, coverage, commit).
+3. **Standalone bundle verification:** the manual macOS smoke checklist against the built bundle (Finder/`open` launch, no Terminal/venv, safe discovery, New Task, no startup lifecycle, current-user scope, non-destructive paths) (+ record results, commit).
+4. **Docs + version 0.0.12 → 0.0.13 closeout** (README, development, architecture, PROJECT/TODOS/PLAN/SUMMARY), `make check`, commit, push.
+
+Each slice: on-disk verification, `make check` + 100% package coverage, commit before the next slice.
+
 ### Packaging Verification
 ```bash
 make check
