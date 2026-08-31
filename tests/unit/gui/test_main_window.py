@@ -5,22 +5,45 @@ from __future__ import annotations
 from pathlib import Path
 from uuid import UUID
 
+import pytest
 from PySide6.QtCore import QItemSelection, QTimer
-from PySide6.QtWidgets import QCheckBox, QLabel, QLineEdit, QPushButton, QScrollArea, QTextEdit
+from PySide6.QtGui import QAction
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QDialog,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QTextEdit,
+)
 from pytestqt.qtbot import QtBot
 
 from conftest import make_job
 from task_scheduler.application import TaskCommandService
-from task_scheduler.application.task_command_service import ListingKind, TaskListing
+from task_scheduler.application.task_command_service import (
+    ListingKind,
+    TaskListing,
+    UninstallResult,
+)
 from task_scheduler.domain import JobDefinition
 from task_scheduler.gui.controllers.discovery_controller import DiscoveryController
 from task_scheduler.gui.controllers.editor_controller import EditorController
+from task_scheduler.gui.controllers.lifecycle_controller import (
+    LifecycleAction,
+    LifecycleController,
+    LifecycleOutcome,
+    RequestVerdict,
+)
+from task_scheduler.gui.controllers.lifecycle_worker import LifecycleWorker
 from task_scheduler.gui.main_window import MainWindow
 from task_scheduler.gui.models.agent_table_model import AgentTableModel
 from task_scheduler.gui.presenters.agent_presenter import format_name
 from task_scheduler.gui.widgets.agent_inspector import AgentInspector
 from task_scheduler.gui.widgets.job_editor import JobEditor
-from task_scheduler.platform.macos import parse_path
+from task_scheduler.gui.widgets.lifecycle_result import LifecycleResultDialog
+from task_scheduler.platform.macos import ProcessResult, parse_path
 from tests.fakes import FakeTaskWorld
 
 EXTERNAL_A_ID = UUID("11111111-1111-4111-8111-111111111111")
@@ -69,7 +92,11 @@ def _window(
     editor: EditorController | None = None,
 ) -> MainWindow:
     """A constructed, shown window kept alive by qtbot."""
-    window = MainWindow(controller, editor or EditorController(controller._services))
+    window = MainWindow(
+        controller,
+        editor or EditorController(controller._services),
+        LifecycleController(controller._services),
+    )
     qtbot.addWidget(window)
     window.show()
     return window
@@ -155,7 +182,11 @@ class TestRefreshPopulates:
             return original()
 
         controller.refresh = counting_refresh
-        window = MainWindow(controller, EditorController(controller._services))
+        window = MainWindow(
+            controller,
+            EditorController(controller._services),
+            LifecycleController(controller._services),
+        )
         qtbot.addWidget(window)
         assert window.refresh_action is not None
         assert window.refresh_action.text() == "Refresh"
@@ -253,6 +284,7 @@ class TestRefreshSelectionFallback:
         assert row_b != 0
         window.table.setCurrentIndex(model.index(row_b, 0))
         path_b.unlink()
+        world.jobs.remove(job_b.id)
         window.refresh()
         current_row = window.table.currentIndex().row()
         assert current_row == 0
@@ -262,6 +294,30 @@ class TestRefreshSelectionFallback:
         assert top is not None
         assert listing.path == top.path
         assert _value_label(window.inspector, "overview-name").text() == format_name(top)
+
+    def test_refresh_follows_selected_job_to_its_saved_row(
+        self, qtbot: QtBot, tmp_path: Path
+    ) -> None:
+        world = FakeTaskWorld(tmp_path)
+        world.manage(make_job())
+        job_b = make_job(id=SECOND_JOB_ID, name="Second Job", label="zz.example.second")
+        world.manage(job_b)
+        window = _window(qtbot, DiscoveryController(world.services))
+        model = window.table.model()
+        row_b = _row_by_path(model, world.store.destination_for(job_b.label))
+        assert row_b != 0
+        window.table.setCurrentIndex(model.index(row_b, 0))
+        world.store.destination_for(job_b.label).unlink()
+        window.refresh()
+        listing = model.listing_at(window.table.currentIndex().row())
+        assert listing is not None
+        assert listing.kind is ListingKind.SAVED
+        assert listing.job is not None
+        assert listing.job.label == job_b.label
+        assert (
+            _value_label(window.inspector, "overview-state").text()
+            == "Saved, not installed"
+        )
 
 
 class TestSelectionCleared:
@@ -483,3 +539,369 @@ class TestEditEdgeCases:
         window.edit_task_action.trigger()
         assert window.statusBar().currentMessage() == "This task is not in the task catalog."
         assert not window._editor.isVisible()
+
+
+def _capture_lifecycle(
+    window: MainWindow, monkeypatch: pytest.MonkeyPatch
+) -> list[LifecycleOutcome]:
+    """Run lifecycle workers synchronously and record their dialog outcomes."""
+    outcomes: list[LifecycleOutcome] = []
+
+    def fake_exec(self: LifecycleResultDialog) -> int:
+        outcomes.append(self._outcome)
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(LifecycleResultDialog, "exec", fake_exec)
+
+    def _start(worker: LifecycleWorker) -> None:
+        worker.finished.connect(window._on_lifecycle_finished)
+        worker.run()
+
+    monkeypatch.setattr(window, "_start_worker", _start)
+    return outcomes
+
+
+def _lifecycle_actions(window: MainWindow) -> list[QAction]:
+    return [
+        window.install_action,
+        window.reinstall_action,
+        window.uninstall_action,
+        window.enable_action,
+        window.disable_action,
+        window.run_now_action,
+    ]
+
+
+def _select_managed(world: FakeTaskWorld, window: MainWindow, job: JobDefinition) -> None:
+    model = window.table.model()
+    row = _row_by_path(model, world.store.destination_for(job.label))
+    window.table.setCurrentIndex(model.index(row, 0))
+
+
+class TestLifecycleGating:
+    def test_installed_managed_row_gates_the_five_actions(
+        self, qtbot: QtBot, tmp_path: Path
+    ) -> None:
+        world, managed, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        _select_managed(world, window, managed)
+        assert not window.install_action.isEnabled()
+        for action in _lifecycle_actions(window)[1:]:
+            assert action.isEnabled()
+        assert window.new_task_action.isEnabled()
+        assert window.edit_task_action.isEnabled()
+
+    def test_saved_row_gates_install_only(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        saved = make_job(
+            id=SECOND_JOB_ID, label="io.github.macos-task-scheduler.user.saved-only"
+        )
+        world.jobs.import_job(saved)
+        window = _window(qtbot, DiscoveryController(world.services))
+        model = window.table.model()
+        window.table.setCurrentIndex(model.index(0, 0))
+        assert window.install_action.isEnabled()
+        for action in _lifecycle_actions(window)[1:]:
+            assert not action.isEnabled()
+
+    def test_external_row_gates_all_actions(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world, _, external_a, _ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        _select_managed(world, window, external_a)
+        for action in _lifecycle_actions(window):
+            assert not action.isEnabled()
+
+    def test_invalid_row_gates_all_actions(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        path = world.la_root / f"{INVALID_LABEL}.plist"
+        world.la_root.mkdir(parents=True)
+        path.write_bytes(b"not a plist at all")
+        window = _window(qtbot, DiscoveryController(world.services))
+        model = window.table.model()
+        row = _row_by_path(model, path)
+        window.table.setCurrentIndex(model.index(row, 0))
+        for action in _lifecycle_actions(window):
+            assert not action.isEnabled()
+
+    def test_no_selection_gates_all_actions(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        window.table.setCurrentIndex(window.table.model().index(0, 0))
+        window.table.clearSelection()
+        for action in _lifecycle_actions(window):
+            assert not action.isEnabled()
+        assert window.new_task_action.isEnabled()
+        assert window.edit_task_action.isEnabled()
+
+    def test_busy_disables_everything(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world, managed, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        _select_managed(world, window, managed)
+        window._lifecycle_busy = True
+        window._update_lifecycle_actions()
+        for action in _lifecycle_actions(window):
+            assert not action.isEnabled()
+        assert not window.new_task_action.isEnabled()
+        assert not window.edit_task_action.isEnabled()
+        window._lifecycle_busy = False
+        window._update_lifecycle_actions()
+        for action in _lifecycle_actions(window)[1:]:
+            assert action.isEnabled()
+
+
+class TestLifecycleTrigger:
+    def test_reinstall_confirms_and_runs(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        world, managed, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        outcomes = _capture_lifecycle(window, monkeypatch)
+        monkeypatch.setattr(
+            QMessageBox,
+            "question",
+            lambda parent, title, text: QMessageBox.StandardButton.Yes,
+        )
+        _select_managed(world, window, managed)
+        window.reinstall_action.trigger()
+        assert len(outcomes) == 1
+        assert outcomes[0].action is LifecycleAction.REINSTALL
+        assert outcomes[0].label == managed.label
+        assert outcomes[0].is_success
+        assert world.launch_runner.specs
+
+    def test_reinstall_declined_confirmation_runs_nothing(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        world, managed, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        outcomes = _capture_lifecycle(window, monkeypatch)
+        monkeypatch.setattr(
+            QMessageBox,
+            "question",
+            lambda parent, title, text: QMessageBox.StandardButton.No,
+        )
+        _select_managed(world, window, managed)
+        baseline = len(world.launch_runner.specs)
+        window.reinstall_action.trigger()
+        assert outcomes == []
+        assert len(world.launch_runner.specs) == baseline
+
+    def test_reinstall_confirmation_names_task_and_label(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        world, managed, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        _capture_lifecycle(window, monkeypatch)
+        seen: list[str] = []
+
+        def confirm(parent, title, text):
+            seen.append(text)
+            return QMessageBox.StandardButton.Yes
+
+        monkeypatch.setattr(QMessageBox, "question", confirm)
+        _select_managed(world, window, managed)
+        window.reinstall_action.trigger()
+        assert managed.name in seen[0]
+        assert managed.label in seen[0]
+        assert "LaunchAgent" in seen[0]
+
+    def test_install_saved_row_deploys_without_confirmation(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        world = FakeTaskWorld(tmp_path)
+        saved = make_job(
+            id=SECOND_JOB_ID, label="io.github.macos-task-scheduler.user.saved-only"
+        )
+        world.jobs.import_job(saved)
+        window = _window(qtbot, DiscoveryController(world.services))
+        outcomes = _capture_lifecycle(window, monkeypatch)
+
+        def no_confirm(*args, **kwargs):
+            raise AssertionError("confirmation must not be asked for install")
+
+        monkeypatch.setattr(QMessageBox, "question", no_confirm)
+        model = window.table.model()
+        window.table.setCurrentIndex(model.index(0, 0))
+        window.install_action.trigger()
+        assert len(outcomes) == 1
+        assert outcomes[0].action is LifecycleAction.INSTALL
+        assert outcomes[0].is_success
+        assert world.store.destination_for(saved.label).is_file()
+
+    def test_failure_does_not_refresh(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        world = FakeTaskWorld(tmp_path, launch=ProcessResult(exit_code=1))
+        job = make_job()
+        world.manage(job)
+        controller = DiscoveryController(world.services)
+        refreshes = 0
+        original = controller.refresh
+
+        def counting_refresh():
+            nonlocal refreshes
+            refreshes += 1
+            return original()
+
+        controller.refresh = counting_refresh
+        window = _window(qtbot, controller)
+        outcomes = _capture_lifecycle(window, monkeypatch)
+        _select_managed(world, window, job)
+        window.enable_action.trigger()
+        assert len(outcomes) == 1
+        assert outcomes[0].is_success is False
+        assert refreshes == 1
+
+    def test_success_refreshes(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        world = FakeTaskWorld(tmp_path)
+        job = make_job()
+        world.manage(job)
+        controller = DiscoveryController(world.services)
+        refreshes = 0
+        original = controller.refresh
+
+        def counting_refresh():
+            nonlocal refreshes
+            refreshes += 1
+            return original()
+
+        controller.refresh = counting_refresh
+        window = _window(qtbot, controller)
+        outcomes = _capture_lifecycle(window, monkeypatch)
+        _select_managed(world, window, job)
+        window.enable_action.trigger()
+        assert len(outcomes) == 1
+        assert outcomes[0].is_success
+        assert refreshes == 2
+
+    def test_uninstall_removes_row_and_catalog_record(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        world, managed, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        outcomes = _capture_lifecycle(window, monkeypatch)
+        monkeypatch.setattr(
+            QMessageBox,
+            "question",
+            lambda parent, title, text: QMessageBox.StandardButton.Yes,
+        )
+        _select_managed(world, window, managed)
+        window.uninstall_action.trigger()
+        assert len(outcomes) == 1
+        assert outcomes[0].is_success
+        assert outcomes[0].result is not None
+        assert isinstance(outcomes[0].result, UninstallResult)
+        assert outcomes[0].result.catalog_removed
+        model = window.table.model()
+        assert model.rowCount() == 2
+        assert world.jobs.find(managed.label) is None
+
+    def test_production_thread_dispatch(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        world, managed, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        outcomes: list[LifecycleOutcome] = []
+
+        def fake_exec(self: LifecycleResultDialog) -> int:
+            outcomes.append(self._outcome)
+            return QDialog.DialogCode.Accepted
+
+        monkeypatch.setattr(LifecycleResultDialog, "exec", fake_exec)
+        monkeypatch.setattr(
+            QMessageBox,
+            "question",
+            lambda parent, title, text: QMessageBox.StandardButton.Yes,
+        )
+        _select_managed(world, window, managed)
+        window.run_now_action.trigger()
+        assert window._lifecycle_busy is True
+        qtbot.waitUntil(
+            lambda: window._lifecycle_busy is False and len(outcomes) == 1,
+            timeout=5000,
+        )
+        assert outcomes[0].action is LifecycleAction.RUN_NOW
+        assert outcomes[0].is_success
+
+
+class TestLifecycleEdgeCases:
+    def test_trigger_without_selection_shows_hint(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        window.table.clearSelection()
+        window._on_lifecycle_triggered(LifecycleAction.ENABLE)
+        assert window.statusBar().currentMessage() == "Select a task first."
+
+    def test_busy_request_is_refused(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world, managed, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        _select_managed(world, window, managed)
+        listing = window._model.listing_at(window.table.currentIndex().row())
+        assert listing is not None
+        assert (
+            window._lifecycle_controller.request(LifecycleAction.ENABLE, listing)
+            is RequestVerdict.ACCEPTED
+        )
+        window._on_lifecycle_triggered(LifecycleAction.ENABLE)
+        assert window.statusBar().currentMessage() == "Cannot run enable: busy."
+
+    def test_not_allowed_action_is_refused(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world, managed, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        _select_managed(world, window, managed)
+        window._on_lifecycle_triggered(LifecycleAction.INSTALL)
+        assert window.statusBar().currentMessage() == "Cannot run install: not allowed."
+
+    def test_confirm_without_job_refuses(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        path = world.la_root / f"{INVALID_LABEL}.plist"
+        world.la_root.mkdir(parents=True)
+        path.write_bytes(b"not a plist at all")
+        window = _window(qtbot, DiscoveryController(world.services))
+        listing = TaskListing(
+            kind=ListingKind.DISCOVERED,
+            path=path,
+            parsed=parse_path(path),
+            job=None,
+            managed=True,
+        )
+        assert window._confirm_lifecycle(LifecycleAction.UNINSTALL, listing) is False
+
+    def test_row_for_identity_skips_missing_rows(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        world.manage(make_job())
+        job_b = make_job(id=SECOND_JOB_ID, name="Second Job", label="zz.example.second")
+        world.manage(job_b)
+        window = _window(qtbot, DiscoveryController(world.services))
+        model = window.table.model()
+        previous = model.listing_at(1)
+        assert previous is not None
+        real = model.listing_at
+
+        def flaky(row: int) -> TaskListing | None:
+            return None if row == 0 else real(row)
+
+        model.listing_at = flaky
+        assert window._row_for_identity(previous) == 1
+
+    def test_row_for_identity_falls_back_to_path(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        path = world.la_root / f"{INVALID_LABEL}.plist"
+        world.la_root.mkdir(parents=True)
+        path.write_bytes(b"not a plist at all")
+        window = _window(qtbot, DiscoveryController(world.services))
+        model = window.table.model()
+        previous = model.listing_at(0)
+        assert previous is not None
+        assert previous.job is None
+        assert window._row_for_identity(previous) == 0
+        assert window._row_for_identity(None) == 0
+
+    def test_finished_ignores_foreign_payloads(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        window._on_lifecycle_finished("not an outcome")
+        assert window._lifecycle_busy is False
+        assert window._active_worker is None

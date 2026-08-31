@@ -16,6 +16,7 @@ from task_scheduler.gui.presenters.agent_presenter import (
     format_enabled,
     format_environment,
     format_label,
+    format_lifecycle_state,
     format_name,
     format_raw_plist,
     format_schedule,
@@ -204,13 +205,55 @@ class TestFormatState:
         assert format_state(_discovered(_parsed(status=status))) == expected
 
     def test_saved(self) -> None:
-        assert format_state(_saved(make_job())) == "saved, not installed"
+        assert format_state(_saved(make_job())) == "Saved, not installed"
+
+    def test_installed_configured_enabled(self) -> None:
+        job = make_job()
+        assert (
+            format_state(_discovered(_parsed(job=job), managed=True, job=job))
+            == "Installed, configured enabled"
+        )
+
+    def test_installed_configured_disabled(self) -> None:
+        job = make_job(enabled=False)
+        assert (
+            format_state(_discovered(_parsed(job=job), managed=True, job=job))
+            == "Installed, configured disabled"
+        )
+
+    def test_external_row_ignores_parsed_job(self) -> None:
+        job = make_job()
+        listing = _discovered(_parsed(job=job), managed=False)
+        assert format_state(listing) == "supported"
 
     def test_missing_parse(self) -> None:
         listing = TaskListing(
             kind=ListingKind.DISCOVERED, path=AGENT_PATH, parsed=None, job=None, managed=False
         )
         assert format_state(listing) == "—"
+
+
+class TestFormatLifecycleState:
+    @pytest.mark.parametrize(
+        ("enabled", "loaded", "expected"),
+        [
+            (True, True, "Installed, configured enabled (loaded)"),
+            (True, False, "Installed, configured enabled (not loaded)"),
+            (False, True, "Installed, configured disabled (loaded)"),
+            (False, False, "Installed, configured disabled (not loaded)"),
+        ],
+    )
+    def test_full_states(self, enabled: bool, loaded: bool, expected: str) -> None:
+        assert format_lifecycle_state(enabled, loaded) == expected
+
+    def test_unknown_when_configured_missing(self) -> None:
+        assert format_lifecycle_state(None, True) == "Status unknown"
+
+    def test_unknown_when_runtime_missing(self) -> None:
+        assert format_lifecycle_state(True, None) == "Status unknown"
+
+    def test_unknown_when_both_missing(self) -> None:
+        assert format_lifecycle_state(None, None) == "Status unknown"
 
 
 class TestFormatStatus:

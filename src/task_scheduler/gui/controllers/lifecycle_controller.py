@@ -66,14 +66,25 @@ class LifecycleRequest:
 class LifecycleOutcome:
     """Immutable result of a lifecycle action, marshaled to the main thread.
 
-    ``result`` is the service's structured result (or ``None`` on failure);
-    ``error`` is the human-readable failure reason (or ``None`` on success).
+    ``result`` is the service's structured result (or ``None`` when no process
+    ran); ``error`` is the human-readable failure reason for exceptions.
     """
 
     action: LifecycleAction
     label: str
     result: LifecycleResult | None
     error: str | None
+
+    @property
+    def is_success(self) -> bool:
+        """True when the operation completed and its process exited 0.
+
+        A structured result with a nonzero (or missing) exit code is a
+        failure even though no exception was raised.
+        """
+        if self.error is not None or self.result is None:
+            return False
+        return self.result.process.exit_code == 0
 
 
 class LifecycleController:

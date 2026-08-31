@@ -25,6 +25,7 @@ __all__ = [
     "format_name",
     "format_raw_plist",
     "format_schedule",
+    "format_lifecycle_state",
     "format_state",
     "format_status",
     "format_warnings",
@@ -103,9 +104,11 @@ def format_schedule(listing: TaskListing) -> str:
 
 
 def format_state(listing: TaskListing) -> str:
-    """The row's state: the parse support level, or 'saved, not installed'."""
+    """The row's state: saved, installed-and-configured, or parse support level."""
     if listing.kind is ListingKind.SAVED:
-        return "saved, not installed"
+        return "Saved, not installed"
+    if listing.job is not None:
+        return f"Installed, configured {'enabled' if listing.job.enabled else 'disabled'}"
     parsed = listing.parsed
     if parsed is None:
         return "—"
@@ -114,6 +117,15 @@ def format_state(listing: TaskListing) -> str:
         ParseSupport.PARTIALLY_SUPPORTED: "partially supported",
         ParseSupport.INVALID: "invalid",
     }[parsed.status]
+
+
+def format_lifecycle_state(enabled: bool | None, loaded: bool | None) -> str:
+    """The full installed state: configured plus loaded, or 'Status unknown'."""
+    if enabled is None or loaded is None:
+        return "Status unknown"
+    configured = "enabled" if enabled else "disabled"
+    runtime = "loaded" if loaded else "not loaded"
+    return f"Installed, configured {configured} ({runtime})"
 
 
 def format_status(status: LaunchAgentStatus | None) -> str:

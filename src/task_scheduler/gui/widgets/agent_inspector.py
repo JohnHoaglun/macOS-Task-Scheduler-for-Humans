@@ -23,6 +23,7 @@ from task_scheduler.gui.presenters.agent_presenter import (
     format_enabled,
     format_environment,
     format_label,
+    format_lifecycle_state,
     format_name,
     format_raw_plist,
     format_schedule,
@@ -73,6 +74,7 @@ class AgentInspector(QWidget):
             "label": self._field("overview-label"),
             "classification": self._field("overview-classification"),
             "source": self._field("overview-source"),
+            "state": self._field("overview-state"),
             "enabled": self._field("overview-enabled"),
             "loaded": self._field("overview-loaded"),
         }
@@ -81,6 +83,7 @@ class AgentInspector(QWidget):
         form.addRow("Label", self._overview["label"])
         form.addRow("Classification", self._overview["classification"])
         form.addRow("Source", self._overview["source"])
+        form.addRow("State", self._overview["state"])
         form.addRow("Enabled", self._overview["enabled"])
         form.addRow("Loaded", self._overview["loaded"])
         return box
@@ -130,22 +133,34 @@ class AgentInspector(QWidget):
 
     def show_agent(self, agent: TaskListing, report: DiscoveredInspectReport) -> None:
         """Fill every field for a discovered agent and reveal the form."""
+        job = agent.job
+        enabled = job.enabled if job is not None else None
+        loaded = report.status.loaded if report.status is not None else None
         self._fill(
             agent,
             source=str(agent.path) if agent.path is not None else "(no source)",
             loaded=format_status(report.status),
+            state=format_lifecycle_state(enabled, loaded),
         )
 
     def show_saved(self, listing: TaskListing) -> None:
         """Fill every field for a saved (catalog-only) task and reveal the form."""
-        self._fill(listing, source="(task catalog — not installed)", loaded="not installed")
+        self._fill(
+            listing,
+            source="(task catalog — not installed)",
+            loaded="not installed",
+            state="Saved, not installed",
+        )
 
-    def _fill(self, listing: TaskListing, *, source: str, loaded: str) -> None:
+    def _fill(
+        self, listing: TaskListing, *, source: str, loaded: str, state: str
+    ) -> None:
         """Render every section from the presenter output and reveal the form."""
         self._overview["name"].setText(format_name(listing))
         self._overview["label"].setText(format_label(listing))
         self._overview["classification"].setText(classify(listing).value)
         self._overview["source"].setText(source)
+        self._overview["state"].setText(state)
         self._overview["enabled"].setText(format_enabled(listing))
         self._overview["loaded"].setText(loaded)
         self._command["command"].setText(format_command(listing))

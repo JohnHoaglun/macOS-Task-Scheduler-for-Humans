@@ -48,6 +48,22 @@ def _managed_listing() -> TaskListing:
     )
 
 
+def _disabled_listing() -> TaskListing:
+    job = make_job(enabled=False)
+    parsed = ParsedLaunchAgent(
+        status=ParseSupport.SUPPORTED,
+        job=job,
+        raw={"Label": job.label},
+    )
+    return TaskListing(
+        kind=ListingKind.DISCOVERED,
+        path=MANAGED_PATH,
+        parsed=parsed,
+        job=job,
+        managed=True,
+    )
+
+
 def _external_listing() -> TaskListing:
     parsed = ParsedLaunchAgent(
         status=ParseSupport.PARTIALLY_SUPPORTED,
@@ -161,6 +177,7 @@ class TestShowAgentManaged:
         assert _value_label(inspector, "overview-source").text() == str(MANAGED_PATH)
         assert _value_label(inspector, "overview-enabled").text() == "enabled"
         assert _value_label(inspector, "overview-loaded").text() == "unknown"
+        assert _value_label(inspector, "overview-state").text() == "Status unknown"
         assert _value_label(inspector, "command-command").text() == (
             "/Users/example/project/.venv/bin/python /Users/example/project/main.py "
             "--mode daily"
@@ -184,12 +201,30 @@ class TestShowAgentManaged:
         status = LaunchAgentStatus(loaded=True, process=ProcessResult(exit_code=0))
         inspector.show_agent(listing, _report(listing, status))
         assert _value_label(inspector, "overview-loaded").text() == "loaded"
+        assert (
+            _value_label(inspector, "overview-state").text()
+            == "Installed, configured enabled (loaded)"
+        )
 
     def test_status_not_loaded(self, inspector: AgentInspector) -> None:
         listing = _managed_listing()
         status = LaunchAgentStatus(loaded=False, process=ProcessResult(exit_code=1))
         inspector.show_agent(listing, _report(listing, status))
         assert _value_label(inspector, "overview-loaded").text() == "not loaded"
+        assert (
+            _value_label(inspector, "overview-state").text()
+            == "Installed, configured enabled (not loaded)"
+        )
+
+    def test_state_disabled_configured(self, inspector: AgentInspector) -> None:
+        listing = _disabled_listing()
+        status = LaunchAgentStatus(loaded=True, process=ProcessResult(exit_code=0))
+        inspector.show_agent(listing, _report(listing, status))
+        assert _value_label(inspector, "overview-enabled").text() == "disabled"
+        assert (
+            _value_label(inspector, "overview-state").text()
+            == "Installed, configured disabled (loaded)"
+        )
 
 
 class TestShowSaved:
@@ -208,6 +243,7 @@ class TestShowSaved:
         )
         assert _value_label(inspector, "overview-enabled").text() == "enabled"
         assert _value_label(inspector, "overview-loaded").text() == "not installed"
+        assert _value_label(inspector, "overview-state").text() == "Saved, not installed"
         assert _value_label(inspector, "command-command").text() == (
             "/Users/example/project/.venv/bin/python /Users/example/project/main.py "
             "--mode daily"

@@ -161,7 +161,7 @@ class TestData:
         )
         assert agent_model.data(agent_model.index(0, 2)) == "at 07:30:00 on Monday"
         assert agent_model.data(agent_model.index(0, 3)) == "Managed"
-        assert agent_model.data(agent_model.index(0, 4)) == "supported"
+        assert agent_model.data(agent_model.index(0, 4)) == "Installed, configured enabled"
 
     def test_non_display_role_returns_none(self, agent_model: AgentTableModel) -> None:
         index = agent_model.index(0, 0)
@@ -194,7 +194,7 @@ class TestSavedRow:
         )
         assert saved_model.data(saved_model.index(0, 2)) == "at 07:30:00 on Monday"
         assert saved_model.data(saved_model.index(0, 3)) == "Managed"
-        assert saved_model.data(saved_model.index(0, 4)) == "saved, not installed"
+        assert saved_model.data(saved_model.index(0, 4)) == "Saved, not installed"
         listing = saved_model.listing_at(0)
         assert listing is not None
         assert listing.kind is ListingKind.SAVED
