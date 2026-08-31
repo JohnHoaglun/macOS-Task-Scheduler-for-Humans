@@ -245,14 +245,14 @@ Approved plan: 8 micro-slices (PLAN.md "Approved Execution Plan", approved 2026-
 
 Approved plan: 6 micro-slices (PLAN.md "Approved Execution Plan", approved 2026-08-30). Pinned: (1) two entry points — main-window selected managed task + editor validated draft, (2) job-based `read_logs_for(job)` façade with `read_logs(label)` delegating, (3) environment disclosure names-only (no reveal control), (4) direct tests via QObject worker on QThread. Each slice: on-disk verification, `make check` + 100% package coverage, commit before the next slice.
 
-### Slice 1 — Façade Contracts (PENDING)
-- [ ] TaskCommandService.test_job(job, *, detection=None) -> DirectTestResult (auto-detects Python candidates when detection is None)
-- [ ] Existing test(label) resolves the saved managed job and delegates to the same path
-- [ ] TaskCommandService.compare_environment(job, terminal_environment) -> EnvironmentDifference (delegates to the pure platform function)
-- [ ] TaskCommandService.read_logs_for(job) -> JobLogs; read_logs(label) delegates
-- [ ] gui_environment() in the composition layer (bootstrap); no os.environ/subprocess imports under gui/
-- [ ] Unit tests: draft + saved paths, detection forwarding, comparison immutability, no side effects
-- [ ] make check, commit, push
+### Slice 1 — Façade Contracts (DONE)
+- [x] TaskCommandService.test_job(job, *, detection=None) -> DirectTestResult (auto-detects Python candidates when detection is None)
+- [x] Existing test(label) resolves the saved managed job and delegates to the same path
+- [x] TaskCommandService.compare_environment(job, terminal_environment) -> EnvironmentDifference (delegates to the pure platform function)
+- [x] TaskCommandService.read_logs_for(job) -> JobLogs; read_logs(label) delegates
+- [x] gui_environment() in the composition layer (bootstrap); no os.environ/subprocess imports under gui/
+- [x] Unit tests: draft + saved paths, detection forwarding, comparison immutability, no side effects
+- [x] make check, commit, push
 
 ### Slice 2 — Diagnostics Controller + Worker (PENDING)
 - [ ] Qt-free DiagnosticsController: request_test/execute/finish + synchronous read_logs/compare_environment, outcome DTOs carrying the job label for the late-result guard
