@@ -411,7 +411,8 @@ stderr.
 
 ## Graphical Interface
 
-A discovery GUI with a job editor is available (Crawl Increments 9–10).
+A discovery GUI with a job editor and lifecycle controls is available
+(Crawl Increments 9–11).
 
 Launch it from the repository root with the virtual environment active:
 
@@ -421,11 +422,13 @@ mactask-gui
 
 The main window lists every LaunchAgent discovered under
 `~/Library/LaunchAgents` — application-managed jobs, external agents created
-by other software, and malformed or unsupported plists — and inspects the
-selected agent in a read-only detail panel:
+by other software, and malformed or unsupported plists — plus managed jobs
+saved in the task catalog but not yet installed (shown with the state
+**Saved, not installed**), and inspects the selected agent in a read-only
+detail panel:
 
-* Overview: name, label, classification, source plist path, enabled state,
-  launchd load status
+* Overview: name, label, classification, source plist path, state, enabled
+  state, launchd load status
 * Command: full command line and working directory
 * Schedule: plain-language schedule text
 * Environment: configured environment variables
@@ -479,15 +482,71 @@ invalid draft is never persisted.
 **Save does not deploy.** Saving a new or edited task writes or overwrites
 the job's catalog JSON only — same immutable job id, and a label conflict
 with a different managed job is rejected. It writes no plist, invokes no
-`launchctl`, and creates no log directories. Deploying a saved change
-still requires the lifecycle commands, which arrive in a later Crawl
-increment.
+`launchctl`, and creates no log directories. A saved task appears in the
+main list with the state **Saved, not installed** until it is deployed with
+**Install** (see the Lifecycle section below).
+
+**Lifecycle controls.** The Lifecycle menu deploys and manages the selected
+managed task:
+
+* **Install** — imports the saved task into the catalog (skipped when the
+  same job id is already saved), writes its LaunchAgent plist, and
+  bootstraps it into launchd. Available only for rows in the
+  **Saved, not installed** state.
+* **Reinstall...** — re-applies the task's current catalog definition
+  through an explicit staged transaction.
+* **Uninstall...** — boots the task out of launchd, removes its plist, and
+  removes its catalog record; the task then leaves the list.
+* **Enable** / **Disable** — set launchd's enable state for the task
+  without touching its definition.
+* **Run Now** — asks launchd to start the task immediately
+  (`kickstart -k`).
+
+Availability depends on the selection: a **Saved, not installed** row
+offers **Install** only; an installed managed row offers the other five
+actions; external, invalid, or unselected rows offer none. While an
+operation is running, all six lifecycle actions (and New Task / Edit
+Managed Task) are disabled.
+
+**Reinstall** and **Uninstall** ask for confirmation first, naming the
+task and its exact label and noting that the operation affects the current
+user's LaunchAgents only.
+
+Reinstall is an explicit staged transaction: the freshly generated plist is
+written as a uniquely named staged sibling file, the label is booted out,
+the deployed plist is preserved as a uniquely named backup sibling, the
+staged plist is atomically activated, and the label is bootstrapped. If a
+phase fails, the artifacts that phase could not clean up are kept in place
+for diagnosis — the transaction never claims a rollback — and the result
+dialog's technical details list every attempted phase, the phases that
+completed, and any retained artifacts. A successful reinstall removes the
+backup and retains nothing.
+
+The **State** column and the inspector's Overview show the task's state:
+**Saved, not installed** for catalog-only jobs;
+**Installed, configured enabled (loaded)**,
+**Installed, configured enabled (not loaded)**,
+**Installed, configured disabled (loaded)**, and
+**Installed, configured disabled (not loaded)** for installed jobs, where
+"configured" is the job's definition and "loaded" is launchd's actual load
+state; **Status unknown** when either side cannot be determined. The table
+column shows the configured part only; the full combined state is in the
+inspector.
+
+After a successful operation the list refreshes and a result dialog shows
+the headline (succeeded/failed), the launchd exit code, the raw stdout and
+stderr (when any), and an expandable technical-details pane.
+
+**User-only safety boundary:** every lifecycle operation applies to the
+current user's LaunchAgents in `~/Library/LaunchAgents` (launchd domain
+`gui/<uid>`) and nothing else. The confirmations state this explicitly, and
+the application services refuse lifecycle operations for any label that is
+not a managed catalog job.
 
 **Read-only external-job policy:** the GUI discovers and displays external
 and invalid agents but never modifies them. No edit, install, enable,
 disable, or removal controls exist for agents the application does not
-manage; lifecycle operations for managed jobs arrive in later Crawl
-increments.
+manage.
 
 ## Current Status
 
@@ -509,11 +568,13 @@ Current implementation scope:
   managed/external/invalid classification and detail inspector
 * GUI job editor (`mactask-gui`): New Task / Edit Managed Task dialog with
   validation, plist preview, and catalog-only save
+* GUI lifecycle controls (`mactask-gui`): install, reinstall, uninstall,
+  enable, disable, and run now; saved (not-installed) jobs listed with the
+  managed jobs; staged reinstall transaction with retained artifacts
 
 Not yet implemented:
 
-* GUI lifecycle actions and diagnostics (later Crawl
-  increments)
+* GUI diagnostics and logs (Crawl Increment 12)
 * Python virtual-environment detection
 * LaunchDaemon support
 * privileged helpers

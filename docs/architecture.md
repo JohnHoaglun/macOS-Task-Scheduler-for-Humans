@@ -20,7 +20,7 @@ Each layer may depend on the layer below it, but never on layers above it. No la
 
 | Layer | Purpose | Status |
 |---|---|---|
-| **GUI (PySide6)** | Native macOS desktop interface | Implemented (Increments 9–10: discovery and job editor) |
+| **GUI (PySide6)** | Native macOS desktop interface | Implemented (Increments 9–11: discovery, job editor, lifecycle) |
 | **CLI (Typer)** | Terminal task management interface (`mactask`) | Implemented (Increment 8) |
 | **Application Services** | Use cases, orchestration, coordination (`TaskCommandService` facade, `JobService`, `LogService`) | Implemented (Increments 7–10) |
 | **Domain** | Core model: Job, Schedule, Command, Environment | Implemented |
@@ -48,12 +48,13 @@ to the launchd LaunchAgent plist format by the platform layer
 (`platform/macos/`). The domain never knows about plist keys, JSON layout,
 or XML structure.
 
-The application services layer (Increments 7–10) adds the `TaskCommandService`
+The application services layer (Increments 7–11) adds the `TaskCommandService`
 facade, which both the `mactask` CLI and the GUI call. It coordinates
 `JobService` (catalog resolution and conflict checks), `LogService`, the
-`LaunchAgentStore` (plist writes/removals and discovery in
-`~/Library/LaunchAgents`), and the `LaunchAgentBackend` (all `launchctl`
-invocations).
+`LaunchAgentStore` (plist writes/removals, staging siblings, and discovery
+in `~/Library/LaunchAgents`), and the `LaunchAgentBackend` (all `launchctl`
+invocations, including the bootout/bootstrap phases of the reinstall
+transaction).
 
 ## Platform Boundaries
 
@@ -86,12 +87,18 @@ gui/
   graph (repository, job service, store, backend, codec, test service, log
   service) for the `mactask` CLI and the `mactask-gui` entry point, so CLI
   and GUI behavior cannot drift.
-* The GUI calls only read-only discovery (`list_agents()`,
-  `inspect_discovered()`) and the in-memory editor methods (`validate_job`,
-  `generate_plist_for`, `save_managed_job`, `detect_python`,
-  `resolve_managed_job`). Save is non-deploying (Increment 10): it writes
-  the job's catalog JSON only — no plist write, no `launchctl`, no log
-  directory creation.
+* The GUI's read path calls `list_agents()` (discovered plists plus
+  catalog-only saved jobs) and `inspect_discovered()`, and the in-memory
+  editor methods (`validate_job`, `generate_plist_for`, `save_managed_job`,
+  `detect_python`, `resolve_managed_job`). Save is non-deploying
+  (Increment 10): it writes the job's catalog JSON only — no plist write,
+  no `launchctl`, no log directory creation.
+* The GUI's lifecycle path (Increment 11) runs only through
+  `LifecycleController` → `LifecycleWorker` → `TaskCommandService`
+  (`install`, `reinstall`, `uninstall`, `enable`, `disable`, `run_now`).
+  The service methods are managed-only: each validates the raw label and
+  resolves it through the job catalog before touching the backend, so the
+  GUI can never act on an external agent's label.
 * Import boundary (current): the GUI may import `application/` and
   `domain/` freely; controllers and presenters additionally import
   `platform.macos` types (the Python interpreter detection result and the
@@ -141,5 +148,57 @@ no log directory creation.
 **Managed JSON lifecycle.** Each managed job's catalog file is
 `<job-id>.json` directly under the catalog root. Saving from the editor is
 non-deploying: it writes or overwrites that catalog file only. Deploying a
-saved change (plist write and launchd load) remains the lifecycle
-commands' job, which arrive in a later Crawl increment.
+saved change (plist write and launchd load) is the lifecycle commands'
+job (Increment 11, below).
+
+## Lifecycle Contracts (Increment 11)
+
+The GUI Lifecycle menu (install, reinstall, uninstall, enable, disable, run
+now) bridges to `TaskCommandService` through a two-part contract: a Qt-free
+controller that owns all gating and busy-state logic, and a small QObject
+worker that executes the accepted request off the main thread.
+
+**Unified listing contract.** `TaskCommandService.list_agents()` returns
+one frozen `TaskListing` per row: a `DISCOVERED` row for each plist under
+`~/Library/LaunchAgents` (discovery order, carrying the parse and — for
+managed labels — the canonical catalog job) and a `SAVED` row for each
+catalog job with no deployed plist (sorted by label, carrying no path or
+parse). CLI and GUI consume this single DTO, so the "saved, not installed"
+state is one service-level fact, not a view detail.
+
+**Managed-only guards.** Every lifecycle method on `TaskCommandService`
+(`reinstall`, `uninstall`, `enable`, `disable`, `status`, `run_now`)
+validates the raw label and resolves it through the job catalog before
+touching the backend; an unknown or unmanaged label raises instead of
+reaching `launchctl`. `install(job)` skips the catalog import when the same
+job id is already saved (installing a saved row) and raises
+`FileExistsError` when the plist already exists — re-applying an installed
+job is `reinstall`'s job.
+
+**Controller / worker split.** `LifecycleController`
+(`gui/controllers/lifecycle_controller.py`) imports no Qt. It answers
+`enabled_actions(listing)` (saved rows: install only; installed managed
+rows: the other five; anything else: none), vets each request
+synchronously into a `RequestVerdict` (`ACCEPTED` / `BUSY` / `NOT_MANAGED`
+/ `NOT_ALLOWED`), and holds exactly one accepted request. `execute()` runs
+the request and converts every service exception into an error outcome; the
+busy state is always cleared by `finish()`. `LifecycleWorker`
+(`gui/controllers/lifecycle_worker.py`) is the Qt half: a QObject moved
+onto a `QThread`, invoked via queued connection, that calls `execute()`
+then `finish()` and emits the immutable `LifecycleOutcome` (action, label,
+structured result or error) back to the main thread. Success means a
+non-error outcome whose process exited 0 — a structured result with a
+nonzero (or missing) exit code is a failure even though no exception was
+raised.
+
+**Staged reinstall transaction.** `reinstall(label)` never overwrites the
+deployed plist in place. It (1) stages the freshly generated plist as a
+create-exclusive uniquely named sibling (`.staged.N`), (2) boots the label
+out, (3) preserves the deployed plist as a uniquely named backup sibling
+(`.backup.N`), (4) atomically activates the staged plist, and (5)
+bootstraps. Each `launchctl` phase is recorded (`InstallPhase`), completed
+phases are tracked, and any artifact a failed phase could not clean up is
+reported in `InstallResult.retained_artifacts` — the transaction never
+claims a rollback. The primary result is always the last phase's
+`ProcessResult`. Uninstall is the inverse order: bootout first, plist and
+catalog record removed only on success.

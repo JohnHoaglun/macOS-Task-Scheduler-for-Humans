@@ -78,9 +78,55 @@ The job editor tests (Crawl Increment 10) follow the setup above and add:
   synchronous `exec()` would deadlock under single-threaded pytest-qt;
   status-bar hints are awaited with `qtbot.waitUntil`.
 
+## Lifecycle Test Conventions (Increment 11)
+
+The lifecycle tests follow the GUI setup above and add:
+
+* `FakeTaskWorld` seeds the three row kinds: `world.manage(job)` creates an
+  installed managed job (catalog record plus plist),
+  `world.store.write(job)` adds an external agent, and
+  `world.jobs.import_job(job)` saves a catalog-only (not-installed) job.
+* Discovery itself issues `launchctl print` calls, so
+  `world.launch_runner.specs` is non-empty before any lifecycle action.
+  Assert on the lifecycle invocation itself — e.g.
+  `any(spec.argv[1] == "disable" for spec in world.launch_runner.specs)` —
+  or take a baseline count before the action.
+* Multi-phase transaction tests script ordered results through
+  `FakeProcessRunner` (stage → bootout → backup → activate → bootstrap) and
+  assert which staged/backup sibling artifacts are retained on each failure
+  mode.
+* `LifecycleController` is Qt-free: request verdicts, gating, and
+  exception-safe execution are tested without an event loop. The
+  production `QThread` path is exercised end-to-end by tests that wait with
+  `qtbot.waitUntil` for the `finished` outcome.
+* Main-window lifecycle tests keep the UI synchronous with a
+  `_capture_lifecycle` helper: it patches `LifecycleResultDialog.exec`
+  (class level) to record the outcome and patches `window._start_worker` to
+  connect `finished` and run the worker inline. `QMessageBox.question` is
+  patched at class level (three-argument lambda).
+* `qtbot.waitUntil` callbacks must return a bool (not a list), and tests
+  hold strong references to temporary widgets — a PySide object created and
+  discarded inside one expression is garbage-collected while the event loop
+  still needs it.
+
+## Opt-in System Integration Tests
+
+The `tests/integration/` tests exercise the real
+`~/Library/LaunchAgents` directory and `/bin/launchctl`. They are excluded
+from every default run (the `integration` marker in `pyproject.toml`
+addopts) and skip unless the environment variable is set:
+
+```bash
+MACTASK_ALLOW_SYSTEM_TESTS=1 make integration
+```
+
+Each test job uses a unique UUID-based label, and cleanup is unconditional
+in fixture teardown, touching only the test-owned plist. Plain `pytest`,
+`make test`, and `make check` never run them.
+
 ## Current State
 
-Crawl increments 0–10 establish:
+Crawl increments 0–11 establish:
 
 - project/tooling foundation
 - normalized job domain model with Pydantic validation
@@ -96,9 +142,13 @@ Crawl increments 0–10 establish:
   `TaskCommandService` facade
 - GUI job editor (`mactask-gui`): New Task / Edit Managed Task dialog with
   validation, plist preview, and catalog-only save
+- GUI lifecycle controls (`mactask-gui`): install, reinstall, uninstall,
+  enable, disable, run now over a Qt-free controller and `QThread` worker;
+  saved jobs listed as `Saved, not installed`; staged reinstall transaction
+  with retained artifacts on failure
 
 Unit and GUI widget tests run against synthetic fakes and temporary
 directories and never touch `~/Library/LaunchAgents` or invoke real
 `launchctl`; GUI tests run headless via the offscreen Qt platform (see the
-GUI test setup above). OS integration tests are gated behind
-`MACTASK_ALLOW_SYSTEM_TESTS=1`.
+GUI test setup above). Opt-in system integration tests are described in the
+section above.

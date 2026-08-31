@@ -1,7 +1,7 @@
 # PLAN.md
 
 ## Current State
-Crawl Increments 0–10 complete and pushed to `sched_dev_opencode` (version 0.0.10):
+Crawl Increments 0–11 complete and pushed to `sched_dev_opencode` (version 0.0.11):
 - **Increment 0:** project foundation (pyproject, Makefile, package structure, docs, tooling)
 - **Increment 1:** Pydantic domain model + schema-versioned JSON persistence
 - **Increment 2:** plist encoder (`PlistCodec`) + golden fixtures
@@ -13,9 +13,10 @@ Crawl Increments 0–10 complete and pushed to `sched_dev_opencode` (version 0.0
 - **Increment 8:** Typer CLI (`mactask`) with 12 commands + exit codes; `TaskCommandService` façade; `JobService` managed catalog
 - **Increment 9:** PySide6 GUI read/discovery (`mactask-gui`): shared `bootstrap.build_services()` composition root, `inspect_discovered` + `DiscoveredInspectReport`, pure presenters/controller, `AgentTableModel`, `AgentInspector`, two-pane `MainWindow`; read-only external-job policy; 413 tests
 - **Increment 10:** GUI job creation/edit/save/validate: `JobService.new_managed_job` managed label policy + catalog-only `save`, `TaskCommandService` in-memory editor façade (`validate_job`/`generate_plist_for`/`save_managed_job`/`detect_python`/`resolve_managed_job`), Qt-free `EditorController` + `JobDraft`, `RowTable`, `JobEditor` dialog, New Task / Edit Managed Task actions; 544 tests
-- Verification at v0.0.10: 544 tests, 100% coverage, ruff + mypy strict clean
+- **Increment 11:** GUI installation/lifecycle: unified `TaskListing` (discovered plists + catalog-only saved rows shown as `Saved, not installed`), managed-only service guards, staged reinstall transaction (stage → bootout → backup → activate → bootstrap with retained artifacts, no rollback claim), Qt-free `LifecycleController` + `QThread` `LifecycleWorker` marshaling immutable `LifecycleOutcome`, Lifecycle menu (install/reinstall/uninstall/enable/disable/run now) with gating, confirmations, and result dialog; 676 tests
+- Verification at v0.0.11: 676 tests, 100% coverage, ruff + mypy strict clean
 
-Current focus: **Crawl Increment 11 — GUI Installation and Lifecycle** (IN PROGRESS, approved plan below); Increments 12–13 (diagnostics/logs, packaging) planned below.
+Current focus: **Crawl Increment 12 — GUI Diagnostics and Logs** (planned below); Increment 13 (packaging) also planned below.
 
 ---
 

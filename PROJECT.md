@@ -24,8 +24,8 @@ GUI (PySide6)          CLI (Typer)
 ```
 
 ## Status
-**Version:** 0.0.10
-**Phase:** Crawl — Increment 10 complete (GUI job creation/edit/save/validate, `mactask-gui`); Increments 11–13 planned and detailed in PLAN.md
+**Version:** 0.0.11
+**Phase:** Crawl — Increment 11 complete (GUI installation/lifecycle: install, reinstall, uninstall, enable, disable, run now, `mactask-gui`); Increments 12–13 (diagnostics/logs, packaging) planned and detailed in PLAN.md
 
 ## Repository
 Source of truth: https://github.com/JohnHoaglun/macOS-Task-Scheduler-for-Humans/tree/sched_dev_opencode

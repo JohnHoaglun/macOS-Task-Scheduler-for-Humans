@@ -1,4 +1,4 @@
-# TODOS.md (v0.0.10)
+# TODOS.md (v0.0.11)
 
 ## Crawl Increment 0 — Project Foundation (DONE)
 - [x] Create project directory
@@ -180,7 +180,7 @@
 - [x] PROJECT.md / TODOS.md / PLAN.md / SUMMARY.md updates
 - [x] Version 0.0.9 → 0.0.10 (registry + stale-reference grep), commit + push
 
-## Crawl Increment 11 — GUI Installation and Lifecycle (IN PROGRESS)
+## Crawl Increment 11 — GUI Installation and Lifecycle (DONE)
 
 Approved plan: 8 micro-slices (PLAN.md "Approved Execution Plan", approved 2026-08-30). Pinned: (1) unified Saved-state listing, (2) managed-only enforcement at service + GUI, (3) truthful configured + loaded state UI. Each slice: on-disk verification, `make check` + 100% package coverage, commit before the next.
 
@@ -233,13 +233,13 @@ Approved plan: 8 micro-slices (PLAN.md "Approved Execution Plan", approved 2026-
 - [x] Restore/verify 100% whole-package coverage
 - [x] make check, commit
 
-### Slice 8 — Closeout (PENDING)
-- [ ] README.md: install/reinstall/uninstall/enable/disable/run-now workflow, saved-vs-installed state, user-only safety boundary
-- [ ] docs/architecture.md: lifecycle worker boundary, merged-listing contract, staged redeploy transaction
-- [ ] docs/development.md: fake transaction scripting, worker test patterns, opt-in integration test procedure
-- [ ] PROJECT.md / TODOS.md / PLAN.md / SUMMARY.md updates
-- [ ] Version 0.0.10 → 0.0.11 (registry + stale-reference grep)
-- [ ] make check, commit, push
+### Slice 8 — Closeout (DONE)
+- [x] README.md: install/reinstall/uninstall/enable/disable/run-now workflow, saved-vs-installed state, user-only safety boundary
+- [x] docs/architecture.md: lifecycle worker boundary, merged-listing contract, staged redeploy transaction
+- [x] docs/development.md: fake transaction scripting, worker test patterns, opt-in integration test procedure
+- [x] PROJECT.md / TODOS.md / PLAN.md / SUMMARY.md updates
+- [x] Version 0.0.10 → 0.0.11 (registry + stale-reference grep)
+- [x] make check, commit, push
 
 ## Crawl Increment 12 — GUI Diagnostics and Logs (PENDING)
 
