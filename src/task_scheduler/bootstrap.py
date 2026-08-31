@@ -8,6 +8,8 @@ GUI build their single :class:`TaskCommandService` through
 
 from __future__ import annotations
 
+import os
+
 from task_scheduler.application import TaskCommandService
 from task_scheduler.application.job_service import JobService
 from task_scheduler.application.log_service import LogService
@@ -20,7 +22,7 @@ from task_scheduler.platform.macos import (
 )
 from task_scheduler.storage import JsonJobRepository
 
-__all__ = ["build_services"]
+__all__ = ["build_services", "gui_environment"]
 
 
 def build_services() -> TaskCommandService:
@@ -35,3 +37,12 @@ def build_services() -> TaskCommandService:
         test=DirectTestService(SubprocessRunner()),
         logs=LogService(),
     )
+
+
+def gui_environment() -> dict[str, str]:
+    """A copy of the GUI process environment, for presentation-safe comparison.
+
+    The GUI itself never reads ``os.environ``; the composition layer takes
+    the snapshot and hands it to the diagnostics controller.
+    """
+    return dict(os.environ)

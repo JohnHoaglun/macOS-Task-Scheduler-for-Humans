@@ -34,16 +34,22 @@ from task_scheduler.domain import (
     LoggingConfig,
     UnsupportedSchemaVersionError,
 )
-from task_scheduler.domain.command import command_argv
+from task_scheduler.domain.command import (
+    PythonCommand,
+    ShellCommand,
+    command_argv,
+)
 from task_scheduler.platform.macos import (
     LAUNCHCTL_PATH,
     CandidateSource,
+    InterpreterCandidate,
     LaunchAgentStatus,
     LaunchctlAction,
     ParseSupport,
     PlistCodec,
     ProcessLaunchFailure,
     ProcessResult,
+    PythonDetectionResult,
 )
 
 OTHER_ID = UUID("87654321-4321-4321-4321-432143214321")
@@ -592,6 +598,130 @@ class TestDirectTestAndLogs:
         logs = world.services.read_logs(job.label)
         assert logs.stdout.content == "job stdout\n"
         assert logs.stderr.path is None
+
+
+class TestJobBasedFacade:
+    @staticmethod
+    def _venv_project(tmp_path: Path) -> tuple[Path, Path]:
+        project = tmp_path / "project"
+        venv_python = project / ".venv" / "bin" / "python"
+        venv_python.parent.mkdir(parents=True)
+        venv_python.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+        venv_python.chmod(0o755)
+        script = project / "main.py"
+        script.write_text("print('ok')\n", encoding="utf-8")
+        return venv_python, script
+
+    def test_test_job_runs_unsaved_draft_without_catalog(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(
+            tmp_path,
+            test=ProcessResult(exit_code=7, stdout="draft-out"),
+        )
+        job = make_job(
+            command=ShellCommand(executable=Path("/bin/zsh"), arguments=["-c", "true"]),
+            environment=EnvironmentConfig(variables={"FOO": "bar"}),
+        )
+        result = world.services.test_job(job)
+        assert result.process.exit_code == 7
+        assert result.process.stdout == "draft-out"
+        assert world.test_runner.specs[0].argv == command_argv(job.command)
+        assert world.test_runner.specs[0].environment == {"FOO": "bar"}
+        assert world.jobs.list_jobs() == []
+
+    def test_test_job_auto_detects_python_candidates(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        venv_python, script = self._venv_project(tmp_path)
+        job = make_job(
+            command=PythonCommand(
+                interpreter=venv_python, script=script, arguments=[]
+            )
+        )
+        result = world.services.test_job(job)
+        codes = {diagnostic.code for diagnostic in result.diagnostics}
+        assert "interpreter_mismatch" not in codes
+
+    def test_test_job_explicit_detection_is_forwarded(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        script = tmp_path / "main.py"
+        script.write_text("print('ok')\n", encoding="utf-8")
+        interpreter = tmp_path / "alt" / "python"
+        interpreter.parent.mkdir()
+        interpreter.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+        interpreter.chmod(0o755)
+        job = make_job(
+            command=PythonCommand(
+                interpreter=interpreter, script=script, arguments=[]
+            )
+        )
+        detection = PythonDetectionResult(
+            script=script,
+            candidates=[
+                InterpreterCandidate(
+                    path=tmp_path / "project" / ".venv" / "bin" / "python",
+                    source=CandidateSource.VENV,
+                )
+            ],
+        )
+        result = world.services.test_job(job, detection=detection)
+        codes = {diagnostic.code for diagnostic in result.diagnostics}
+        assert "interpreter_mismatch" in codes
+
+    def test_test_job_invalid_job_raises_before_running(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        with pytest.raises(ValidationError):
+            world.services.test_job(broken_job(make_job()))
+        assert world.test_runner.specs == []
+
+    def test_compare_environment_reports_all_categories(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        job = make_job(
+            environment=EnvironmentConfig(
+                variables={"PATH": "/job/bin", "ONLY_JOB": "1"}
+            )
+        )
+        diff = world.services.compare_environment(
+            job, {"PATH": "/terminal/bin", "ONLY_TERM": "2"}
+        )
+        assert diff.terminal_only == {"ONLY_TERM": "2"}
+        assert diff.scheduled_only == {"ONLY_JOB": "1"}
+        assert diff.different == {"PATH": ("/terminal/bin", "/job/bin")}
+
+    def test_compare_environment_is_read_only(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        job = make_job(environment=EnvironmentConfig(variables={"A": "1"}))
+        terminal = {"A": "1"}
+        diff = world.services.compare_environment(job, terminal)
+        assert diff.terminal_only == {}
+        assert diff.scheduled_only == {}
+        assert diff.different == {}
+        assert terminal == {"A": "1"}
+        assert job.environment.variables == {"A": "1"}
+
+    def test_compare_environment_invalid_job_raises(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        with pytest.raises(ValidationError):
+            world.services.compare_environment(broken_job(make_job()), {})
+
+    def test_read_logs_for_reads_draft_logs(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        out = tmp_path / "draft-out.log"
+        out.write_text("draft stdout\n")
+        err = tmp_path / "draft-err.log"
+        err.write_text("draft stderr\n")
+        job = make_job(logging=LoggingConfig(stdout_path=out, stderr_path=err))
+        logs = world.services.read_logs_for(job)
+        assert logs.stdout.path == out
+        assert logs.stdout.content == "draft stdout\n"
+        assert logs.stderr.content == "draft stderr\n"
+        assert world.jobs.list_jobs() == []
+
+    def test_read_logs_label_delegates_to_read_logs_for(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        out = tmp_path / "out.log"
+        out.write_text("saved stdout\n")
+        job = make_job(logging=LoggingConfig(stdout_path=out, stderr_path=None))
+        world.jobs.import_job(job)
+        assert world.services.read_logs(job.label) == world.services.read_logs_for(job)
 
 
 class TestEditorFacade:

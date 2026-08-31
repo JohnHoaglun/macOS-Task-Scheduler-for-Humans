@@ -9,6 +9,7 @@ returns structured results, never presentation text.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -17,8 +18,9 @@ from uuid import UUID
 from task_scheduler.application.job_service import JobService
 from task_scheduler.application.log_service import JobLogs, LogService
 from task_scheduler.application.test_service import DirectTestResult, DirectTestService
-from task_scheduler.domain import Command, JobDefinition, Schedule
+from task_scheduler.domain import Command, JobDefinition, PythonCommand, Schedule
 from task_scheduler.platform.macos import (
+    EnvironmentDifference,
     LaunchAgentBackend,
     LaunchAgentStatus,
     LaunchAgentStore,
@@ -27,6 +29,7 @@ from task_scheduler.platform.macos import (
     PlistCodec,
     ProcessResult,
     PythonDetectionResult,
+    compare_environments,
     parse_path,
     validate_label,
 )
@@ -403,10 +406,46 @@ class TaskCommandService:
 
     def test(self, label: str) -> DirectTestResult:
         """Run the managed job's command directly (Mode A), with diagnostics."""
-        job = self._jobs.resolve(label)
-        return self._test.run(job)
+        return self.test_job(self._jobs.resolve(label))
+
+    def test_job(
+        self,
+        job: JobDefinition,
+        *,
+        detection: PythonDetectionResult | None = None,
+    ) -> DirectTestResult:
+        """Run the given job's command directly (Mode A), with diagnostics.
+
+        Works for validated, unsaved drafts as well as saved jobs. Python
+        commands without an explicit *detection* get their candidate
+        interpreters detected first, so interpreter-mismatch diagnostics are
+        available. Never mutates the job or writes logs.
+        """
+        validated = self.validate_job(job)
+        if detection is None and isinstance(validated.command, PythonCommand):
+            detection = self.detect_python(validated.command.script)
+        return self._test.run(validated, detection=detection)
+
+    def compare_environment(
+        self,
+        job: JobDefinition,
+        terminal_environment: Mapping[str, str],
+    ) -> EnvironmentDifference:
+        """Compare a supplied terminal environment with the job's scheduled
+        environment variables. Read-only; the platform comparison stays pure.
+        """
+        validated = self.validate_job(job)
+        return compare_environments(
+            terminal_environment, validated.environment.variables
+        )
 
     def read_logs(self, label: str) -> JobLogs:
         """Read the managed job's configured stdout/stderr files."""
-        job = self._jobs.resolve(label)
-        return self._logs.read(job)
+        return self.read_logs_for(self._jobs.resolve(label))
+
+    def read_logs_for(self, job: JobDefinition) -> JobLogs:
+        """Read the given job's configured stdout/stderr files (read-only).
+
+        Works for validated, unsaved drafts as well as saved jobs.
+        """
+        return self._logs.read(self.validate_job(job))
