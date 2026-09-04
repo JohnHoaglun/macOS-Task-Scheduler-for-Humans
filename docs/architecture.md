@@ -26,6 +26,7 @@ Each layer may depend on the layer below it, but never on layers above it. No la
 | **Domain** | Core model: Job, Schedule, Command, Environment | Implemented |
 | **Platform Adapters** | macOS plist codec, LaunchAgent store, launchctl backend, log reader | Implemented |
 | **launchd** | Underlying macOS scheduler (external) | Not part of the codebase |
+| **Packaging** | PySide6 deployment → self-contained macOS `.app` bundle | Implemented (Increment 13) |
 
 ## Domain Model
 
@@ -264,3 +265,27 @@ the job in memory, and opens the modal `DirectTestDialog`
 test summary, diagnostics list, direct stdout/stderr tabs, persisted
 stdout/stderr tabs plus Refresh (synchronous re-read), the environment
 comparison, and the Python recommendation group.
+
+## Packaging Boundary (Increment 13)
+
+The application runtime has no packaging logic. The `.app` bundle is built
+by `pyside6-deploy` (Nuitka standalone mode) using a version-controlled
+`pysidedeploy.spec` config at the repository root. The Makefile target
+`make package` invokes the deploy tool and then post-processes the generated
+`Contents/Info.plist` to set the Launch Services identity fields
+(`CFBundleIdentifier` → `io.github.macos-task-scheduler`,
+`CFBundleName`/`CFBundleDisplayName` → `macOS Task Scheduler for Humans`)
+and re-signs with the current user's ad-hoc identity:
+
+```bash
+codesign --force --sign - "dist/macOS Task Scheduler for Humans.app"
+```
+
+This post-processing step is the only exception to the "spec-only deployment
+fixes" decision — it is build tooling (never runtime code), required because
+Nuitka derives the bundle identifier from the `app.py` stem.
+
+The resulting bundle at `dist/macOS Task Scheduler for Humans.app` is fully
+self-contained: all Qt frameworks, plugins, Python extensions, and the
+compiled entry point are packaged inside. It requires no source checkout,
+no activated venv, and no PATH setup to run.

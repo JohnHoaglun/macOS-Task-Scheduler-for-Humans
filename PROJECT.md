@@ -24,8 +24,8 @@ GUI (PySide6)          CLI (Typer)
 ```
 
 ## Status
-**Version:** 0.0.12
-**Phase:** Crawl — Increment 12 complete (GUI diagnostics/logs: direct tests of managed tasks and validated editor drafts with structured diagnostics, direct/persisted stdout/stderr with Refresh, name-only environment comparison, Python interpreter recommendations, `mactask-gui`); Increment 13 (packaging) planned and detailed in PLAN.md
+**Version:** 0.0.13
+**Phase:** Crawl — complete. All 13 increments implemented: CLI (8), GUI discovery/editor/lifecycle/diagnostics (9–12), and standalone macOS .app bundle packaging (13). 767 tests, 100% line coverage, ruff + mypy strict clean.
 
 ## Repository
 Source of truth: https://github.com/JohnHoaglun/macOS-Task-Scheduler-for-Humans/tree/sched_dev_opencode

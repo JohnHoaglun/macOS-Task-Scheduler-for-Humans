@@ -2,6 +2,11 @@
 
 ## Changelog
 
+### v0.0.13
+- Crawl Increment 13: Packaging — standalone macOS `.app` bundle via PySide6 `pyside6-deploy` (Nuitka standalone mode), `make package` / `make run-gui` targets, self-contained bundle at `dist/macOS Task Scheduler for Humans.app` (no venv or source checkout required at runtime)
+- Bundle identity: `CFBundleIdentifier` → `io.github.macos-task-scheduler`, `CFBundleName`/`CFBundleDisplayName` → `macOS Task Scheduler for Humans` (post-processing `Info.plist` + ad-hoc `codesign` re-sign; Nuitka defaults to executable stem `app`)
+- 767 tests, 100% line coverage across the whole package (3117 statements), ruff + mypy strict clean
+
 ### v0.0.12
 - Crawl Increment 12: GUI Diagnostics and Logs — `mactask-gui` direct-test entry points for the selected managed task (Diagnostics > Test) and for the job editor's currently validated draft (Test Draft; validates first, persists nothing — no catalog record, plist, or lifecycle side effect)
 - Job-based façade contracts: `TaskCommandService.test_job(job, *, detection=None)` (works for unsaved drafts; Python jobs carry detection into interpreter-mismatch diagnostics; `test(label)` resolves and delegates), `compare_environment(job, terminal_environment)`, `read_logs_for(job)` with `read_logs(label)` delegating, and `gui_environment()` in the composition layer

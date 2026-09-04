@@ -18,7 +18,7 @@ Crawl Increments 0–12 complete and pushed to `sched_dev_opencode` (version 0.0
 - **Increment 12:** GUI diagnostics/logs: job-based façade contracts (`test_job(job, *, detection=None)`, `test(label)` delegating, `compare_environment(job, terminal_environment)`, `read_logs_for(job)` with `read_logs(label)` delegating, `gui_environment()` in the composition layer), Qt-free `DiagnosticsController` + `QThread` `DiagnosticsWorker`, shared `DiagnosticLogsPanel` (test summary, diagnostics, direct/persisted stdout/stderr with Refresh, name-only environment comparison, Python recommendations), main-window Test action with selection/stale-result guard, `DirectTestDialog` for the editor's Test Draft (persists nothing); 766 tests
 - Verification at v0.0.12: 766 tests, 100% coverage, ruff + mypy strict clean
 
-Current focus: **Crawl Increment 13 — Packaging** (planned below).
+Current focus: **Walk phase** — the next product-direction decisions after Crawl complete.
 
 ---
 
@@ -527,83 +527,23 @@ Each slice: on-disk verification, `make check` + 100% package coverage, commit b
 
 ---
 
-## Crawl Increment 13 — Packaging
+## Crawl Complete
 
-### Goal
-Produce a locally usable, double-clickable `macOS Task Scheduler for Humans.app` for the current Mac using PySide6 deployment tooling.
+All 13 Crawl increments are implemented.
 
-### Requirements
-- Use `pyside6-deploy`.
-- Produce a local `.app` bundle named `macOS Task Scheduler for Humans.app`.
-- Target the current development machine's native architecture.
-- Preserve the independent `mactask` CLI entry point.
-- Do not require code signing, hardened runtime, notarization, App Store distribution, universal builds, DMG/PKG generation, automatic updates, or CI release publishing.
+- **Version:** 0.0.13
+- **Tests:** 767 passed, 2 deselected
+- **Coverage:** 100% line coverage (3117 statements)
+- **Lint/TypeCheck:** ruff + mypy strict clean
+- **Artifact:** `dist/macOS Task Scheduler for Humans.app` (self-contained, ad-hoc signed)
 
-### Implementation Approach
-1. Add/verify a GUI executable entry point:
-   - Creates `QApplication`.
-   - Constructs services through the shared bootstrap composition root.
-   - Opens the main window.
-   - Returns the Qt event-loop exit code.
-2. Add a version-controlled PySide6 deployment configuration file.
-3. Define:
-   - app display name,
-   - bundle name,
-   - GUI entry point,
-   - output location ignored by Git,
-   - current-machine architecture expectation,
-   - icon policy if an approved icon asset exists.
-4. Add a `make package` target that invokes the deployment configuration.
-5. Add a `make run-gui` target for development startup.
-6. Ensure the generated app does not depend on the source checkout or activated virtual environment at runtime.
-7. Keep deployment artifacts out of source control.
+**Verification at v0.0.13:** `make check` passes. `make package` produces a standalone `.app` that opens without Terminal or a venv.
 
-### Pinned Decisions (approved 2026-08-31)
-1. **Entry point:** `main()` returns the Qt event-loop exit code (`int`); a module launcher (`if __name__ == "__main__": sys.exit(main())`) provides direct and bundled execution; the installed `mactask-gui` console script exits with the returned code.
-2. **Deployment configuration:** version-controlled `pysidedeploy.spec` at the repository root — title/bundle name `macOS Task Scheduler for Humans`, `input_file = src/task_scheduler/gui/app.py`, `exec_directory = dist`, `mode = standalone`, no custom icon (PySide6 fallback icon until an approved asset exists).
-3. **Artifacts:** final bundle at `dist/macOS Task Scheduler for Humans.app`; the Nuitka intermediate directory (`deployment/`) and `dist/` are Git-ignored; the generated app must run without the source checkout or an activated virtual environment.
-4. **Build interface:** `make package` invokes `.venv/bin/pyside6-deploy -c pysidedeploy.spec -f` (non-interactive); `make run-gui` starts the development GUI through the venv. Full bundle builds are not part of `make check`.
-5. **Config-only deployment fixes:** missing Qt plugins/frameworks are fixed in the spec (`[qt]`, `[nuitka]`), never with ad hoc runtime-path code in application modules.
-6. **Icon policy:** ship with the PySide6 fallback icon; no custom `.icns` in this increment.
-7. **Bundle identity amendment (approved 2026-08-31):** Nuitka derives `CFBundleIdentifier`/`CFBundleName`/`CFBundleDisplayName` from the `app.py` stem (all come out as `app`); no spec flag exists to set them. Approved exception to decision 5: `make package` post-processes the generated `Contents/Info.plist` (build tooling only — never runtime-path code) to set the identity fields. The rebuilt bundle must re-verify launch + standalone execution before the identity fix is considered done.
+---
 
-### Approved Execution Plan (micro-slices, approved 2026-08-31)
-1. **Entry point + build interface:** `main() -> int` + module launcher, entry-point test update, `make run-gui`, `make package`, `deployment/` ignore rule (+ `make check`, coverage, commit).
-2. **Deployment configuration:** root `pysidedeploy.spec`; first real `make package` build producing `dist/macOS Task Scheduler for Humans.app`; spec-level adjustments if Qt dependencies are missing (+ `make check`, coverage, commit).
-3. **Standalone bundle verification:** the manual macOS smoke checklist against the built bundle (Finder/`open` launch, no Terminal/venv, safe discovery, New Task, no startup lifecycle, current-user scope, non-destructive paths) (+ record results, commit).
-4. **Docs + version 0.0.12 → 0.0.13 closeout** (README, development, architecture, PROJECT/TODOS/PLAN/SUMMARY), `make check`, commit, push.
+## Walk Phase — Future Direction
 
-Each slice: on-disk verification, `make check` + 100% package coverage, commit before the next slice.
-
-### Packaging Verification
-```bash
-make check
-.venv/bin/python -m pytest --cov=task_scheduler --cov-report=term-missing
-make package
-```
-
-### Manual macOS Smoke Checklist
-1. Launch the generated `.app` from Finder or `open`.
-2. Confirm the main window opens without Terminal or an activated virtual environment.
-3. Confirm discovery loads safely.
-4. Confirm New Task opens.
-5. Confirm no lifecycle operation runs merely at app startup.
-6. Verify the app uses the current-user LaunchAgent scope only.
-7. Exercise a fake/non-destructive path before testing actual install behavior.
-8. If real lifecycle behavior is manually tested, use a unique test-owned label and clean it up.
-
-If the bundle fails because a Qt/plugin/framework is missing, fix the deployment configuration rather than adding ad hoc runtime path code to application modules.
-
-### Documentation at Increment 13 Close
-- `README.md`: prerequisites, package command, generated artifact location, local architecture scope, launch instructions, and explicit signing/notarization status.
-- `docs/development.md`: package build, cleanup, and bundle smoke-test procedure.
-- `docs/architecture.md`: GUI entry point and packaging boundary.
-- `PROJECT.md`: Crawl GUI/package state and next product-phase direction.
-- `TODOS.md`: mark packaging complete with the verified artifact and smoke-check result.
-- `PLAN.md`: replace Crawl implementation strategy with the next Walk-phase plan or explicitly mark Crawl complete.
-- `SUMMARY.md`: packaging implementation, verification outcome, app artifact location, and deferred distribution scope.
-
-**Version: 0.0.12 → 0.0.13**
+Incrementally build the PySide6 GUI (Increments 9–12), then package as a local `.app` (Increment 13). The GUI and CLI share the same application services. The GUI must never call `launchctl`, `subprocess`, plist-writing APIs, or live filesystem APIs directly.
 
 ---
 

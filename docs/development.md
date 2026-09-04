@@ -29,6 +29,8 @@ first.
 | `make format` | Format the codebase with Ruff |
 | `make typecheck` | Run mypy on the source package |
 | `make check` | Run lint, typecheck, and tests (the completion gate) |
+| `make run-gui` | Start the GUI through the venv (`python -m task_scheduler.gui.app`) |
+| `make package` | Build the standalone macOS `.app` bundle into `dist/` |
 
 ## Running Tests with Coverage
 
@@ -153,9 +155,50 @@ Each test job uses a unique UUID-based label, and cleanup is unconditional
 in fixture teardown, touching only the test-owned plist. Plain `pytest`,
 `make test`, and `make check` never run them.
 
+## Packaging (Increment 13)
+
+The standalone `.app` bundle is built with PySide6's
+`pyside6-deploy` (Nuitka standalone mode) and re-signed with the current
+user's ad-hoc identity.
+
+### Build Process
+
+```bash
+make package
+```
+
+This runs `.venv/bin/pyside6-deploy -c pysidedeploy.spec -f`, which:
+
+1. Installs Nuitka==4.1.1 into a temporary Python environment
+2. Compiles `src/task_scheduler/gui/app.py` into a standalone `.app`
+3. Copies the bundle to `dist/macOS Task Scheduler for Humans.app`
+4. Rewrites `pysidedeploy.spec` with the resolved modules/plugins
+
+The Makefile then post-processes the generated `Contents/Info.plist` to set
+the correct `CFBundleIdentifier`/`CFBundleName`/`CFBundleDisplayName` values
+(Nuitka defaults to the executable stem `app`), and re-signs:
+
+```bash
+codesign --force --sign - "dist/macOS Task Scheduler for Humans.app"
+```
+
+(`deployment/` and `dist/` are Git-ignored.)
+
+### Bundle Smoke Test
+
+To verify the generated bundle:
+
+```bash
+open "dist/macOS Task Scheduler for Humans.app"
+```
+
+The app should open without Terminal, Terminal, or an activated venv,
+discover LaunchAgents safely, and show the main window. The bundle runs
+without PATH, venv, or source-checkout dependencies — it is self-contained.
+
 ## Current State
 
-Crawl increments 0–12 establish:
+Crawl increments 0–13 establish:
 
 - project/tooling foundation
 - normalized job domain model with Pydantic validation
@@ -179,6 +222,9 @@ Crawl increments 0–12 establish:
   and validated editor drafts (job-based façade contracts, `Test Draft`
   persists nothing), structured diagnostics, direct/persisted stdout/stderr
   with Refresh, name-only environment comparison, Python recommendations
+- Standalone macOS `.app` bundle (`make package`): Nuitka standalone build,
+  post-process `Info.plist` identity, ad-hoc re-sign, self-contained no-venv
+  launch with Discovery, editor, lifecycle, and diagnostics
 
 Unit and GUI widget tests run against synthetic fakes and temporary
 directories and never touch `~/Library/LaunchAgents` or invoke real

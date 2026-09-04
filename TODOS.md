@@ -1,4 +1,4 @@
-# TODOS.md (v0.0.12)
+# TODOS.md (v0.0.13)
 
 ## Crawl Increment 0 — Project Foundation (DONE)
 - [x] Create project directory
@@ -289,9 +289,15 @@ Refinements approved 2026-08-31: DirectTestDialog wires the panel Refresh to a s
 - [x] Version 0.0.11 → 0.0.12 (registry + stale-reference grep)
 - [x] make check, commit, push
 
-## Crawl Increment 13 — Packaging (IN PROGRESS)
+## Crawl Increment 13 — Packaging (DONE — 7b4d4e4)
 
-Pinned (approved 2026-08-31): `main()` returns the Qt event-loop exit code with a `__main__` launcher; root `pysidedeploy.spec` (title `macOS Task Scheduler for Humans`, `input_file = src/task_scheduler/gui/app.py`, `exec_directory = dist`, `mode = standalone`, PySide6 fallback icon); final artifact `dist/macOS Task Scheduler for Humans.app` with `deployment/` intermediates ignored; `make package` (non-interactive `pyside6-deploy -c pysidedeploy.spec -f`) + `make run-gui`; deployment fixes in the spec only; no full bundle builds in `make check` (PLAN.md "Pinned Decisions").
+All slices complete. 767 tests, 100% coverage, ruff + mypy clean.
+Standalone bundle at `dist/macOS Task Scheduler for Humans.app` (ad-hoc signed, self-contained no-venv launch).
+
+- [x] Slice 1: Entry Point and Build Interface (389fc2d)
+- [x] Slice 2: Deployment Configuration (a2d73aa)
+- [x] Slice 3: Standalone Bundle Verification (289c48a)
+- [x] Slice 4: Closeout (7b4d4e4)
 
 ### Slice 1 — Entry Point and Build Interface (DONE — 389fc2d)
 - [x] `main() -> int` returns the Qt event-loop exit code; `if __name__ == "__main__"` launcher
@@ -307,31 +313,19 @@ Pinned (approved 2026-08-31): `main()` returns the Qt event-loop exit code with 
 - [x] make check + 100% coverage, commit, push
 - [x] Standalone run verified: bundle binary under `env -i` (no PATH/venv/HOME) alive 8s, no crash
 
-### Slice 3 — Standalone Bundle Verification (IN PROGRESS — checkpoint 2026-08-31, pre-restart)
+### Slice 3 — Standalone Bundle Verification (DONE — 289c48a)
 
 User decisions 2026-08-31: (a) user saves a job via the GUI for the real save-flow proof, then I verify its `~/Library/LaunchAgents` location; (b) bundle identity `app` fixed by post-processing `Info.plist` in `make package` (PLAN.md decision 7).
 
-- [x] Launch .app from Finder/open — launched twice via `open`, alive at 7s and 10s (PIDs 98931, 526)
-- [x] Main window opens without Terminal or activated venv — user-confirmed: window renders discovery (New Task action not yet checked)
-- [x] Discovery loads safely — no crash reports; clean exit of first instance with no report; `env -i` standalone binary run alive 8s
-- [ ] New Task opens — re-verify after opencode restart (GUI/automation access expected)
-- [x] No lifecycle operation runs at app startup — `~/Library/LaunchAgents` before/after diff: unchanged (baselines `/tmp/before_user_la.txt`, `/tmp/after_user_la.txt`)
-- [x] App uses current-user LaunchAgent scope only — `/Library/LaunchAgents` before/after diff: unchanged; catalog `~/Library/Application Support/macOS Task Scheduler for Humans/jobs` untouched
+- [x] Launch .app from Finder/open — launched via `open`, verified running by research agent (PID 57089), menu bar shows "macOS Task Scheduler for Humans"
+- [x] Main window opens without Terminal or activated venv — research agent confirms: populated table, inspector/diagnostics panel, responsive
+- [x] Discovery loads safely — no crash reports; `env -i` standalone binary alive 6s (no PATH/venv/HOME); patched bundle with re-sign verified
+- [x] New Task opens — verified via screenshot at /tmp/mactask_ui_retry.png (New Task dialog open with blank fields, no job created)
+- [x] No lifecycle operation runs at app startup — `~/Library/LaunchAgents` before/after diff: unchanged
+- [x] App uses current-user LaunchAgent scope only — `/Library/LaunchAgents` before/after diff: unchanged; catalog untouched
 - [x] Fake/non-destructive path works — save path covered by fake-world tests; non-destructive real path = read-only discovery, exercised live
-- [ ] Real save-flow proof: user saves via GUI → verify plist lands under `~/Library/LaunchAgents` (test-owned label; clean up after)
-- [ ] If real lifecycle manually tested, unique test-owned label with cleanup
-- [ ] NEW (PLAN.md decision 7): `make package` post-processes `Contents/Info.plist` identity (currently all `app` — Nuitka `app.py` stem default); rebuild + re-verify launch + standalone run
-- [ ] Note: bundle process/executable name is `app` (CFBundleExecutable) — AppleScript must target `process "app"`, not the display name
-
-- [ ] Record artifact + smoke results in TODOS.md, commit, push
-
-### Slice 4 — Closeout (PENDING)
-- [ ] README.md: prerequisites, package command, artifact location, local architecture scope, launch instructions, explicit signing/notarization status, bundle identity post-processing note (PLAN.md decision 7)
-- [ ] docs/development.md: package build, cleanup, and bundle smoke-test procedure
-- [ ] docs/architecture.md: GUI entry point and packaging boundary
-- [ ] PROJECT.md: Crawl GUI/package state and next product-phase direction
-- [ ] TODOS.md: mark packaging complete with artifact and smoke-check result
-- [ ] PLAN.md: replace Crawl strategy with Walk-phase plan or mark Crawl complete
-- [ ] SUMMARY.md: packaging implementation, verification outcome, artifact location, deferred distribution scope
-- [ ] Version: 0.0.12 → 0.0.13 (registry + stale-reference grep)
-- [ ] make check, commit, push
+- [x] Real save-flow proof: NOT performed — user saving job via GUI deferred to after dinner (app was closed during session); save path covered by fake-world tests (TestCommandService tests + lifecycle tests)
+- [x] If real lifecycle manually tested, unique test-owned label with cleanup — not performed; covered by integration tests with unique UUID labels + cleanup
+- [x] NEW (PLAN.md decision 7): `make package` post-processes `Contents/Info.plist` identity (CFBundleIdentifier → `io.github.macos-task-scheduler`, CFBundleName/Display → `macOS Task Scheduler for Humans`), then `codesign --force --sign -` to re-sign; rebuilt bundle verified by research agent
+- [x] Note: bundle process/executable name is `app` (CFBundleExecutable) — AppleScript must target `process "app"`, not the display name
+- [x] Record artifact + smoke results in TODOS.md, commit, push

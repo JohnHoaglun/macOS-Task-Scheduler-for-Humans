@@ -427,6 +427,66 @@ saved in the task catalog but not yet installed (shown with the state
 **Saved, not installed**), and inspects the selected agent in a read-only
 detail panel:
 
+## Standalone macOS .app Bundle
+
+Crawl Increment 13 added local packaging: a double-clickable
+`macOS Task Scheduler for Humans.app` built with PySide6's
+`pyside6-deploy` (Nuitka standalone mode) and re-signed with the current
+user's ad-hoc identity.
+
+### Prerequisites
+
+* A Python 3.12+ virtual environment with the project installed in editable
+  mode (`pip install -e ".[dev]"`).
+* PySide6 6.11.2+ is included as a runtime dependency.
+
+### Building
+
+```bash
+make package
+```
+
+This runs `.venv/bin/pyside6-deploy -c pysidedeploy.spec -f`, then
+post-processes the generated `Contents/Info.plist` to set:
+
+* `CFBundleIdentifier`: `io.github.macos-task-scheduler`
+* `CFBundleName`: `macOS Task Scheduler for Humans`
+* `CFBundleDisplayName`: `macOS Task Scheduler for Humans`
+
+Then re-signing (`codesign --force --sign -`) so the bundle is
+executable without Terminal or an activated venv.
+
+The resulting artifact is:
+
+```text
+dist/macOS Task Scheduler for Humans.app
+```
+
+(`deployment/` and `dist/` are Git-ignored.)
+
+The app is **ad-hoc signed only** — no code signing certificate,
+hardened runtime, notarization, App Store distribution, universal builds,
+DMG/PKG generation, automatic updates, or CI release publishing are included
+in this increment.
+
+### Running the Bundle
+
+Double-click `dist/macOS Task Scheduler for Humans.app` in Finder, or:
+
+```bash
+open "dist/macOS Task Scheduler for Humans.app"
+```
+
+The bundle is self-contained: it requires no source checkout, no venv,
+and no PATH setup — all Qt frameworks, plugins, and Python extensions
+are packaged inside the `.app`.
+
+### Launch Services Identity
+
+The app registers with Launch Services under the bundle identity
+`io.github.macos-task-scheduler` (set by the post-processing step above;
+the default Nuitka output uses the executable stem `app`).
+
 * Overview: name, label, classification, source plist path, state, enabled
   state, launchd load status
 * Command: full command line and working directory
@@ -618,13 +678,14 @@ Current implementation scope:
   and validated editor drafts with structured diagnostics, direct and
   persisted stdout/stderr with Refresh, name-only environment comparison,
   and Python interpreter recommendations
+* Standalone macOS .app bundle (`make package`), self-contained with no venv
+  or source checkout required at runtime, ad-hoc signed (Increment 13)
 
 Not yet implemented:
 
-* Python virtual-environment detection
 * LaunchDaemon support
 * privileged helpers
-* signing/notarization
+* notarization / App Store distribution
 
 ## Initial Scheduling Model
 
