@@ -27,3 +27,13 @@ run-gui:
 # Builds the standalone macOS .app bundle into dist/ via pyside6-deploy.
 package:
 	.venv/bin/pyside6-deploy -c pysidedeploy.spec -f
+	@echo "Patching Info.plist identity fields..."
+	plutil -replace CFBundleIdentifier -string "io.github.macos-task-scheduler" \
+		"dist/macOS Task Scheduler for Humans.app/Contents/Info.plist"
+	plutil -replace CFBundleName -string "macOS Task Scheduler for Humans" \
+		"dist/macOS Task Scheduler for Humans.app/Contents/Info.plist"
+	plutil -replace CFBundleDisplayName -string "macOS Task Scheduler for Humans" \
+		"dist/macOS Task Scheduler for Humans.app/Contents/Info.plist"
+	@echo "Re-signing bundle..."
+	codesign --force --sign - "dist/macOS Task Scheduler for Humans.app"
+	@echo "Done."
