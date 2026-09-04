@@ -12,12 +12,13 @@ from pathlib import Path
 from uuid import uuid4
 
 from task_scheduler.domain import (
+    CalendarSchedule,
     EnvironmentConfig,
     ExecutableCommand,
+    IntervalSchedule,
     JobDefinition,
     LoggingConfig,
     PythonCommand,
-    Schedule,
     ShellCommand,
     Weekday,
 )
@@ -27,7 +28,7 @@ from task_scheduler.platform.macos import ParseSupport, PlistCodec, parse_bytes
 def _jobs() -> list[JobDefinition]:
     return [
         JobDefinition(
-            schema_version=1,
+            schema_version=2,
             id=uuid4(),
             name="Python Monday",
             label="io.github.macos-task-scheduler.user.python-monday",
@@ -37,10 +38,10 @@ def _jobs() -> list[JobDefinition]:
                 script=Path("/Users/example/project/report.py"),
                 arguments=["--mode", "daily"],
             ),
-            schedule=Schedule(time=Time(7, 30), weekdays={Weekday.MONDAY}),
+            schedule=CalendarSchedule(times=[Time(7, 30)], weekdays={Weekday.MONDAY}),
         ),
         JobDefinition(
-            schema_version=1,
+            schema_version=2,
             id=uuid4(),
             name="Python Weekdays",
             label="io.github.macos-task-scheduler.user.python-weekdays",
@@ -49,8 +50,8 @@ def _jobs() -> list[JobDefinition]:
                 interpreter=Path("/Users/example/project/.venv/bin/python"),
                 script=Path("/Users/example/project/report.py"),
             ),
-            schedule=Schedule(
-                time=Time(7, 30),
+            schedule=CalendarSchedule(
+                times=[Time(7, 30)],
                 weekdays={Weekday.MONDAY, Weekday.WEDNESDAY, Weekday.FRIDAY},
             ),
             environment=EnvironmentConfig(variables={"FOO": "bar"}),
@@ -58,7 +59,7 @@ def _jobs() -> list[JobDefinition]:
             logging=LoggingConfig(stdout_path=Path("/Users/example/logs/out.log")),
         ),
         JobDefinition(
-            schema_version=1,
+            schema_version=2,
             id=uuid4(),
             name="Shell MWF",
             label="io.github.macos-task-scheduler.user.shell-mwf",
@@ -67,14 +68,14 @@ def _jobs() -> list[JobDefinition]:
                 executable=Path("/bin/zsh"),
                 arguments=["/Users/example/scripts/backup.sh"],
             ),
-            schedule=Schedule(
-                time=Time(9, 15),
+            schedule=CalendarSchedule(
+                times=[Time(9, 15)],
                 weekdays={Weekday.MONDAY, Weekday.WEDNESDAY, Weekday.FRIDAY},
             ),
             logging=LoggingConfig(stderr_path=Path("/Users/example/logs/err.log")),
         ),
         JobDefinition(
-            schema_version=1,
+            schema_version=2,
             id=uuid4(),
             name="Executable Weekend",
             label="io.github.macos-task-scheduler.user.executable-weekend",
@@ -83,7 +84,37 @@ def _jobs() -> list[JobDefinition]:
                 executable=Path("/opt/homebrew/bin/sync-tool"),
                 arguments=["--sync"],
             ),
-            schedule=Schedule(time=Time(10, 0), weekdays={Weekday.SATURDAY, Weekday.SUNDAY}),
+            schedule=CalendarSchedule(
+                times=[Time(10, 0)], weekdays={Weekday.SATURDAY, Weekday.SUNDAY}
+            ),
+        ),
+        JobDefinition(
+            schema_version=2,
+            id=uuid4(),
+            name="Morning and Evening",
+            label="io.github.macos-task-scheduler.user.two-times",
+            enabled=True,
+            command=ShellCommand(
+                executable=Path("/bin/zsh"),
+                arguments=["/Users/example/scripts/report.sh"],
+            ),
+            schedule=CalendarSchedule(
+                times=[Time(17, 30), Time(7, 30)],
+                weekdays={Weekday.MONDAY},
+                run_at_load=True,
+            ),
+        ),
+        JobDefinition(
+            schema_version=2,
+            id=uuid4(),
+            name="Half Hourly",
+            label="io.github.macos-task-scheduler.user.half-hourly",
+            enabled=True,
+            command=ShellCommand(
+                executable=Path("/bin/zsh"),
+                arguments=["/Users/example/scripts/heartbeat.sh"],
+            ),
+            schedule=IntervalSchedule(seconds=1800),
         ),
     ]
 

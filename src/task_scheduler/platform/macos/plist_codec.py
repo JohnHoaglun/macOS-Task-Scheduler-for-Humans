@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import plistlib
 
-from task_scheduler.domain import JobDefinition
+from task_scheduler.domain import CalendarSchedule, JobDefinition
 from task_scheduler.domain.command import command_argv
 from task_scheduler.platform.macos.plist_models import WEEKDAY_TO_LAUNCHD
 
@@ -13,17 +13,25 @@ def _program_arguments(job: JobDefinition) -> list[str]:
     return command_argv(job.command)
 
 
-def _calendar_interval(job: JobDefinition) -> list[dict[str, int]]:
+def _schedule_keys(job: JobDefinition) -> dict[str, object]:
     schedule = job.schedule
-    ordered = sorted(schedule.weekdays, key=lambda weekday: WEEKDAY_TO_LAUNCHD[weekday])
-    return [
-        {
-            "Weekday": WEEKDAY_TO_LAUNCHD[weekday],
-            "Hour": schedule.time.hour,
-            "Minute": schedule.time.minute,
-        }
-        for weekday in ordered
-    ]
+    if isinstance(schedule, CalendarSchedule):
+        ordered = sorted(schedule.weekdays, key=lambda weekday: WEEKDAY_TO_LAUNCHD[weekday])
+        entries = [
+            {
+                "Weekday": WEEKDAY_TO_LAUNCHD[weekday],
+                "Hour": time.hour,
+                "Minute": time.minute,
+            }
+            for time in schedule.times
+            for weekday in ordered
+        ]
+        keys: dict[str, object] = {"StartCalendarInterval": entries}
+    else:
+        keys = {"StartInterval": schedule.seconds}
+    if schedule.run_at_load:
+        keys["RunAtLoad"] = True
+    return keys
 
 
 class PlistCodec:
@@ -34,8 +42,8 @@ class PlistCodec:
         result: dict[str, object] = {
             "Label": job.label,
             "ProgramArguments": _program_arguments(job),
-            "StartCalendarInterval": _calendar_interval(job),
         }
+        result.update(_schedule_keys(job))
         if job.working_directory is not None:
             result["WorkingDirectory"] = str(job.working_directory)
         if job.environment.variables:

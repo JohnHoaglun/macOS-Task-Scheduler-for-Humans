@@ -6,10 +6,10 @@ import pytest
 from pydantic import ValidationError
 
 from task_scheduler.domain import (
+    CalendarSchedule,
     JobDefinition,
     LoggingConfig,
     PythonCommand,
-    Schedule,
     UnsupportedSchemaVersionError,
     Weekday,
 )
@@ -65,11 +65,11 @@ def test_enabled_true_false_preserved() -> None:
     assert make_job(enabled=False).enabled is False
 
 
-def test_schema_version_one_accepted() -> None:
-    assert make_job().schema_version == 1
+def test_schema_version_two_accepted() -> None:
+    assert make_job().schema_version == 2
 
 
-@pytest.mark.parametrize("version", [0, 2, 99])
+@pytest.mark.parametrize("version", [0, 1, 99])
 def test_unsupported_schema_versions_rejected(version: int) -> None:
     with pytest.raises(UnsupportedSchemaVersionError):
         make_job(schema_version=version)
@@ -118,5 +118,5 @@ def test_environment_defaults_empty() -> None:
 def test_command_and_schedule_embedded() -> None:
     job = make_job()
     assert isinstance(job.command, PythonCommand)
-    assert isinstance(job.schedule, Schedule)
+    assert isinstance(job.schedule, CalendarSchedule)
     assert job.schedule.weekdays == {Weekday.MONDAY}

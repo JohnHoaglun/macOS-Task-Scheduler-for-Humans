@@ -17,10 +17,13 @@ from uuid import uuid4
 from pydantic import ValidationError
 
 from task_scheduler.domain import (
+    MIN_INTERVAL_SECONDS,
     SUPPORTED_SCHEMA_VERSION,
+    CalendarSchedule,
     Command,
     EnvironmentConfig,
     ExecutableCommand,
+    IntervalSchedule,
     JobDefinition,
     LoggingConfig,
     PythonCommand,
@@ -200,12 +203,44 @@ def _is_python(head: str) -> bool:
 
 
 def _parse_schedule(raw: dict[str, object], warnings: list[str]) -> Schedule | None:
-    value = raw.get("StartCalendarInterval")
-    if value is None:
-        warnings.append("no calendar schedule")
+    calendar = raw.get("StartCalendarInterval")
+    interval = raw.get("StartInterval")
+    run_at_load = _parse_run_at_load(raw)
+    if calendar is not None and interval is not None:
+        warnings.append(
+            "schedule has both StartCalendarInterval and StartInterval; "
+            "the conflict cannot be represented"
+        )
         return None
-    if not isinstance(value, list) or not all(isinstance(entry, dict) for entry in value):
-        raise _FatalParse("StartCalendarInterval must be a list of dictionaries")
+    if calendar is not None:
+        return _parse_calendar(calendar, warnings, run_at_load)
+    if interval is not None:
+        return _parse_interval(interval, warnings, run_at_load)
+    if run_at_load:
+        warnings.append("RunAtLoad is set but no StartCalendarInterval or StartInterval schedule")
+    else:
+        warnings.append("no schedule found")
+    return None
+
+
+def _parse_run_at_load(raw: dict[str, object]) -> bool:
+    value = raw.get("RunAtLoad")
+    if value is None:
+        return False
+    if not isinstance(value, bool):
+        raise _FatalParse("RunAtLoad must be a boolean")
+    return value
+
+
+def _parse_calendar(
+    value: object, warnings: list[str], run_at_load: bool
+) -> Schedule | None:
+    if (
+        not isinstance(value, list)
+        or not value
+        or not all(isinstance(entry, dict) for entry in value)
+    ):
+        raise _FatalParse("StartCalendarInterval must be a non-empty list of dictionaries")
 
     times: set[tuple[int, int]] = set()
     weekdays: set[Weekday] = set()
@@ -221,11 +256,22 @@ def _parse_schedule(raw: dict[str, object], warnings: list[str]) -> Schedule | N
             raise _FatalParse(f"malformed calendar schedule: invalid Weekday: {weekday}")
         weekdays.add(LAUNCHD_TO_WEEKDAY[weekday])
         times.add((hour, minute))
-    if len(times) > 1:
-        warnings.append(f"schedule has {len(times)} distinct execution times")
+    return CalendarSchedule(
+        times=[Time(hour, minute) for hour, minute in sorted(times)],
+        weekdays=weekdays,
+        run_at_load=run_at_load,
+    )
+
+
+def _parse_interval(value: object, warnings: list[str], run_at_load: bool) -> Schedule | None:
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise _FatalParse("StartInterval must be an integer")
+    if value < MIN_INTERVAL_SECONDS:
+        warnings.append(
+            f"StartInterval of {value} is below the {MIN_INTERVAL_SECONDS}-second domain minimum"
+        )
         return None
-    (hour, minute), = times
-    return Schedule(time=Time(hour, minute), weekdays=weekdays)
+    return IntervalSchedule(seconds=value, run_at_load=run_at_load)
 
 
 def _entry_int(entry: dict[object, object], key: str) -> int:

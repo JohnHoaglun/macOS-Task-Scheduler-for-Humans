@@ -10,9 +10,10 @@ from uuid import UUID
 import pytest
 
 from task_scheduler.domain import (
+    CalendarSchedule,
+    IntervalSchedule,
     JobDefinition,
     PythonCommand,
-    Schedule,
     Weekday,
 )
 from task_scheduler.platform.macos import PlistCodec
@@ -22,7 +23,7 @@ GOLDEN_DIR = Path(__file__).resolve().parents[2] / "golden"
 
 def _python_job(**overrides: object) -> JobDefinition:
     values: dict[str, object] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "id": UUID("9f8a6c0e-1111-4222-8333-444455556666"),
         "name": "Python Monday",
         "label": "io.github.macos-task-scheduler.user.python-monday",
@@ -32,7 +33,7 @@ def _python_job(**overrides: object) -> JobDefinition:
             script=Path("/Users/example/project/report.py"),
             arguments=["--mode", "daily"],
         ),
-        "schedule": Schedule(time=Time(7, 30), weekdays={Weekday.MONDAY}),
+        "schedule": CalendarSchedule(times=[Time(7, 30)], weekdays={Weekday.MONDAY}),
     }
     values.update(overrides)
     return JobDefinition.model_validate(values)
@@ -75,13 +76,58 @@ class TestEncodeDict:
     def test_calendar_entries_sorted_by_launchd_weekday(self) -> None:
         job = _python_job(
             schedule={
-                "time": "07:30",
+                "kind": "calendar",
+                "times": ["07:30"],
                 "weekdays": ["wednesday", "monday", "friday"],
             }
         )
         entries = PlistCodec().encode_dict(job)["StartCalendarInterval"]
         weekdays = [entry["Weekday"] for entry in entries]
         assert weekdays == [1, 3, 5]
+
+    def test_multiple_times_grouped_by_time_then_weekday(self) -> None:
+        job = _python_job(
+            schedule={
+                "kind": "calendar",
+                "times": ["17:30", "07:30"],
+                "weekdays": ["monday", "sunday"],
+            }
+        )
+        entries = PlistCodec().encode_dict(job)["StartCalendarInterval"]
+        assert entries == [
+            {"Weekday": 0, "Hour": 7, "Minute": 30},
+            {"Weekday": 1, "Hour": 7, "Minute": 30},
+            {"Weekday": 0, "Hour": 17, "Minute": 30},
+            {"Weekday": 1, "Hour": 17, "Minute": 30},
+        ]
+
+    def test_run_at_load_emitted_when_set(self) -> None:
+        job = _python_job(
+            schedule={
+                "kind": "calendar",
+                "times": ["07:30"],
+                "weekdays": ["monday"],
+                "run_at_load": True,
+            }
+        )
+        result = PlistCodec().encode_dict(job)
+        assert result["RunAtLoad"] is True
+
+    def test_run_at_load_absent_by_default(self) -> None:
+        result = PlistCodec().encode_dict(_python_job())
+        assert "RunAtLoad" not in result
+
+    def test_interval_schedule_uses_start_interval(self) -> None:
+        job = _python_job(schedule=IntervalSchedule(seconds=1800))
+        result = PlistCodec().encode_dict(job)
+        assert result["StartInterval"] == 1800
+        assert "StartCalendarInterval" not in result
+
+    def test_interval_schedule_with_run_at_load(self) -> None:
+        job = _python_job(schedule=IntervalSchedule(seconds=3600, run_at_load=True))
+        result = PlistCodec().encode_dict(job)
+        assert result["StartInterval"] == 3600
+        assert result["RunAtLoad"] is True
 
     def test_shell_command_program_arguments(self) -> None:
         job = _python_job(

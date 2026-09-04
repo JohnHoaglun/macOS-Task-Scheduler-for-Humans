@@ -8,7 +8,14 @@ from pathlib import Path
 
 import pytest
 
-from task_scheduler.domain import ExecutableCommand, PythonCommand, ShellCommand, Weekday
+from task_scheduler.domain import (
+    CalendarSchedule,
+    ExecutableCommand,
+    IntervalSchedule,
+    PythonCommand,
+    ShellCommand,
+    Weekday,
+)
 from task_scheduler.platform.macos import ParsedLaunchAgent, ParseSupport, parse_bytes, parse_path
 
 FIXTURES = Path(__file__).resolve().parents[2] / "fixtures" / "plists"
@@ -30,8 +37,9 @@ class TestSupported:
         assert job.command.interpreter == Path("/Users/example/.venv/bin/python")
         assert job.command.script == Path("/Users/example/report.py")
         assert job.command.arguments == []
-        assert job.schedule.time == Time(7, 30)
+        assert job.schedule.times == [Time(7, 30)]
         assert job.schedule.weekdays == {Weekday.MONDAY, Weekday.FRIDAY}
+        assert job.schedule.run_at_load is False
         assert job.working_directory == Path("/Users/example/project")
         assert job.enabled is True
         assert job.name == job.label == "com.example.python-supported"
@@ -45,7 +53,7 @@ class TestSupported:
         assert isinstance(job.command, ShellCommand)
         assert job.command.executable == Path("/bin/zsh")
         assert job.command.arguments == ["/Users/example/scripts/backup.sh"]
-        assert job.schedule.time == Time(9, 15)
+        assert job.schedule.times == [Time(9, 15)]
         assert job.schedule.weekdays == {Weekday.TUESDAY}
 
     def test_executable_supported(self) -> None:
@@ -86,21 +94,35 @@ class TestPartiallySupported:
 
     def test_runatload(self) -> None:
         result = _parse("runatload.plist")
-        assert result.status is ParseSupport.PARTIALLY_SUPPORTED
-        assert result.unsupported_keys == ["RunAtLoad"]
+        assert result.status is ParseSupport.SUPPORTED
+        assert result.unsupported_keys == []
         assert result.job is not None
+        assert result.job.schedule.run_at_load is True
 
-    def test_multiple_times_drops_job(self) -> None:
+    def test_multiple_times(self) -> None:
         result = _parse("multiple_times.plist")
-        assert result.status is ParseSupport.PARTIALLY_SUPPORTED
-        assert result.job is None
-        assert any("distinct execution times" in warning for warning in result.warnings)
+        assert result.status is ParseSupport.SUPPORTED
+        assert result.warnings == []
+        assert result.job is not None
+        schedule = result.job.schedule
+        assert isinstance(schedule, CalendarSchedule)
+        assert schedule.times == [Time(7, 30), Time(17, 30)]
+        assert schedule.weekdays == {Weekday.MONDAY}
+
+    def test_interval_schedule(self) -> None:
+        result = _parse("interval_300.plist")
+        assert result.status is ParseSupport.SUPPORTED
+        assert result.job is not None
+        schedule = result.job.schedule
+        assert isinstance(schedule, IntervalSchedule)
+        assert schedule.seconds == 300
+        assert schedule.run_at_load is False
 
     def test_no_schedule_drops_job(self) -> None:
         result = _parse("no_schedule.plist")
         assert result.status is ParseSupport.PARTIALLY_SUPPORTED
         assert result.job is None
-        assert any("no calendar schedule" in warning for warning in result.warnings)
+        assert any("no schedule found" in warning for warning in result.warnings)
 
 
 class TestInvalid:
@@ -160,6 +182,11 @@ _BASE = {
     "ProgramArguments": ["/bin/zsh", "/Users/example/scripts/x.sh"],
     "StartCalendarInterval": [{"Weekday": 1, "Hour": 7, "Minute": 30}],
 }
+_INTERVAL_BASE = {
+    "Label": "com.example.interval",
+    "ProgramArguments": ["/bin/zsh", "/Users/example/scripts/x.sh"],
+    "StartInterval": 300,
+}
 _INVALID = ParseSupport.INVALID
 
 
@@ -208,4 +235,64 @@ class TestBranches:
         payload["StandardOutPath"] = "logs/out.log"
         parsed = parse_bytes(plistlib.dumps(payload))
         assert parsed.status is ParseSupport.PARTIALLY_SUPPORTED
+        assert parsed.job is None
+
+
+class TestScheduleBranches:
+    def test_interval_with_run_at_load(self) -> None:
+        payload = dict(_INTERVAL_BASE)
+        payload["RunAtLoad"] = True
+        parsed = parse_bytes(plistlib.dumps(payload))
+        assert parsed.status is ParseSupport.SUPPORTED
+        assert parsed.job is not None
+        schedule = parsed.job.schedule
+        assert isinstance(schedule, IntervalSchedule)
+        assert schedule.run_at_load is True
+
+    def test_interval_below_minimum_drops_job(self) -> None:
+        payload = dict(_INTERVAL_BASE)
+        payload["StartInterval"] = 30
+        parsed = parse_bytes(plistlib.dumps(payload))
+        assert parsed.status is ParseSupport.PARTIALLY_SUPPORTED
+        assert parsed.job is None
+        assert any("below the" in warning for warning in parsed.warnings)
+
+    def test_calendar_and_interval_conflict_drops_job(self) -> None:
+        payload = dict(_INTERVAL_BASE)
+        payload["StartCalendarInterval"] = [{"Weekday": 1, "Hour": 7, "Minute": 30}]
+        parsed = parse_bytes(plistlib.dumps(payload))
+        assert parsed.status is ParseSupport.PARTIALLY_SUPPORTED
+        assert parsed.job is None
+        assert any("conflict" in warning for warning in parsed.warnings)
+
+    def test_run_at_load_without_schedule_drops_job(self) -> None:
+        payload = {
+            "Label": "com.example.runatload-only",
+            "ProgramArguments": ["/bin/zsh", "/Users/example/scripts/x.sh"],
+            "RunAtLoad": True,
+        }
+        parsed = parse_bytes(plistlib.dumps(payload))
+        assert parsed.status is ParseSupport.PARTIALLY_SUPPORTED
+        assert parsed.job is None
+        assert any("RunAtLoad" in warning for warning in parsed.warnings)
+
+    def test_non_integer_start_interval_is_invalid(self) -> None:
+        payload = dict(_INTERVAL_BASE)
+        payload["StartInterval"] = "300"
+        parsed = parse_bytes(plistlib.dumps(payload))
+        assert parsed.status is ParseSupport.INVALID
+        assert parsed.job is None
+
+    def test_non_boolean_run_at_load_is_invalid(self) -> None:
+        payload = dict(_BASE)
+        payload["RunAtLoad"] = "yes"
+        parsed = parse_bytes(plistlib.dumps(payload))
+        assert parsed.status is ParseSupport.INVALID
+        assert parsed.job is None
+
+    def test_empty_calendar_list_is_invalid(self) -> None:
+        payload = dict(_BASE)
+        payload["StartCalendarInterval"] = []
+        parsed = parse_bytes(plistlib.dumps(payload))
+        assert parsed.status is ParseSupport.INVALID
         assert parsed.job is None

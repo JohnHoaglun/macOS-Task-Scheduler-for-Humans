@@ -19,8 +19,10 @@ from tests.conftest import make_job
 def test_serialize_is_pretty_json() -> None:
     text = make_job().model_dump_json(indent=2)
     data = json.loads(text)
-    assert data["schema_version"] == 1
-    assert data["schedule"]["time"] == "07:30"
+    assert data["schema_version"] == 2
+    assert data["schedule"]["kind"] == "calendar"
+    assert data["schedule"]["times"] == ["07:30"]
+    assert data["schedule"]["run_at_load"] is False
     assert '"name": "Daily Backup"' in text
 
 
@@ -50,7 +52,13 @@ def test_full_field_round_trip() -> None:
 
 
 def test_weekdays_round_trip_order_independent() -> None:
-    job = make_job(schedule={"time": "07:30", "weekdays": ["friday", "monday"]})
+    job = make_job(
+        schedule={
+            "kind": "calendar",
+            "times": ["07:30"],
+            "weekdays": ["friday", "monday"],
+        }
+    )
     again = job.model_validate_json(job.model_dump_json())
     assert again.schedule.weekdays == {Weekday.FRIDAY, Weekday.MONDAY}
 
@@ -58,7 +66,7 @@ def test_weekdays_round_trip_order_independent() -> None:
 def test_unsupported_schema_rejected_on_deserialize() -> None:
     text = make_job().model_dump_json()
     bad = json.loads(text)
-    bad["schema_version"] = 2
+    bad["schema_version"] = 3
     with pytest.raises(UnsupportedSchemaVersionError):
         JobDefinition.model_validate_json(json.dumps(bad))
 

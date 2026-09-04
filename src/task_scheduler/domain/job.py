@@ -14,7 +14,7 @@ from task_scheduler.domain.errors import UnsupportedSchemaVersionError
 from task_scheduler.domain.logging_config import LoggingConfig
 from task_scheduler.domain.schedule import Schedule
 
-SUPPORTED_SCHEMA_VERSION = 1
+SUPPORTED_SCHEMA_VERSION = 2
 
 _NAME_MAX_LENGTH = 120
 _LABEL_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")

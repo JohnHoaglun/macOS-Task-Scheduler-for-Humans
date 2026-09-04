@@ -9,7 +9,7 @@ from task_scheduler.application.task_command_service import (
     ListingKind,
     TaskListing,
 )
-from task_scheduler.domain import JobDefinition, command_argv
+from task_scheduler.domain import IntervalSchedule, JobDefinition, command_argv, human_interval
 from task_scheduler.platform.macos import (
     LaunchAgentStatus,
     ParseSupport,
@@ -94,13 +94,21 @@ def format_command(listing: TaskListing) -> str:
 
 
 def format_schedule(listing: TaskListing) -> str:
-    """The schedule as 'at HH:MM on Weekday, ...', or a dash when unparseable."""
+    """The schedule as 'at HH:MM:SS on Weekday, ...', or a dash when unparseable."""
     job = _job_of(listing)
-    if job is not None:
-        return f"at {job.schedule.time} on " + ", ".join(
-            weekday.value.title() for weekday in sorted(job.schedule.weekdays)
-        )
-    return "—"
+    if job is None:
+        return "—"
+    schedule = job.schedule
+    if isinstance(schedule, IntervalSchedule):
+        text = human_interval(schedule.seconds)
+    else:
+        parts = [f"{time:%H:%M:%S}" for time in schedule.times]
+        times = parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + f" and {parts[-1]}"
+        weekdays = ", ".join(weekday.value.title() for weekday in sorted(schedule.weekdays))
+        text = f"at {times} on {weekdays}"
+    if schedule.run_at_load:
+        text += " + at login"
+    return text
 
 
 def format_state(listing: TaskListing) -> str:

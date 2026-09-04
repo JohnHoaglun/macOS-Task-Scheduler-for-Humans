@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "id": "9f8a6c0e-1111-4222-8333-444455556666",
   "name": "Shell MWF",
   "label": "io.github.macos-task-scheduler.user.shell-mwf",
@@ -12,12 +12,16 @@
     ]
   },
   "schedule": {
-    "time": "09:15",
+    "kind": "calendar",
+    "times": [
+      "09:15"
+    ],
     "weekdays": [
       "friday",
       "monday",
       "wednesday"
-    ]
+    ],
+    "run_at_load": false
   },
   "environment": {
     "variables": {}

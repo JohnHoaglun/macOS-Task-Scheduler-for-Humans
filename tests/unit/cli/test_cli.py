@@ -128,7 +128,7 @@ def test_inspect_shows_unsupported_keys_and_warnings(tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert "plist:" in result.stdout
     assert "unsupported key: KeepAlive" in result.stdout
-    assert "warning: no calendar schedule" in result.stdout
+    assert "warning: no schedule found" in result.stdout
 
 
 def test_inspect_unknown_label_exits_usage(tmp_path: Path) -> None:

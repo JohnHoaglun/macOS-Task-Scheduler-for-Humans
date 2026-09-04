@@ -36,6 +36,8 @@ SUPPORTED_KEYS: frozenset[str] = frozenset(
         "Label",
         "ProgramArguments",
         "StartCalendarInterval",
+        "StartInterval",
+        "RunAtLoad",
         "WorkingDirectory",
         "EnvironmentVariables",
         "StandardOutPath",

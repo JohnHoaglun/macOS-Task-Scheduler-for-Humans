@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "id": "9f8a6c0e-1111-4222-8333-444455556666",
   "name": "Python Weekdays",
   "label": "io.github.macos-task-scheduler.user.python-weekdays",
@@ -11,12 +11,16 @@
     "arguments": []
   },
   "schedule": {
-    "time": "07:30",
+    "kind": "calendar",
+    "times": [
+      "07:30"
+    ],
     "weekdays": [
       "friday",
       "monday",
       "wednesday"
-    ]
+    ],
+    "run_at_load": false
   },
   "environment": {
     "variables": {

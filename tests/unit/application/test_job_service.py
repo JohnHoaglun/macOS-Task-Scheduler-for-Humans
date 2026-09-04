@@ -19,10 +19,10 @@ from task_scheduler.application.job_service import (
     managed_label,
 )
 from task_scheduler.domain import (
+    CalendarSchedule,
     ExecutableCommand,
     JobDefinition,
     PythonCommand,
-    Schedule,
     ShellCommand,
     Weekday,
 )
@@ -119,8 +119,8 @@ def _python_command(tmp_path: Path, script_name: str = "backup.py") -> PythonCom
     )
 
 
-def _schedule() -> Schedule:
-    return Schedule(time="07:30", weekdays={Weekday.MONDAY})
+def _schedule() -> CalendarSchedule:
+    return CalendarSchedule(times=["07:30"], weekdays={Weekday.MONDAY})
 
 
 class TestManagedLabel:
@@ -161,7 +161,7 @@ class TestNewManagedJob:
         assert job.label == managed_label("Daily Backup", FIXED_JOB_ID)
         assert job.name == "Daily Backup"
         assert job.enabled is True
-        assert job.schema_version == 1
+        assert job.schema_version == 2
         assert job.working_directory == script.parent
         assert job.environment.variables == {}
         assert job.logging.stdout_path == (

@@ -14,13 +14,13 @@ from task_scheduler.application.job_service import JobConflictError, managed_lab
 from task_scheduler.application.task_command_service import TaskCommandService
 from task_scheduler.domain import (
     SUPPORTED_SCHEMA_VERSION,
+    CalendarSchedule,
     Command,
     EnvironmentConfig,
     ExecutableCommand,
     JobDefinition,
     LoggingConfig,
     PythonCommand,
-    Schedule,
     ShellCommand,
     Weekday,
 )
@@ -125,6 +125,11 @@ class EditorController:
         elif isinstance(command, ExecutableCommand):
             executable_path = str(command.executable)
             executable_arguments = list(command.arguments)
+        schedule_time = ""
+        schedule_weekdays: set[str] = set()
+        if isinstance(job.schedule, CalendarSchedule):
+            schedule_time = job.schedule.times[0].strftime("%H:%M")
+            schedule_weekdays = {weekday.value for weekday in job.schedule.weekdays}
         return JobDraft(
             job_id=job.id,
             name=job.name,
@@ -139,8 +144,8 @@ class EditorController:
             shell_arguments=shell_arguments,
             executable_path=executable_path,
             executable_arguments=executable_arguments,
-            time=job.schedule.time.strftime("%H:%M"),
-            weekdays={weekday.value for weekday in job.schedule.weekdays},
+            time=schedule_time,
+            weekdays=schedule_weekdays,
             working_directory=(
                 str(job.working_directory) if job.working_directory is not None else ""
             ),
@@ -330,7 +335,10 @@ class EditorController:
         }:
                     return {head: str(error["msg"])}
                 if head == "schedule":
-                    return {second or "time": str(error["msg"])}
+                    fields = {str(part) for part in loc[1:]}
+                    if "weekdays" in fields:
+                        return {"weekdays": str(error["msg"])}
+                    return {"time": str(error["msg"])}
                 if head == "logging":
                     return {second or "stdout_path": str(error["msg"])}
                 if head == "command":
@@ -405,7 +413,7 @@ class EditorController:
                 arguments=list(draft.executable_arguments),
             )
 
-    def _build_schedule(self, draft: JobDraft) -> Schedule:
+    def _build_schedule(self, draft: JobDraft) -> CalendarSchedule:
         """Build the weekly schedule from the draft's time and selected weekdays."""
         if not draft.weekdays:
             raise _DraftError("weekdays", "at least one weekday is required")
@@ -416,7 +424,10 @@ class EditorController:
             raise _DraftError(
                 "time", f"the time must look like HH:MM, got {draft.time!r}"
             ) from None
-        return Schedule(time=schedule_time, weekdays={Weekday(w) for w in draft.weekdays})
+        return CalendarSchedule(
+            times=[schedule_time],
+            weekdays={Weekday(w) for w in draft.weekdays},
+        )
 
     def _build_variables(self, draft: JobDraft) -> dict[str, str]:
         """Collect environment rows, raising on empty keys and duplicate keys."""

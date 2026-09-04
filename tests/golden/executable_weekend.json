@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "id": "9f8a6c0e-1111-4222-8333-444455556666",
   "name": "Executable Weekend",
   "label": "io.github.macos-task-scheduler.user.executable-weekend",
@@ -12,11 +12,15 @@
     ]
   },
   "schedule": {
-    "time": "10:00",
+    "kind": "calendar",
+    "times": [
+      "10:00"
+    ],
     "weekdays": [
       "saturday",
       "sunday"
-    ]
+    ],
+    "run_at_load": false
   },
   "environment": {
     "variables": {}

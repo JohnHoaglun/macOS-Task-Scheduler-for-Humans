@@ -8,7 +8,13 @@ import pytest
 
 from conftest import make_job
 from task_scheduler.application.task_command_service import ListingKind, TaskListing
-from task_scheduler.domain import EnvironmentConfig, JobDefinition, Schedule, Weekday
+from task_scheduler.domain import (
+    CalendarSchedule,
+    EnvironmentConfig,
+    IntervalSchedule,
+    JobDefinition,
+    Weekday,
+)
 from task_scheduler.gui.presenters.agent_presenter import (
     AgentClassification,
     classify,
@@ -175,8 +181,8 @@ class TestFormatCommand:
 class TestFormatSchedule:
     def test_multiple_weekdays(self) -> None:
         job = make_job(
-            schedule=Schedule(
-                time="09:15",
+            schedule=CalendarSchedule(
+                times=["09:15"],
                 weekdays={Weekday.FRIDAY, Weekday.MONDAY, Weekday.SUNDAY},
             )
         )
@@ -186,6 +192,34 @@ class TestFormatSchedule:
     def test_single_weekday(self) -> None:
         listing = _discovered(_parsed(job=make_job()), managed=True)
         assert format_schedule(listing) == "at 07:30:00 on Monday"
+
+    def test_multiple_times(self) -> None:
+        job = make_job(
+            schedule=CalendarSchedule(
+                times=["17:30", "07:30"], weekdays={Weekday.MONDAY}
+            )
+        )
+        listing = _discovered(_parsed(job=job), managed=True)
+        assert format_schedule(listing) == "at 07:30:00 and 17:30:00 on Monday"
+
+    def test_run_at_load_suffix(self) -> None:
+        job = make_job(
+            schedule=CalendarSchedule(
+                times=["07:30"], weekdays={Weekday.MONDAY}, run_at_load=True
+            )
+        )
+        listing = _discovered(_parsed(job=job), managed=True)
+        assert format_schedule(listing) == "at 07:30:00 on Monday + at login"
+
+    def test_interval(self) -> None:
+        job = make_job(schedule=IntervalSchedule(seconds=1800))
+        listing = _discovered(_parsed(job=job), managed=True)
+        assert format_schedule(listing) == "Every 30 minutes"
+
+    def test_interval_with_run_at_load(self) -> None:
+        job = make_job(schedule=IntervalSchedule(seconds=3600, run_at_load=True))
+        listing = _discovered(_parsed(job=job), managed=True)
+        assert format_schedule(listing) == "Every hour + at login"
 
     def test_without_job(self) -> None:
         listing = _discovered(_parsed(status=ParseSupport.INVALID, raw={}))

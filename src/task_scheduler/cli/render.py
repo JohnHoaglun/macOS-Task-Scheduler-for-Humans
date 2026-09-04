@@ -18,7 +18,13 @@ from task_scheduler.application.task_command_service import (
     TaskListing,
 )
 from task_scheduler.application.test_service import DirectTestResult
-from task_scheduler.domain import JobDefinition, Schedule
+from task_scheduler.domain import (
+    CalendarSchedule,
+    IntervalSchedule,
+    JobDefinition,
+    Schedule,
+    human_interval,
+)
 from task_scheduler.domain.command import command_argv
 from task_scheduler.platform.macos import LaunchAgentStatus
 
@@ -39,9 +45,21 @@ __all__ = [
 
 
 def format_schedule(schedule: Schedule) -> str:
-    """Render a schedule as ``HH:MM on monday, wednesday``."""
+    """Render a schedule, e.g. ``07:30 on monday, wednesday`` or ``Every 30 minutes``."""
+    if isinstance(schedule, IntervalSchedule):
+        text = human_interval(schedule.seconds)
+    else:
+        text = _calendar_text(schedule)
+    if schedule.run_at_load:
+        text += " + at login"
+    return text
+
+
+def _calendar_text(schedule: CalendarSchedule) -> str:
     weekdays = ", ".join(weekday.value for weekday in sorted(schedule.weekdays))
-    return f"{schedule.time:%H:%M} on {weekdays}"
+    parts = [f"{time:%H:%M}" for time in schedule.times]
+    times = parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + f" and {parts[-1]}"
+    return f"{times} on {weekdays}"
 
 
 def format_argv(job: JobDefinition) -> str:

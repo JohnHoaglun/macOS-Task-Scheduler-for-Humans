@@ -600,11 +600,21 @@ class TestFieldErrors:
         """A malformed schedule time maps to the time key."""
         world, controller = make_controller(tmp_path)
         data = make_job().model_dump()
-        data["schedule"]["time"] = "garbage"
+        data["schedule"]["times"] = ["garbage"]
         with pytest.raises(ValidationError) as excinfo:
             JobDefinition.model_validate(data)
         result = controller._field_errors(excinfo.value)
         assert list(result) == ["time"]
+
+    def test_schedule_weekdays_loc(self, tmp_path: Path) -> None:
+        """Empty schedule weekdays map to the weekdays key."""
+        world, controller = make_controller(tmp_path)
+        data = make_job().model_dump()
+        data["schedule"]["weekdays"] = []
+        with pytest.raises(ValidationError) as excinfo:
+            JobDefinition.model_validate(data)
+        result = controller._field_errors(excinfo.value)
+        assert list(result) == ["weekdays"]
 
     def test_logging_nested_loc(self, tmp_path: Path) -> None:
         """A nested logging path error maps through the logging branch."""
