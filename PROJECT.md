@@ -24,8 +24,8 @@ GUI (PySide6)          CLI (Typer)
 ```
 
 ## Status
-**Version:** 0.0.13
-**Phase:** Crawl — complete. All 13 increments implemented: CLI (8), GUI discovery/editor/lifecycle/diagnostics (9–12), and standalone macOS .app bundle packaging (13). 767 tests, 100% line coverage, ruff + mypy strict clean.
+**Version:** 0.0.14
+**Phase:** Walk — started. Crawl complete (all 13 increments; 767 tests at v0.0.13). Walk plan approved 2026-09-04: increments 14–22 covering scheduling model + migration (14), next-run preview (15), calendar scheduling expansion (16), interval/login triggers (17), Python ecosystem detection (18), expanded diagnostics (19), execution history (20), external plist import (21), and UX/JSON transfer (22). Increment 14 (schema-v2 schedule variants) is in progress.
 
 ## Repository
 Source of truth: https://github.com/JohnHoaglun/macOS-Task-Scheduler-for-Humans/tree/sched_dev_opencode

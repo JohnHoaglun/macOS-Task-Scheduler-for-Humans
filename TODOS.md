@@ -1,4 +1,83 @@
-# TODOS.md (v0.0.13)
+# TODOS.md (v0.0.14)
+
+## Walk Increment 14 — Schedule Model and Migration (IN PROGRESS)
+
+### Pinned v2 Schedule Contract (defined before implementation)
+- `CalendarSchedule`: `kind: Literal["calendar"]`, `times: list[time]` (≥1, validator sorts + dedupes), `weekdays: set[Weekday]` (≥1), `run_at_load: bool = False`
+- `IntervalSchedule`: `kind: Literal["interval"]`, `seconds: int` (≥ `MIN_INTERVAL_SECONDS = 60`), `run_at_load: bool = False`
+- `Schedule = Annotated[Union[CalendarSchedule, IntervalSchedule], Field(discriminator="kind")]` in `domain/schedule.py`
+- `RunAtLoad` never exists without a calendar or interval schedule (login-only plists remain non-representable, surfaced as a parser warning)
+- `SUPPORTED_SCHEMA_VERSION = 2`; v1 JSON stays readable via a storage-layer migration (v1 `{"time": …, "weekdays": […]}` → v2 calendar variant with one time); writes are always v2
+- plist codec: calendar → `StartCalendarInterval` list grouped by time ascending, weekdays canonical order within each time; interval → `StartInterval`; `run_at_load=True` → `RunAtLoad: True` (absent when False)
+- plist reader: multi-time `StartCalendarInterval` now reconstructs the Cartesian product (distinct times × distinct weekdays) instead of dropping the job; `StartInterval` ≥ 60 parses to interval variant (< 60 → partial-support warning, no job); both keys present → conflict warning, no job; `RunAtLoad`-only → warning, no job; `StartInterval`/`RunAtLoad` added to `SUPPORTED_KEYS`
+
+### Domain + Storage
+- [ ] `domain/schedule.py`: v2 variants, validators, `MIN_INTERVAL_SECONDS`, Weekday preserved
+- [ ] `domain/job.py`: `SUPPORTED_SCHEMA_VERSION = 2`, `schedule: Schedule` union
+- [ ] `storage/json_repository.py`: v1→v2 migration on load (schema_version, schedule field), v2-only writes, reject unknown future versions
+- [ ] Tests: domain schedule validation (variants, dedupe/sort, minimums, run_at_load), v1 migration, v2 round-trip, unknown-version rejection
+
+### Platform (plist codec + reader)
+- [ ] `platform/macos/plist_codec.py`: encode calendar/interval/run_at_load; multi-time ordering pinned
+- [ ] `platform/macos/plist_reader.py`: `_parse_schedule` for multi-time/interval/run_at_load/conflict/cases
+- [ ] `platform/macos/plist_models.py`: `StartInterval` + `RunAtLoad` in `SUPPORTED_KEYS`
+- [ ] Tests: codec golden bytes, reader fixtures (multi-time, interval, run_at_load, conflict, sub-60s, runatload-only), round-trip
+
+### CLI + GUI call sites (model-compatible, no new UI in this increment)
+- [ ] `cli/render.py`: `format_schedule` handles both variants (interval human duration, multi-time, + at login)
+- [ ] `gui/controllers/editor_controller.py`: draft builds `CalendarSchedule` (single time, as today)
+- [ ] `gui/presenters/agent_presenter.py` + `gui/widgets/agent_inspector.py`: variant-aware schedule display
+- [ ] Tests: presenter/CLI rendering for all variant shapes; editor controller draft conversion
+
+### Closeout
+- [ ] `make check` green + 100% whole-package coverage; docs (README schedule limits, architecture v2 persistence)
+- [ ] Version bump, registry update, stale-reference grep, commit, push
+
+## Walk Increment 15 — Next-Run Preview (§62) (PLANNED)
+- Pure `upcoming_occurrences(schedule, *, now, count)` calculator with injected clock
+- Mandatory wording: application-derived preview, not launchd's internal queue
+- Inspector + editor display, fixed count, local time; disabled jobs shown with configured-disabled label
+- Details in PLAN.md
+
+## Walk Increment 16 — Calendar Scheduling Expansion (§57) (PLANNED)
+- Multiple times per day for calendar schedules (times × weekdays semantics)
+- Reusable time-row editor (decompose `job_editor.py` / `editor_controller.py`, both near size thresholds)
+- Details in PLAN.md
+
+## Walk Increment 17 — Interval and Login Triggers (§57) (PLANNED)
+- Interval schedule editor (duration input, persisted seconds, ≥60s) + `RunAtLoad` toggle
+- Preview wording for interval anchor; read-only external policy retained
+- Details in PLAN.md
+
+## Walk Increment 18 — Python Environment Detectors (§58) (PLANNED)
+- Detector protocol + ordered registry; extract existing detection as first detector
+- Filesystem/config-only detectors: uv, then Poetry; pyenv/Conda/Pipenv/Homebrew later
+- No automatic interpreter replacement; provenance surfaced in editor + diagnostics
+- Details in PLAN.md
+
+## Walk Increment 19 — Expanded Diagnostics (§60) (PLANNED)
+- Typed diagnostic contexts (lifecycle, plist parse, log read, inspection) alongside the direct-test engine
+- Low-risk rules first (runtime not-found, cwd, broader import failures, malformed plist, invalid label, log accessibility, bootstrap failure)
+- Best-effort privacy/architecture warnings with confirmed/unavailable/not-provable states
+- Details in PLAN.md
+
+## Walk Increment 20 — Application-Observed Execution History (§59) (PLANNED)
+- stdlib `sqlite3` append-only repository beside the JSON catalog; metadata-only event schema
+- Events: `direct_test`, `manual_trigger`, `observed_state`, `diagnostic_result` at the service boundary
+- Read-only `mactask history` command + GUI history panel; corrupt/unavailable DB handled safely
+- Details in PLAN.md
+
+## Walk Increment 21 — External Plist Import (§61) (PLANNED)
+- Read-only import preview with warning/unsupported-key disclosure; explicit acknowledgement required for partial plists
+- Catalog-only write (managed JSON only, new UUID, label-conflict rejection); never touches the source plist
+- GUI external-row action + CLI `mactask import <plist-path>`; imported jobs stay catalog-only
+- Details in PLAN.md
+
+## Walk Increment 22 — Walk UX and Managed JSON Transfer (§63) (PLANNED)
+- Search/filters via `QSortFilterProxyModel`; status + validation badges; context-aware empty states
+- Reveal plist/logs in Finder (platform adapter, no GUI subprocess); copy command/plist via Qt clipboard
+- Catalog-only JSON export/import (never deploys); distinct from §61 plist import
+- Details in PLAN.md
 
 ## Crawl Increment 0 — Project Foundation (DONE)
 - [x] Create project directory

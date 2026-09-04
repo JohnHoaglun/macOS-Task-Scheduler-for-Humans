@@ -18,7 +18,7 @@ Crawl Increments 0–12 complete and pushed to `sched_dev_opencode` (version 0.0
 - **Increment 12:** GUI diagnostics/logs: job-based façade contracts (`test_job(job, *, detection=None)`, `test(label)` delegating, `compare_environment(job, terminal_environment)`, `read_logs_for(job)` with `read_logs(label)` delegating, `gui_environment()` in the composition layer), Qt-free `DiagnosticsController` + `QThread` `DiagnosticsWorker`, shared `DiagnosticLogsPanel` (test summary, diagnostics, direct/persisted stdout/stderr with Refresh, name-only environment comparison, Python recommendations), main-window Test action with selection/stale-result guard, `DirectTestDialog` for the editor's Test Draft (persists nothing); 766 tests
 - Verification at v0.0.12: 766 tests, 100% coverage, ruff + mypy strict clean
 
-Current focus: **Walk phase** — the next product-direction decisions after Crawl complete.
+Current focus: **Walk Increment 14 — Schedule Model and Migration** (approved plan below; Walk plan approved 2026-09-04).
 
 ---
 
@@ -541,9 +541,79 @@ All 13 Crawl increments are implemented.
 
 ---
 
-## Walk Phase — Future Direction
+## Walk Phase — Approved Plan (2026-09-04)
 
-Incrementally build the PySide6 GUI (Increments 9–12), then package as a local `.app` (Increment 13). The GUI and CLI share the same application services. The GUI must never call `launchctl`, `subprocess`, plist-writing APIs, or live filesystem APIs directly.
+Crawl is complete. The Walk phase covers spec sections 57–63 in eight increments (14–22), each delivered as a small vertical slice: contract → platform/application → CLI → GUI → tests → docs, with `make check` + 100% package coverage and a `+0.0.1` version bump at closeout.
+
+### Pinned Walk Decisions (approved 2026-09-04)
+1. **Schema v2 schedule variants:** `JobDefinition.schedule` becomes a discriminated union of `CalendarSchedule` and `IntervalSchedule` (pinned contract below). `SUPPORTED_SCHEMA_VERSION = 2`. v1 JSON remains readable through a storage-layer migration; all writes are v2. No compatibility shims in GUI or plist code.
+2. **Core scheduling first:** increments 14–17 (model, preview, multi-time, interval/login) precede detection (18), diagnostics (19), history (20), import (21), and UX/transfer (22).
+3. **"Daily" is a UI shortcut** that selects all seven weekdays — it is not a persisted schedule type.
+4. **`RunAtLoad` is additive only:** it coexists with a calendar or interval schedule and can never be the sole schedule. Login-only plists remain non-representable and are surfaced as parser warnings.
+5. **Interval minimum:** 60 seconds (`MIN_INTERVAL_SECONDS = 60`), persisted as raw seconds, presented as a human duration.
+6. **Multi-time plists parse as the Cartesian product:** the reader reconstructs distinct times × distinct weekdays (the codec emits the Cartesian product, so round-trips are lossless).
+7. **External imports (§61)** of partially supported plists are allowed only after every unsupported key/warning is shown and explicitly acknowledged (GUI confirmation / CLI flag). Imports are catalog-only and never touch the source plist.
+8. **Execution history (§59)** stores metadata only: timestamp, event kind/outcome, exit code, duration, loaded state, diagnostic codes. Never stdout/stderr, environment values, raw launchctl output, or free-text diagnostic descriptions.
+9. **Python ecosystem detection (§58)** starts filesystem/config-based (no tool invocation): uv and Poetry first, then pyenv/Conda/Pipenv/Homebrew through the same detector interface. Candidates remain recommendations; no automatic interpreter replacement.
+10. **No generic property-list editor**, no claims that derived data reflects launchd's internal queue, and the GUI boundary (no `launchctl`/`subprocess`/plist-writing/live-filesystem calls) is unchanged.
+
+### Pinned v2 Schedule Contract (increment 14 interface — settled before implementation)
+```python
+# domain/schedule.py
+class CalendarSchedule(BaseModel):
+    kind: Literal["calendar"] = "calendar"
+    times: list[time]        # >= 1; validator sorts ascending and dedupes
+    weekdays: set[Weekday]   # >= 1
+    run_at_load: bool = False
+
+class IntervalSchedule(BaseModel):
+    kind: Literal["interval"] = "interval"
+    seconds: int             # >= MIN_INTERVAL_SECONDS (60)
+    run_at_load: bool = False
+
+MIN_INTERVAL_SECONDS = 60
+Schedule = Annotated[Union[CalendarSchedule, IntervalSchedule], Field(discriminator="kind")]
+```
+- JSON: `{"kind": "calendar", "times": ["07:30:00"], "weekdays": ["monday"], "run_at_load": false}` / `{"kind": "interval", "seconds": 1800, "run_at_load": false}`.
+- v1 migration (storage layer only): `{"time": "07:30:00", "weekdays": [...]}` → calendar variant with one time, `run_at_load=false`, `schema_version=2`.
+- Plist codec: calendar → `StartCalendarInterval` grouped by time ascending, weekdays canonical order within each time; interval → `StartInterval`; `run_at_load=True` → `RunAtLoad: True` (absent when `False`).
+- Plist reader: multi-time calendar → Cartesian reconstruction; `StartInterval` ≥ 60 → interval variant; `StartInterval` < 60 → partial-support warning, no job; both schedule keys present → conflict warning, no job; `RunAtLoad`-only → warning, no job; `StartInterval`/`RunAtLoad` join `SUPPORTED_KEYS`.
+
+### Increment 14 — Schedule Model and Migration (§57) — current
+1. Replace the mandatory single `Schedule(time, weekdays)` contract with the pinned v2 variants.
+2. Retain v1 JSON read compatibility; newly saved jobs use schema v2.
+3. Centralize v1→v2 normalization in the storage layer.
+4. Update `JobDefinition`, JSON repository, validation, `PlistCodec`, `plist_reader`, `plist_models`, and round-trip fixtures.
+5. Preserve parser raw-source/warning/unsupported-key reporting for configurations that cannot be represented (login-only, sub-60s intervals, schedule-key conflicts).
+6. CLI `format_schedule` and GUI presenters/inspector become variant-aware; the editor continues to author single-time calendar schedules (multi-time authoring is increment 16).
+7. Migration, validation, codec, parser, and JSON round-trip tests using fixtures only; `make check` + 100% coverage; docs updated (README schedule limits, architecture v2 persistence).
+
+### Increment 15 — Next-Run Preview (§62)
+Pure `upcoming_occurrences(schedule, *, now, count)` with an injected clock; mandatory wording “Estimated upcoming schedule occurrences — application-derived schedule preview, not launchd's internal queue”; displayed in the inspector and editor with a fixed count in local time; disabled jobs show occurrences labeled “configured disabled”; no recurring preview for login-only (not representable anyway); formatting stays in presenters; deterministic boundary tests (same-day before/after, weekday rollover, ordering, count, local-time behavior).
+
+### Increment 16 — Calendar Scheduling Expansion (§57)
+Multiple times per day for calendar schedules (times apply to the selected weekdays); reusable time-row editor — `job_editor.py` (489 lines) and `editor_controller.py` (430 lines) are near the review threshold, so decompose rather than append; update rendered descriptions, inspectors, previews, and next-run calculation; ordering/dedupe/invalid-time/round-trip tests.
+
+### Increment 17 — Interval and Login Triggers (§57)
+Interval schedules backed by `StartInterval` (human-scale duration input, ≥60s, persisted seconds) and optional login behavior via `RunAtLoad`, parsed and generated and registered in `SUPPORTED_KEYS`; interval previews state the estimate is anchored to the application's supplied clock, not launchd's anchor; external jobs remain read-only; each trigger tested independently and combined.
+
+### Increment 18 — Python Environment Detectors (§58)
+Immutable detector protocol + ordered registry behind the existing `detect_python()` facade; extract current `.venv`/`venv`/current/PATH discovery as the first detector with unchanged priority; result DTOs gain detector provenance and non-fatal notes; filesystem/config-only detectors added one at a time (uv, then Poetry; pyenv, Conda, Pipenv, Homebrew in later increments); no ecosystem executables invoked; candidates remain explicit recommendations; injected filesystem/config readers keep tests host-independent.
+
+### Increment 19 — Expanded Diagnostics (§60)
+Keep the direct-test engine and its deterministic ordering; add typed diagnostic contexts (lifecycle result, parsed plist, log-read result, inspection result) instead of widening `evaluate_diagnostics()` with unstructured optional arguments; low-risk rules first (runtime executable-not-found, missing working directory, broader Python import failures, malformed plist, invalid label, inaccessible log path, launchctl bootstrap/registration failure); GUI groups findings by source (preflight, direct test, lifecycle, logs, Python environment); protected-folder/privacy and architecture checks only as best-effort warnings distinguishing confirmed / unavailable / not-provable; retain the direct-test limitation wording.
+
+### Increment 20 — Application-Observed Execution History (§59)
+Stdlib `sqlite3` append-only repository in `storage/` beside the JSON catalog; event schema per decision 8; events recorded at application-service boundaries (`test_job`, `run_now`, explicit `status` observations, aggregate diagnostic result) so CLI and GUI behave identically; one direct-test event plus one aggregate diagnostic-result event per test; bounded read-only queries; `mactask history <label> --limit N`; Qt-free controller + read-only GUI history panel; corrupt/unavailable database reported safely without affecting scheduler operations; never infer scheduled executions from logs or launchctl state.
+
+### Increment 21 — External Plist Import (§61)
+Read-only import preview normalizing a parsed external plist into a candidate managed `JobDefinition` (new durable UUID at commit, never the parser-generated identity); refuse invalid/unrepresentable plists; show every warning/unsupported key and require explicit acknowledgement for partial plists; commit writes managed JSON only (label-conflict rejection, never overwrite); imported jobs retain the original label and stay catalog-only until an explicit deployment path; GUI external-row-only action + `mactask import <plist-path>` with an acknowledgement flag.
+
+### Increment 22 — Walk UX and Managed JSON Transfer (§63)
+`QSortFilterProxyModel` search/filters (name/label/command; classification, saved/installed, configured enabled, loaded, parse validation); visual status and validation badges with text fallbacks; context-aware empty states (no tasks vs. no matches + clear filters); retain existing Reinstall/Uninstall confirmations; reveal plist/logs in Finder through a platform adapter (no GUI subprocess); copy command/plist via pure shared formatting + Qt clipboard; catalog-only JSON export/import (schema validation, immutable-ID and label-conflict detection, never deploys) — distinct from increment 21's plist import; CLI transfer equivalents where meaningful.
+
+### Walk Definition of Done (spec §64)
+The application answers, with truthful wording: what scheduled jobs exist; what a job will run; which Python it uses; when it should run; why it didn't work; and what launchd currently thinks about it.
 
 ---
 

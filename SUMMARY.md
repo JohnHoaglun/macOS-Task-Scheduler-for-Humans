@@ -2,6 +2,11 @@
 
 ## Changelog
 
+### v0.0.14
+- Walk phase started: approved implementation plan for spec sections 57–63 persisted to PLAN.md as increments 14–22 (schedule model + v1→v2 migration, next-run preview, multi-time calendar schedules, interval/login triggers, Python ecosystem detection, expanded diagnostics, SQLite execution history, external-plist import, UX + managed JSON transfer)
+- Pinned Walk decisions (2026-09-04): schema-v2 discriminated schedule variants with backward-compatible v1 JSON reads; core scheduling first; partially supported external plists importable only after explicit warning acknowledgement; execution history stores metadata only (no stdout/stderr, environments, or raw launchctl output); filesystem/config-first ecosystem detection (uv and Poetry first, no tool invocation in v1); "daily" is a UI shortcut, not a persisted schedule type; `RunAtLoad` is additive only (never the sole schedule); interval minimum 60s; multi-time plists parse as the full weekday × time Cartesian product
+- No code changes in this version; increment 14 (Walk Increment 14 — Schedule Model and Migration) is the next implementation increment
+
 ### v0.0.13
 - Crawl Increment 13: Packaging — standalone macOS `.app` bundle via PySide6 `pyside6-deploy` (Nuitka standalone mode), `make package` / `make run-gui` targets, self-contained bundle at `dist/macOS Task Scheduler for Humans.app` (no venv or source checkout required at runtime)
 - Bundle identity: `CFBundleIdentifier` → `io.github.macos-task-scheduler`, `CFBundleName`/`CFBundleDisplayName` → `macOS Task Scheduler for Humans` (post-processing `Info.plist` + ad-hoc `codesign` re-sign; Nuitka defaults to executable stem `app`)
