@@ -289,7 +289,7 @@ Refinements approved 2026-08-31: DirectTestDialog wires the panel Refresh to a s
 - [x] Version 0.0.11 → 0.0.12 (registry + stale-reference grep)
 - [x] make check, commit, push
 
-## Crawl Increment 13 — Packaging (DONE — 7b4d4e4)
+## Crawl Increment 13 — Packaging (DONE — 2b6610f)
 
 All slices complete. 767 tests, 100% coverage, ruff + mypy clean.
 Standalone bundle at `dist/macOS Task Scheduler for Humans.app` (ad-hoc signed, self-contained no-venv launch).
