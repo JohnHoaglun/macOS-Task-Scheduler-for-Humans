@@ -1,4 +1,4 @@
-# TODOS.md (v0.0.15)
+# TODOS.md (v0.0.16)
 
 ## Walk Increment 15 — Next-Run Preview (§62) (DONE)
 
@@ -60,10 +60,39 @@
 - [x] Docs (README schedule limits, architecture v2 persistence) — landed in the 0.0.15 closeout
 - [x] Version bump, registry update, stale-reference grep, commit, push — 0.0.15
 
-## Walk Increment 16 — Calendar Scheduling Expansion (§57) (PLANNED)
-- Multiple times per day for calendar schedules (times × weekdays semantics)
-- Reusable time-row editor (decompose `job_editor.py` / `editor_controller.py`, both near size thresholds)
-- Details in PLAN.md
+## Walk Increment 16 — Calendar Scheduling Expansion (§57) (DONE — v0.0.16)
+
+### Pinned decisions (approved 2026-09-05) — full text in PLAN.md
+- Schema unchanged: v2 calendar JSON, times × weekdays Cartesian product contract
+- `JobDraft.time: str` → `JobDraft.times: list[str]` (raw visible rows, row order; new draft `[""]`)
+- `CalendarSchedule` stays the sole authority for validation/sort/dedupe; no second GUI parser
+- New reusable `gui/widgets/time_row_editor.py`: `rowsChanged` signal, `set_times(values)`, `times()` (stripped, row order)
+- UI: parent object name `editor-times`; rows `editor-time` / `editor-time-<i>` (renumbered on structural change); buttons `timerow-add`/`timerow-remove`; min 1 row; removing last restores one blank row; Add appends blank row; `set_times([])` → one blank row
+- Every time applies to every selected weekday (per-time weekday selection out of scope)
+- Invalid/blank row or no weekday → neutral `PREVIEW_INCOMPLETE` (no partial preview); Increment 15 preview behavior preserved
+- Domain error field key for schedule-time failures: `times`
+
+### TimeRowEditor (Lane A) — done via `escalate` after empty `general` dispatches
+- [x] `src/task_scheduler/gui/widgets/time_row_editor.py` per pinned API (112 lines; `textEdited`-driven `rowsChanged`, no time parsing)
+- [x] `tests/unit/gui/test_time_row_editor.py`: initial row, set/times round trip, strip, add/remove/last-row floor, `set_times([])` floor, signal counts (incl. no-emission-during-construction via monkeypatched counting stub — PySide6 forbids class-level connections), object-name renumbering — 12 tests, 77 stmts 100%
+
+### EditorController migration (Lane B) — done via `escalate` (compact-prompt retry)
+- [x] `gui/controllers/editor_controller.py`: `times: list[str]` draft field (default `[""]`), `set_times(draft, values)` verbatim, `open_existing` loads all calendar times as `%H:%M` (interval → `[""]` + empty weekdays), `_build_schedule` → `CalendarSchedule(times=cast(...), ...)` with empty-list `_DraftError("times", "at least one time is required")` and domain `ValidationError` → `times` field (strips pydantic "Value error, " prefix); invalid-weekday behavior preserved
+- [x] `tests/unit/gui/test_editor_controller.py`: list draft shape, one-time compat, multi-time load/collect/build, ordering/dedupe via domain, empty-list + invalid-row validation with `times` field key — 69 tests, 241/241 coverage. Deviation: domain accepts whitespace-padded times, so the test proves verbatim storage rather than rejection
+
+### JobEditor composition (Lane C) — orchestrator-executed (subagent dispatchs returned empty; disclosed in SUMMARY.md)
+- [x] `gui/widgets/job_editor.py`: `TimeRowEditor` in place of `editor-time` (form row "Times (HH:MM)"), `rowsChanged` → `_on_draft_changed`, `_load_draft`/`_collect` use `set_times`/`times()`, `_form_schedule` builds from all visible rows (neutral on blank/invalid), note text → "each scheduled time", dead `if not rows` guard removed; 545 → 539 lines
+- [x] `tests/unit/gui/test_job_editor.py`: +8 `TestMultiTimeSchedule` tests (one-blank-row new dialog, multi-time canonical load, add-row neutralizes→completes preview, remove-last-row floor, invalid second row neutral, save collects all rows sorted, duplicates dedupe on save, invalid row → `times:` field error)
+- [x] `tests/unit/gui/test_main_window.py`: no changes needed (helpers type into first-row `editor-time`) — all 99 existing green
+
+### Regression gates (no production change)
+- [x] domain/schedule, plist codec/reader, presenter, inspector, CLI render — full suite 871 passed, 2 deselected; zero production changes in those layers
+
+### Closeout
+- [x] `make check` green + 100% whole-package coverage (3401 stmts, 0 missed)
+- [x] Source-size review: `job_editor.py` 539 (< 545 baseline)
+- [x] Docs: README multi-time authoring (editor Schedule group + New Task validity), architecture draft `times` contract + TimeRowEditor boundary + `times` field key, development test conventions (object names, `textEdited`)
+- [x] Version 0.0.15 → 0.0.16, registry update, stale-reference grep, commit, push
 
 ## Walk Increment 17 — Interval and Login Triggers (§57) (PLANNED)
 - Interval schedule editor (duration input, persisted seconds, ≥60s) + `RunAtLoad` toggle

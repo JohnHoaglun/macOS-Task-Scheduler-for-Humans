@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from datetime import time as Time
 from pathlib import Path
 from uuid import UUID
 
@@ -10,7 +11,15 @@ import pytest
 from pydantic import ValidationError
 
 from task_scheduler.application.job_service import JobNotFoundError, managed_label
-from task_scheduler.domain import ExecutableCommand, JobDefinition, LoggingConfig, ShellCommand
+from task_scheduler.domain import (
+    CalendarSchedule,
+    ExecutableCommand,
+    IntervalSchedule,
+    JobDefinition,
+    LoggingConfig,
+    ShellCommand,
+    Weekday,
+)
 from task_scheduler.gui.controllers.editor_controller import EditorController, JobDraft
 from task_scheduler.platform.macos import CandidateSource
 from tests.conftest import make_job
@@ -40,7 +49,7 @@ class TestOpenNew:
         assert d.shell_arguments == []
         assert d.executable_path == ""
         assert d.executable_arguments == []
-        assert d.time == ""
+        assert d.times == [""]
         assert d.weekdays == set()
         assert d.working_directory == ""
         assert d.environment == []
@@ -53,6 +62,17 @@ class TestOpenNew:
         first = controller.open_new()
         second = controller.open_new()
         assert first.job_id != second.job_id
+
+    def test_open_new_times_default_is_fresh_per_draft(self, tmp_path: Path) -> None:
+        """Each new draft gets its own single empty time, never a shared list."""
+        world, controller = make_controller(tmp_path)
+        first = controller.open_new()
+        second = controller.open_new()
+        assert first.times == [""]
+        assert second.times == [""]
+        assert first.times is not second.times
+        first.times.append("07:30")
+        assert second.times == [""]
 
 
 class TestNameAndLabel:
@@ -140,8 +160,8 @@ class TestOtherMutators:
         """Scalar setters write directly onto the draft."""
         world, controller = make_controller(tmp_path)
         d = controller.open_new()
-        controller.set_time(d, "07:30")
-        assert d.time == "07:30"
+        controller.set_times(d, ["07:30"])
+        assert d.times == ["07:30"]
         controller.set_weekdays(d, {"monday", "friday"})
         assert d.weekdays == {"monday", "friday"}
         controller.set_working_directory(d, "/tmp/x")
@@ -188,7 +208,7 @@ class TestOpenExisting:
         assert d.interpreter == "/Users/example/project/.venv/bin/python"
         assert d.script == "/Users/example/project/main.py"
         assert d.python_arguments == ["--mode", "daily"]
-        assert d.time == "07:30"
+        assert d.times == ["07:30"]
         assert d.weekdays == {"monday"}
         assert d.working_directory == ""
         assert d.environment == []
@@ -241,6 +261,26 @@ class TestOpenExisting:
         d = controller.open_existing(job)
         assert d.enabled is False
 
+    def test_multi_time_job_opens_in_canonical_order(self, tmp_path: Path) -> None:
+        """A persisted multi-time job opens with every time in canonical HH:MM order."""
+        world, controller = make_controller(tmp_path)
+        job = make_job(
+            schedule=CalendarSchedule(
+                times=[Time(17, 30), Time(7, 30)], weekdays={Weekday.MONDAY, Weekday.FRIDAY}
+            )
+        )
+        d = controller.open_existing(job)
+        assert d.times == ["07:30", "17:30"]
+        assert d.weekdays == {"monday", "friday"}
+
+    def test_interval_job_opens_empty(self, tmp_path: Path) -> None:
+        """An interval job opens with a single empty time and no weekdays."""
+        world, controller = make_controller(tmp_path)
+        job = make_job(schedule=IntervalSchedule(seconds=900))
+        d = controller.open_existing(job)
+        assert d.times == [""]
+        assert d.weekdays == set()
+
 
 class TestDelegation:
     def test_detect_python_returns_current_interpreter(self, tmp_path: Path) -> None:
@@ -272,7 +312,7 @@ def valid_draft(controller: EditorController, tmp_path: Path) -> JobDraft:
     controller.set_name(draft, "Editor Job")
     controller.set_interpreter(draft, "/usr/bin/python3")
     controller.set_script(draft, str(tmp_path / "job.py"))
-    controller.set_time(draft, "07:30")
+    controller.set_times(draft, ["07:30"])
     controller.set_weekdays(draft, {"monday"})
     return draft
 
@@ -292,7 +332,7 @@ class TestValidate:
         d = controller.open_new()
         controller.set_interpreter(d, "/usr/bin/python3")
         controller.set_script(d, "/tmp/job.py")
-        controller.set_time(d, "07:30")
+        controller.set_times(d, ["07:30"])
         controller.set_weekdays(d, {"monday"})
         o = controller.validate(d)
         assert o.ok is False
@@ -348,12 +388,66 @@ class TestValidate:
         assert o.fields == {"executable": "an executable is required"}
 
     def test_bad_time(self, tmp_path: Path) -> None:
-        """A malformed time fails with a time field error."""
+        """An out-of-range time fails with the domain message on the times field."""
         world, controller = make_controller(tmp_path)
         d = valid_draft(controller, tmp_path)
-        controller.set_time(d, "25:00")
+        controller.set_times(d, ["25:00"])
         o = controller.validate(d)
-        assert o.fields == {"time": "the time must look like HH:MM, got '25:00'"}
+        assert o.fields == {"times": "schedule time out of range (00:00-23:59), got '25:00'"}
+
+    def test_single_time_compat(self, tmp_path: Path) -> None:
+        """A one-time draft builds a schedule with exactly one time."""
+        world, controller = make_controller(tmp_path)
+        d = valid_draft(controller, tmp_path)
+        job = controller.build_job(d)
+        assert isinstance(job.schedule, CalendarSchedule)
+        assert job.schedule.times == [Time(7, 30)]
+
+    def test_multi_time_unsorted_input_is_sorted(self, tmp_path: Path) -> None:
+        """Times entered out of order come back sorted in the built job."""
+        world, controller = make_controller(tmp_path)
+        d = valid_draft(controller, tmp_path)
+        controller.set_times(d, ["17:30", "07:30"])
+        job = controller.build_job(d)
+        assert isinstance(job.schedule, CalendarSchedule)
+        assert job.schedule.times == [Time(7, 30), Time(17, 30)]
+
+    def test_duplicate_times_collapse(self, tmp_path: Path) -> None:
+        """Duplicate times collapse to a single entry in the built job."""
+        world, controller = make_controller(tmp_path)
+        d = valid_draft(controller, tmp_path)
+        controller.set_times(d, ["07:30", "07:30"])
+        job = controller.build_job(d)
+        assert isinstance(job.schedule, CalendarSchedule)
+        assert job.schedule.times == [Time(7, 30)]
+
+    def test_no_times(self, tmp_path: Path) -> None:
+        """A draft with no times fails with a times field error."""
+        world, controller = make_controller(tmp_path)
+        d = valid_draft(controller, tmp_path)
+        controller.set_times(d, [])
+        o = controller.validate(d)
+        assert o.fields == {"times": "at least one time is required"}
+
+    def test_bad_time_value(self, tmp_path: Path) -> None:
+        """An invalid time value surfaces the exact domain message on the times field."""
+        world, controller = make_controller(tmp_path)
+        d = valid_draft(controller, tmp_path)
+        controller.set_times(d, ["99:99"])
+        o = controller.validate(d)
+        assert o.fields == {"times": "schedule time out of range (00:00-23:59), got '99:99'"}
+
+    def test_whitespace_time_passed_verbatim(self, tmp_path: Path) -> None:
+        """A padded time is stored verbatim and delegated to the domain untouched."""
+        world, controller = make_controller(tmp_path)
+        d = valid_draft(controller, tmp_path)
+        controller.set_times(d, [" 07:30 "])
+        assert d.times == [" 07:30 "]
+        o = controller.validate(d)
+        assert o.ok is True
+        job = controller.build_job(d)
+        assert isinstance(job.schedule, CalendarSchedule)
+        assert job.schedule.times == [Time(7, 30)]
 
     def test_no_weekdays(self, tmp_path: Path) -> None:
         """A draft with no weekdays fails validation."""
@@ -597,14 +691,14 @@ class TestFieldErrors:
         assert result["executable"]
 
     def test_schedule_time_loc(self, tmp_path: Path) -> None:
-        """A malformed schedule time maps to the time key."""
+        """A malformed schedule time maps to the times key."""
         world, controller = make_controller(tmp_path)
         data = make_job().model_dump()
         data["schedule"]["times"] = ["garbage"]
         with pytest.raises(ValidationError) as excinfo:
             JobDefinition.model_validate(data)
         result = controller._field_errors(excinfo.value)
-        assert list(result) == ["time"]
+        assert list(result) == ["times"]
 
     def test_schedule_weekdays_loc(self, tmp_path: Path) -> None:
         """Empty schedule weekdays map to the weekdays key."""

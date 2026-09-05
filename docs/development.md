@@ -61,9 +61,12 @@ The job editor tests (Crawl Increment 10) follow the setup above and add:
 * `qtbot.addWidget` keeps the window or dialog under test alive for the
   test's duration.
 * Editor widgets carry stable `objectName`s (`editor-name`, `editor-save`,
-  `editor-weekday-monday`, ...); tests resolve them through small
-  `findChild` helper functions rather than index-based access, so layout
-  changes do not break tests.
+  `editor-weekday-monday`, `editor-time` / `editor-time-{i}` for time rows,
+  `timerow-add` / `timerow-remove` for the row controls); tests resolve them
+  through small `findChild` helper functions rather than index-based access,
+  so layout changes do not break tests.
+* `TimeRowEditor` connects `textEdited` (not `textChanged`) so programmatic
+  `setText` during a load does not re-fire the draft-changed pipeline.
 * `FakeTaskWorld` (`tests/fakes.py`) builds the full service graph on
   `tmp_path` roots: catalog and LaunchAgents store under temporary
   directories, with the real `JobService`, `LaunchAgentStore`, and

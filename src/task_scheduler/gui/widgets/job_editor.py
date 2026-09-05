@@ -7,7 +7,9 @@ from datetime import datetime
 from datetime import time as Time
 from functools import partial
 from pathlib import Path
+from typing import cast
 
+from pydantic import ValidationError
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -43,6 +45,7 @@ from task_scheduler.gui.presenters.agent_presenter import (
 )
 from task_scheduler.gui.widgets.direct_test_dialog import DirectTestDialog
 from task_scheduler.gui.widgets.row_table import RowTable
+from task_scheduler.gui.widgets.time_row_editor import TimeRowEditor
 
 __all__ = ["JobEditor"]
 
@@ -125,7 +128,7 @@ class JobEditor(QDialog):
         close_button.clicked.connect(self.reject)
         self._name.textEdited.connect(self._on_draft_changed)
         self._label.textEdited.connect(self._on_label_edited)
-        self._time.textEdited.connect(self._on_draft_changed)
+        self._times.rowsChanged.connect(self._on_draft_changed)
         self._script.textEdited.connect(self._on_draft_changed)
         self._script.textChanged.connect(self._on_script_changed)
         self._use_candidate.clicked.connect(self._on_use_candidate)
@@ -255,8 +258,7 @@ class JobEditor(QDialog):
         self._refresh_schedule_preview()
 
     def _form_schedule(self) -> CalendarSchedule | None:
-        """The schedule the visible time/weekday fields describe, or None when
-        the time or weekday selection is incomplete or invalid."""
+        """The visible times and weekdays as a schedule, or None when incomplete or invalid."""
         weekdays = {
             Weekday(day)
             for day, box in zip(DAY_NAMES, self._weekdays, strict=True)
@@ -264,12 +266,11 @@ class JobEditor(QDialog):
         }
         if not weekdays:
             return None
+        rows = self._times.times()
         try:
-            hour, minute = (int(part) for part in self._time.text().strip().split(":"))
-            scheduled_time = Time(hour, minute)
-        except ValueError:
+            return CalendarSchedule(times=cast("list[Time]", rows), weekdays=weekdays)
+        except ValidationError:
             return None
-        return CalendarSchedule(times=[scheduled_time], weekdays=weekdays)
 
     def _refresh_schedule_preview(self) -> None:
         """Render the next-run preview for the schedule the form currently shows."""
@@ -305,13 +306,12 @@ class JobEditor(QDialog):
         return (line_edit, container)
 
     def _build_schedule(self) -> QGroupBox:
-        """The Schedule group: HH:MM time field and weekday checkboxes."""
+        """The Schedule group: HH:MM time rows and weekday checkboxes."""
         group = QGroupBox("Schedule")
         form = QFormLayout(group)
-        self._time = QLineEdit(group)
-        self._time.setObjectName("editor-time")
-        self._time.setPlaceholderText("HH:MM")
-        form.addRow("Time", self._time)
+        self._times = TimeRowEditor(group)
+        self._times.setObjectName("editor-times")
+        form.addRow("Times (HH:MM)", self._times)
         days_widget = QWidget(group)
         days_layout = QHBoxLayout(days_widget)
         days_layout.setContentsMargins(0, 0, 0, 0)
@@ -326,8 +326,8 @@ class JobEditor(QDialog):
         self._schedule_note.setObjectName("editor-schedule-note")
         self._schedule_note.setWordWrap(True)
         self._schedule_note.setText(
-            "launchd starts the job at the scheduled time on the selected days. If the Mac"
-            " is asleep the run is not woken, and missed runs are not retried."
+            "launchd starts the job at each scheduled time on the selected days. If the"
+            " Mac is asleep the run is not woken, and missed runs are not retried."
         )
         form.addRow(self._schedule_note)
         self._preview_heading = QLabel(group)
@@ -430,7 +430,7 @@ class JobEditor(QDialog):
         self._shell_args.set_rows([[value] for value in d.shell_arguments])
         self._executable.setText(d.executable_path)
         self._executable_args.set_rows([[value] for value in d.executable_arguments])
-        self._time.setText(d.time)
+        self._times.set_times(d.times)
         for box, day in zip(self._weekdays, DAY_NAMES, strict=True):
             box.setChecked(day in d.weekdays)
         self._working_directory.setText(d.working_directory)
@@ -449,9 +449,7 @@ class JobEditor(QDialog):
             return
         d = self._draft
         c = self._controller
-        kind: CommandKind = ("python", "shell", "executable")[
-            self._kind_combo.currentIndex()
-        ]
+        kind: CommandKind = ("python", "shell", "executable")[self._kind_combo.currentIndex()]
         c.set_name(d, self._name.text().strip())
         c.set_command_kind(d, kind)
         c.set_interpreter(d, self._interpreter.text().strip())
@@ -464,15 +462,11 @@ class JobEditor(QDialog):
             "executable": self._executable_args,
         }[kind]
         c.set_arguments(d, kind, [row[0] for row in args_table.rows()])
-        c.set_time(d, self._time.text().strip())
-        c.set_weekdays(
-            d,
-            {
-                day
-                for day, box in zip(DAY_NAMES, self._weekdays, strict=True)
-                if box.isChecked()
-            },
-        )
+        c.set_times(d, self._times.times())
+        selected = {
+            day for day, box in zip(DAY_NAMES, self._weekdays, strict=True) if box.isChecked()
+        }
+        c.set_weekdays(d, selected)
         c.set_working_directory(d, self._working_directory.text().strip())
         c.set_environment(d, [(row[0], row[1]) for row in self._environment.rows()])
         c.set_stdout_path(d, self._stdout_path.text().strip())

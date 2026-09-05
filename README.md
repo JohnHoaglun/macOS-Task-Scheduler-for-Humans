@@ -505,7 +505,7 @@ Task...**. Both open a modal editor dialog for a managed job:
 
 * **New Task** starts blank — no command paths and no schedule — and is
   invalid until the name, the command fields of the selected kind, a valid
-  `HH:MM` time, and at least one weekday are filled in.
+  `HH:MM` time row, and at least one weekday are filled in.
 * **Edit Managed Task** works only for a selected row classified as
   **Managed**, and resolves the catalog job by its launchd label. A
   selection that cannot be parsed, or a label missing from the catalog,
@@ -524,9 +524,12 @@ The dialog is a scrollable form with the following sections:
   **Use** button fills the interpreter field — and the working directory
   while it is blank — from the detection result. Informative notes cover
   the idle and no-match cases.
-* **Schedule** — an `HH:MM` time and seven weekday checkboxes, plus a note
-  on launchd behavior: if the Mac is asleep at the scheduled time it is
-  not woken, and missed runs are not retried.
+* **Schedule** — one `HH:MM` row per scheduled time (Add/Remove controls;
+  at least one row is always kept, and removing the last row clears it to
+  blank instead) and seven weekday checkboxes. Every configured time applies
+  to every selected weekday, and duplicates collapse on save. A note covers
+  launchd behavior: if the Mac is asleep at a scheduled time it is not
+  woken, and missed runs are not retried.
 * **Environment** — key/value rows for the job's environment variables.
 * **Advanced** — the working directory and optional stdout/stderr log
   paths; leave a path empty to disable that stream. The default log root

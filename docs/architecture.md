@@ -139,12 +139,21 @@ the first 8 hex characters of the job id, via `managed_label`); an explicit
 label edit sets the flag and stops the derivation. Nothing in a draft is
 persisted until a save.
 
+The draft's calendar schedule is `times: list[str]` — the raw visible
+`HH:MM` rows, verbatim, in row order (a fresh draft holds one empty row) —
+plus a `weekdays` set. The dialog renders the rows with the reusable
+`TimeRowEditor` widget (`gui/widgets/time_row_editor.py`), which owns row
+add/remove, keeps at least one row, and emits `rowsChanged`; it performs no
+time parsing. All time validation, ascending sort, and duplicate collapse
+happen in `CalendarSchedule`, which the controller builds from the raw rows;
+a failed build maps to the `times` field with the domain's message.
+
 **EditorController outcomes** keep the view exception-free. `validate()`,
 `preview()`, and `save()` return frozen outcomes: `EditorOutcome` (`ok`,
 `message`, `fields`), `PreviewOutcome` (adds the generated launchd plist
 XML), and `SaveOutcome` (adds the persisted catalog path and final label).
 Failures map to per-field errors keyed by stable field names — `name`,
-`label`, `interpreter`, `script`, `shell_executable`, `executable`, `time`,
+`label`, `interpreter`, `script`, `shell_executable`, `executable`, `times`,
 `weekdays`, `working_directory`, `environment`, `stdout_path`,
 `stderr_path`, with a `job` key for whole-job failures — so the dialog can
 display errors independently of widget layout. `save()` validates before

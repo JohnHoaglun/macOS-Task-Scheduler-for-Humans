@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import time as Time
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 from uuid import UUID, uuid4
 
 from pydantic import ValidationError
@@ -55,7 +55,7 @@ class JobDraft:
     shell_arguments: list[str] = field(default_factory=list)
     executable_path: str = ""
     executable_arguments: list[str] = field(default_factory=list)
-    time: str = ""
+    times: list[str] = field(default_factory=lambda: [""])
     weekdays: set[str] = field(default_factory=set)
     working_directory: str = ""
     environment: list[tuple[str, str]] = field(default_factory=list)
@@ -125,10 +125,10 @@ class EditorController:
         elif isinstance(command, ExecutableCommand):
             executable_path = str(command.executable)
             executable_arguments = list(command.arguments)
-        schedule_time = ""
+        schedule_times: list[str] = [""]
         schedule_weekdays: set[str] = set()
         if isinstance(job.schedule, CalendarSchedule):
-            schedule_time = job.schedule.times[0].strftime("%H:%M")
+            schedule_times = [time.strftime("%H:%M") for time in job.schedule.times]
             schedule_weekdays = {weekday.value for weekday in job.schedule.weekdays}
         return JobDraft(
             job_id=job.id,
@@ -144,18 +144,14 @@ class EditorController:
             shell_arguments=shell_arguments,
             executable_path=executable_path,
             executable_arguments=executable_arguments,
-            time=schedule_time,
+            times=schedule_times,
             weekdays=schedule_weekdays,
             working_directory=(
                 str(job.working_directory) if job.working_directory is not None else ""
             ),
             environment=list(job.environment.variables.items()),
-            stdout_path=str(job.logging.stdout_path)
-            if job.logging.stdout_path is not None
-            else "",
-            stderr_path=str(job.logging.stderr_path)
-            if job.logging.stderr_path is not None
-            else "",
+            stdout_path=str(job.logging.stdout_path) if job.logging.stdout_path is not None else "",
+            stderr_path=str(job.logging.stderr_path) if job.logging.stderr_path is not None else "",
         )
 
     def set_name(self, draft: JobDraft, value: str) -> None:
@@ -203,9 +199,7 @@ class EditorController:
         """Append an empty argument for the given command kind."""
         self.arguments_for(draft, kind).append("")
 
-    def set_argument(
-        self, draft: JobDraft, kind: CommandKind, index: int, value: str
-    ) -> None:
+    def set_argument(self, draft: JobDraft, kind: CommandKind, index: int, value: str) -> None:
         """Replace one argument for the given command kind."""
         self.arguments_for(draft, kind)[index] = value
 
@@ -213,9 +207,9 @@ class EditorController:
         """Remove one argument for the given command kind."""
         del self.arguments_for(draft, kind)[index]
 
-    def set_time(self, draft: JobDraft, value: str) -> None:
-        """Set the scheduled time as an HH:MM string."""
-        draft.time = value
+    def set_times(self, draft: JobDraft, values: list[str]) -> None:
+        """Replace the draft's scheduled times verbatim, with no stripping or validation."""
+        draft.times = list(values)
 
     def set_weekdays(self, draft: JobDraft, selected: set[str]) -> None:
         """Replace the selected weekdays."""
@@ -326,19 +320,19 @@ class EditorController:
                 head = str(loc[0])
                 second = str(loc[1]) if len(loc) > 1 else ""
                 if head in {
-            "name",
-            "label",
-            "working_directory",
-            "environment",
-            "stdout_path",
-            "stderr_path",
-        }:
+                    "name",
+                    "label",
+                    "working_directory",
+                    "environment",
+                    "stdout_path",
+                    "stderr_path",
+                }:
                     return {head: str(error["msg"])}
                 if head == "schedule":
                     fields = {str(part) for part in loc[1:]}
                     if "weekdays" in fields:
                         return {"weekdays": str(error["msg"])}
-                    return {"time": str(error["msg"])}
+                    return {"times": str(error["msg"])}
                 if head == "logging":
                     return {second or "stdout_path": str(error["msg"])}
                 if head == "command":
@@ -365,9 +359,7 @@ class EditorController:
             command=self._build_command(draft),
             schedule=self._build_schedule(draft),
             environment=EnvironmentConfig(variables=self._build_variables(draft)),
-            working_directory=(
-                Path(draft.working_directory) if draft.working_directory else None
-            ),
+            working_directory=(Path(draft.working_directory) if draft.working_directory else None),
             logging=LoggingConfig(
                 stdout_path=Path(draft.stdout_path) if draft.stdout_path else None,
                 stderr_path=Path(draft.stderr_path) if draft.stderr_path else None,
@@ -414,20 +406,19 @@ class EditorController:
             )
 
     def _build_schedule(self, draft: JobDraft) -> CalendarSchedule:
-        """Build the weekly schedule from the draft's time and selected weekdays."""
+        """Build the weekly schedule from the draft's times and selected weekdays."""
         if not draft.weekdays:
             raise _DraftError("weekdays", "at least one weekday is required")
+        if not draft.times:
+            raise _DraftError("times", "at least one time is required")
         try:
-            hour, minute = map(int, draft.time.split(":"))
-            schedule_time = Time(hour, minute)
-        except ValueError:
-            raise _DraftError(
-                "time", f"the time must look like HH:MM, got {draft.time!r}"
-            ) from None
-        return CalendarSchedule(
-            times=[schedule_time],
-            weekdays={Weekday(w) for w in draft.weekdays},
-        )
+            return CalendarSchedule(
+                times=cast("list[Time]", draft.times),
+                weekdays={Weekday(w) for w in draft.weekdays},
+            )
+        except ValidationError as exc:
+            message = str(exc.errors()[0]["msg"])
+            raise _DraftError("times", message.removeprefix("Value error, ")) from None
 
     def _build_variables(self, draft: JobDraft) -> dict[str, str]:
         """Collect environment rows, raising on empty keys and duplicate keys."""

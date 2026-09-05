@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from pathlib import Path
 
@@ -16,15 +17,18 @@ from PySide6.QtWidgets import (
     QPushButton,
     QStackedWidget,
     QTextEdit,
+    QWidget,
 )
 from pytestqt.qtbot import QtBot
 
 from task_scheduler.domain import (
+    CalendarSchedule,
     EnvironmentConfig,
     ExecutableCommand,
     JobDefinition,
     LoggingConfig,
     ShellCommand,
+    Weekday,
 )
 from task_scheduler.gui.controllers.diagnostics_controller import DiagnosticsController
 from task_scheduler.gui.controllers.editor_controller import EditorController
@@ -591,6 +595,9 @@ PREVIEW_LINES_0800 = (
     "Mon Sep 28 08:00\n"
     "Mon Oct 05 08:00"
 )
+PREVIEW_LINES_MULTI = (
+    "Mon Sep 07 07:30\nMon Sep 07 17:30\nMon Sep 14 07:30\nMon Sep 14 17:30\nMon Sep 21 07:30"
+)
 
 
 class TestSchedulePreview:
@@ -648,3 +655,101 @@ class TestSchedulePreview:
         preview = editor.findChild(QLabel, "editor-preview-occurrences")
         assert preview is not None
         assert preview.text() == PREVIEW_INCOMPLETE
+
+
+class TestMultiTimeSchedule:
+    """Increment 16: multi-time calendar authoring through the time row editor."""
+
+    def _occurrences(self, editor: JobEditor) -> str:
+        """The live preview text, asserted present."""
+        label = editor.findChild(QLabel, "editor-preview-occurrences")
+        assert label is not None
+        return label.text()
+
+    def _fixed_editor(self, qtbot: QtBot, tmp_path: Path) -> JobEditor:
+        world = FakeTaskWorld(tmp_path)
+        editor = JobEditor(EditorController(world.services), clock=lambda: PREVIEW_NOW)
+        qtbot.addWidget(editor)
+        editor.open_existing(make_job())
+        editor.show()
+        return editor
+
+    def test_new_dialog_shows_one_blank_row(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """A new draft renders exactly one blank time row in the editor-times host."""
+        _, editor, _ = make_editor(qtbot, tmp_path)
+        assert editor.findChild(QWidget, "editor-times") is not None
+        assert line_edit(editor, "editor-time").text() == ""
+        assert editor.findChild(QLineEdit, "editor-time-1") is None
+
+    def test_multi_time_job_loads_rows_in_canonical_order(
+        self, qtbot: QtBot, tmp_path: Path
+    ) -> None:
+        """Every configured time loads as its own row, ascending, named in order."""
+        job = make_job(
+            schedule=CalendarSchedule(times=["17:30", "07:30"], weekdays={Weekday.MONDAY})
+        )
+        _, editor, _ = make_editor(qtbot, tmp_path, job)
+        assert line_edit(editor, "editor-time").text() == "07:30"
+        assert line_edit(editor, "editor-time-1").text() == "17:30"
+        assert editor.findChild(QLineEdit, "editor-time-2") is None
+
+    def test_add_row_neutralizes_preview_then_completes(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """A blank added row keeps the preview neutral; a valid one shows multi-time."""
+        editor = self._fixed_editor(qtbot, tmp_path)
+        assert self._occurrences(editor) == PREVIEW_LINES_0730
+        button(editor, "timerow-add").click()
+        assert line_edit(editor, "editor-time-1").text() == ""
+        assert self._occurrences(editor) == PREVIEW_INCOMPLETE
+        qtbot.keyClicks(line_edit(editor, "editor-time-1"), "17:30")
+        assert self._occurrences(editor) == PREVIEW_LINES_MULTI
+
+    def test_remove_last_row_restores_one_blank_row(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """Removing the only row clears it to blank instead of leaving zero rows."""
+        _, editor, _ = make_editor(qtbot, tmp_path, make_job())
+        button(editor, "timerow-remove").click()
+        assert line_edit(editor, "editor-time").text() == ""
+        assert editor.findChild(QLineEdit, "editor-time-1") is None
+        assert self._occurrences(editor) == PREVIEW_INCOMPLETE
+
+    def test_invalid_second_row_keeps_preview_neutral(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """One invalid row neutralizes the preview even when the others are valid."""
+        editor = self._fixed_editor(qtbot, tmp_path)
+        button(editor, "timerow-add").click()
+        qtbot.keyClicks(line_edit(editor, "editor-time-1"), "25:99")
+        assert self._occurrences(editor) == PREVIEW_INCOMPLETE
+
+    def test_save_collects_all_rows_sorted(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """Save carries every visible row and the domain sorts them."""
+        world, editor, _ = make_editor(qtbot, tmp_path)
+        fill_valid_python(editor)
+        button(editor, "timerow-add").click()
+        line_edit(editor, "editor-time-1").setText("17:30")
+        button(editor, "editor-save").click()
+        assert editor.result() == 1
+        assert world.catalog_root in editor.saved_path.parents
+        saved = json.loads(editor.saved_path.read_text())
+        assert saved["schedule"]["times"] == ["01:00", "17:30"]
+
+    def test_duplicate_rows_deduped_in_saved_job(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """Duplicate rows are legal in the UI; the built job collapses them."""
+        world, editor, _ = make_editor(qtbot, tmp_path)
+        fill_valid_python(editor)
+        button(editor, "timerow-add").click()
+        line_edit(editor, "editor-time-1").setText("01:00")
+        button(editor, "editor-save").click()
+        assert editor.result() == 1
+        saved = json.loads(editor.saved_path.read_text())
+        assert saved["schedule"]["times"] == ["01:00"]
+
+    def test_invalid_row_surfaces_times_field_error(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """An invalid row surfaces the domain message under the times field."""
+        world, editor, _ = make_editor(qtbot, tmp_path)
+        fill_valid_python(editor)
+        button(editor, "timerow-add").click()
+        line_edit(editor, "editor-time-1").setText("99:99")
+        button(editor, "editor-validate").click()
+        pane = errors(editor)
+        assert pane.isVisible()
+        assert "times: schedule time out of range (00:00-23:59), got '99:99'" in (
+            pane.toPlainText()
+        )
