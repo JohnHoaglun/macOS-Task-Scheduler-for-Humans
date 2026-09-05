@@ -115,7 +115,7 @@
 
 ### Lane B — controller migration
 - [ ] `editor_controller.py`: `JobDraft` fields + `set_schedule_kind` / `set_interval` / `set_run_at_load`; `open_existing` loads both variants faithfully (incl. `run_at_load`); `_build_schedule` branches by kind; empty/non-integer/zero/negative → `_DraftError("interval", ...)`; sub-60 via domain validator → `interval` field
-- [ ] `tests/unit/gui/test_editor_controller.py`: defaults, unit conversions, sub-60 rejection, 61s/93600s round-trip fidelity, interval+login, calendar+login, mode-preserved values, plist preview `StartInterval`/`RunAtLoad`
+- [ ] `tests/unit/gui/test_editor_controller.py`: defaults, unit conversions, sub-60 rejection, 61s/93600s/172800s load+rebuild fidelity, interval+login, calendar+login, mode-preserved values, plist preview `StartInterval`/`RunAtLoad`
 
 ### Lane C — presenter + inspector
 - [ ] `agent_presenter.py`: interval estimate formatting + anchor wording + exact `PREVIEW_*` constants
