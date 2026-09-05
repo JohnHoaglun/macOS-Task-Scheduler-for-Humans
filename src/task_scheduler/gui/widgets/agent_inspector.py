@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from datetime import datetime
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFormLayout,
@@ -18,6 +21,7 @@ from task_scheduler.application.task_command_service import (
     TaskListing,
 )
 from task_scheduler.gui.presenters.agent_presenter import (
+    PREVIEW_DISCLOSURE,
     classify,
     format_command,
     format_enabled,
@@ -28,6 +32,8 @@ from task_scheduler.gui.presenters.agent_presenter import (
     format_raw_plist,
     format_schedule,
     format_status,
+    format_upcoming_heading,
+    format_upcoming_occurrences_for,
     format_warnings,
     format_working_directory,
 )
@@ -38,8 +44,11 @@ __all__ = ["AgentInspector"]
 class AgentInspector(QWidget):
     """Read-only details panel for the selected discovered agent."""
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, parent: QWidget | None = None, *, clock: Callable[[], datetime] | None = None
+    ) -> None:
         super().__init__(parent)
+        self._clock = clock or datetime.now
         self._message = QLabel(self)
         self._message.setWordWrap(True)
         self._scroll = QScrollArea(self)
@@ -101,10 +110,17 @@ class AgentInspector(QWidget):
         return box
 
     def _build_schedule(self) -> QGroupBox:
-        """The Schedule group: one word-wrapped text line."""
+        """The Schedule group: the schedule line plus the next-run preview block."""
         box = QGroupBox("Schedule")
         self._schedule_text = self._field("schedule-text", wrap=True)
-        QVBoxLayout(box).addWidget(self._schedule_text)
+        self._preview_heading = self._field("schedule-preview-heading")
+        self._preview_disclosure = self._field("schedule-preview-disclosure", wrap=True)
+        self._preview_occurrences = self._field("schedule-preview-occurrences", wrap=True)
+        layout = QVBoxLayout(box)
+        layout.addWidget(self._schedule_text)
+        layout.addWidget(self._preview_heading)
+        layout.addWidget(self._preview_disclosure)
+        layout.addWidget(self._preview_occurrences)
         return box
 
     def _build_environment(self) -> QGroupBox:
@@ -166,6 +182,11 @@ class AgentInspector(QWidget):
         self._command["command"].setText(format_command(listing))
         self._command["working_directory"].setText(format_working_directory(listing))
         self._schedule_text.setText(format_schedule(listing))
+        self._preview_heading.setText(format_upcoming_heading(listing))
+        self._preview_disclosure.setText(PREVIEW_DISCLOSURE)
+        self._preview_occurrences.setText(
+            format_upcoming_occurrences_for(listing, now=self._clock())
+        )
         self._environment_text.setText(format_environment(listing))
         self._warnings_text.setText(format_warnings(listing))
         self._advanced_text.setText(format_raw_plist(listing))

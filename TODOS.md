@@ -1,6 +1,32 @@
-# TODOS.md (v0.0.14)
+# TODOS.md (v0.0.15)
 
-## Walk Increment 14 — Schedule Model and Migration (IN PROGRESS)
+## Walk Increment 15 — Next-Run Preview (§62) (DONE)
+
+### Pinned decisions (approved 2026-09-04)
+- Fixed preview count: 5 occurrences, both inspector and editor
+- Boundary: an occurrence exactly at `now` is included (`>= now`)
+- Calendar-only: interval preview deferred to Increment 17 (honest no-preview note)
+- `run_at_load` never contributes a dated occurrence
+- Local naive datetimes, lines `%a %b %d %H:%M`; exact disclosure sentence always shown; editor neutral state while time/weekday fields are incomplete or invalid
+- Widgets take an injectable `clock` (default `datetime.now`); all wording/formatting stays in the presenter
+
+### Domain
+- [x] `domain/schedule.py`: pure `upcoming_occurrences(schedule, *, now, count)` (ValueError for count < 1, chronological, exact-count, run_at_load ignored)
+- [x] `domain/__init__.py`: export `upcoming_occurrences`
+- [x] Tests: same-day before/exact/after, Saturday-from-Friday + Sunday→Monday rollovers, multi-time + multi-weekday ordering, counts 1/10, naive local-time shape, run_at_load no-op, invalid count
+
+### Presenter + widgets
+- [x] `agent_presenter.py`: PREVIEW_* constants (exact mandatory disclosure), `format_upcoming_heading`, `format_upcoming_occurrences`, `format_upcoming_occurrences_for`
+- [x] `agent_inspector.py`: `schedule-preview-heading`/`-disclosure`/`-occurrences` labels in the Schedule group; `clock` kwarg
+- [x] `job_editor.py`: `editor-preview-heading`/`-disclosure`/`-occurrences` labels; live refresh from visible fields on load + every edit; neutral incomplete state; `clock` kwarg; weekday tuple hoisted to module constant
+- [x] Tests: presenter exact wording + no-preview states; inspector saved/discovered/disabled/interval/invalid with fixed clock; editor initial/refresh/neutral with fixed clock
+
+### Closeout
+- [x] `make check` green + 100% whole-package coverage (842 passing, 3321 stmts, ruff + mypy strict clean)
+- [x] Increment 14 docs closeout (README schedule limits, docs/architecture v2 persistence) + Increment 15 docs
+- [x] Version 0.0.14 → 0.0.15, registry update, stale-reference grep, commit, push
+
+## Walk Increment 14 — Schedule Model and Migration (DONE — 196b0d3)
 
 ### Pinned v2 Schedule Contract (defined before implementation)
 - `CalendarSchedule`: `kind: Literal["calendar"]`, `times: list[time]` (≥1, validator sorts + dedupes), `weekdays: set[Weekday]` (≥1), `run_at_load: bool = False`
@@ -11,33 +37,28 @@
 - plist codec: calendar → `StartCalendarInterval` list grouped by time ascending, weekdays canonical order within each time; interval → `StartInterval`; `run_at_load=True` → `RunAtLoad: True` (absent when False)
 - plist reader: multi-time `StartCalendarInterval` now reconstructs the Cartesian product (distinct times × distinct weekdays) instead of dropping the job; `StartInterval` ≥ 60 parses to interval variant (< 60 → partial-support warning, no job); both keys present → conflict warning, no job; `RunAtLoad`-only → warning, no job; `StartInterval`/`RunAtLoad` added to `SUPPORTED_KEYS`
 
-### Domain + Storage
-- [ ] `domain/schedule.py`: v2 variants, validators, `MIN_INTERVAL_SECONDS`, Weekday preserved
-- [ ] `domain/job.py`: `SUPPORTED_SCHEMA_VERSION = 2`, `schedule: Schedule` union
-- [ ] `storage/json_repository.py`: v1→v2 migration on load (schema_version, schedule field), v2-only writes, reject unknown future versions
-- [ ] Tests: domain schedule validation (variants, dedupe/sort, minimums, run_at_load), v1 migration, v2 round-trip, unknown-version rejection
+### Domain + Storage (verified in 196b0d3)
+- [x] `domain/schedule.py`: v2 variants, validators, `MIN_INTERVAL_SECONDS`, Weekday preserved
+- [x] `domain/job.py`: `SUPPORTED_SCHEMA_VERSION = 2`, `schedule: Schedule` union
+- [x] `storage/json_repository.py`: v1→v2 migration on load (schema_version, schedule field), v2-only writes, reject unknown future versions
+- [x] Tests: domain schedule validation (variants, dedupe/sort, minimums, run_at_load), v1 migration, v2 round-trip, unknown-version rejection
 
-### Platform (plist codec + reader)
-- [ ] `platform/macos/plist_codec.py`: encode calendar/interval/run_at_load; multi-time ordering pinned
-- [ ] `platform/macos/plist_reader.py`: `_parse_schedule` for multi-time/interval/run_at_load/conflict/cases
-- [ ] `platform/macos/plist_models.py`: `StartInterval` + `RunAtLoad` in `SUPPORTED_KEYS`
-- [ ] Tests: codec golden bytes, reader fixtures (multi-time, interval, run_at_load, conflict, sub-60s, runatload-only), round-trip
+### Platform (plist codec + reader) (verified in 196b0d3)
+- [x] `platform/macos/plist_codec.py`: encode calendar/interval/run_at_load; multi-time ordering pinned
+- [x] `platform/macos/plist_reader.py`: `_parse_schedule` for multi-time/interval/run_at_load/conflict/cases
+- [x] `platform/macos/plist_models.py`: `StartInterval` + `RunAtLoad` in `SUPPORTED_KEYS`
+- [x] Tests: codec golden bytes, reader fixtures (multi-time, interval, run_at_load, conflict, sub-60s, runatload-only), round-trip
 
-### CLI + GUI call sites (model-compatible, no new UI in this increment)
-- [ ] `cli/render.py`: `format_schedule` handles both variants (interval human duration, multi-time, + at login)
-- [ ] `gui/controllers/editor_controller.py`: draft builds `CalendarSchedule` (single time, as today)
-- [ ] `gui/presenters/agent_presenter.py` + `gui/widgets/agent_inspector.py`: variant-aware schedule display
-- [ ] Tests: presenter/CLI rendering for all variant shapes; editor controller draft conversion
+### CLI + GUI call sites (verified in 196b0d3)
+- [x] `cli/render.py`: `format_schedule` handles both variants (interval human duration, multi-time, + at login)
+- [x] `gui/controllers/editor_controller.py`: draft builds `CalendarSchedule` (single time, as today)
+- [x] `gui/presenters/agent_presenter.py` + `gui/widgets/agent_inspector.py`: variant-aware schedule display
+- [x] Tests: presenter/CLI rendering for all variant shapes; editor controller draft conversion
 
-### Closeout
-- [ ] `make check` green + 100% whole-package coverage; docs (README schedule limits, architecture v2 persistence)
-- [ ] Version bump, registry update, stale-reference grep, commit, push
-
-## Walk Increment 15 — Next-Run Preview (§62) (PLANNED)
-- Pure `upcoming_occurrences(schedule, *, now, count)` calculator with injected clock
-- Mandatory wording: application-derived preview, not launchd's internal queue
-- Inspector + editor display, fixed count, local time; disabled jobs shown with configured-disabled label
-- Details in PLAN.md
+### Closeout (verification in 196b0d3; docs + version closeout landed in the 0.0.15 turn)
+- [x] `make check` green + 100% whole-package coverage (814 passing, 100% line coverage, ruff + mypy strict clean)
+- [x] Docs (README schedule limits, architecture v2 persistence) — landed in the 0.0.15 closeout
+- [x] Version bump, registry update, stale-reference grep, commit, push — 0.0.15
 
 ## Walk Increment 16 — Calendar Scheduling Expansion (§57) (PLANNED)
 - Multiple times per day for calendar schedules (times × weekdays semantics)

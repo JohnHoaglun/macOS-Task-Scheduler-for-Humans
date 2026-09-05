@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from datetime import datetime
+from datetime import time as Time
 from functools import partial
 from pathlib import Path
 
@@ -24,7 +27,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from task_scheduler.domain import JobDefinition
+from task_scheduler.domain import CalendarSchedule, JobDefinition, Weekday
 from task_scheduler.gui.controllers.diagnostics_controller import DiagnosticsController
 from task_scheduler.gui.controllers.editor_controller import (
     CommandKind,
@@ -32,10 +35,27 @@ from task_scheduler.gui.controllers.editor_controller import (
     EditorOutcome,
     JobDraft,
 )
+from task_scheduler.gui.presenters.agent_presenter import (
+    PREVIEW_DISCLOSURE,
+    PREVIEW_HEADING,
+    PREVIEW_INCOMPLETE,
+    format_upcoming_occurrences,
+)
 from task_scheduler.gui.widgets.direct_test_dialog import DirectTestDialog
 from task_scheduler.gui.widgets.row_table import RowTable
 
 __all__ = ["JobEditor"]
+
+DAY_NAMES = (
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+)
+DAY_LABELS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
 
 class JobEditor(QDialog):
@@ -46,14 +66,18 @@ class JobEditor(QDialog):
         controller: EditorController,
         parent: QWidget | None = None,
         diagnostics: DiagnosticsController | None = None,
+        *,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         """Build the scrollable form, hidden error pane, and the action button row.
 
         With a *diagnostics* controller the Test Draft button runs a direct
         test of the validated draft; without one the button stays disabled.
+        The *clock* supplies the local time for the schedule preview.
         """
         super().__init__(parent)
         self._controller = controller
+        self._clock = clock or datetime.now
         self._diagnostics_controller = diagnostics
         self._draft: JobDraft | None = None
         self._saved_path: Path | None = None
@@ -226,8 +250,36 @@ class JobEditor(QDialog):
             self._working_directory.setText(str(self._working_dir_hint))
 
     def _on_draft_changed(self, *_: object) -> None:
-        """Enable Save once any draft field has been edited."""
+        """Enable Save once any draft field has been edited and refresh the preview."""
         self._save_button.setEnabled(True)
+        self._refresh_schedule_preview()
+
+    def _form_schedule(self) -> CalendarSchedule | None:
+        """The schedule the visible time/weekday fields describe, or None when
+        the time or weekday selection is incomplete or invalid."""
+        weekdays = {
+            Weekday(day)
+            for day, box in zip(DAY_NAMES, self._weekdays, strict=True)
+            if box.isChecked()
+        }
+        if not weekdays:
+            return None
+        try:
+            hour, minute = (int(part) for part in self._time.text().strip().split(":"))
+            scheduled_time = Time(hour, minute)
+        except ValueError:
+            return None
+        return CalendarSchedule(times=[scheduled_time], weekdays=weekdays)
+
+    def _refresh_schedule_preview(self) -> None:
+        """Render the next-run preview for the schedule the form currently shows."""
+        schedule = self._form_schedule()
+        if schedule is None:
+            self._preview_occurrences.setText(PREVIEW_INCOMPLETE)
+        else:
+            self._preview_occurrences.setText(
+                format_upcoming_occurrences(schedule, now=self._clock())
+            )
 
     def _on_label_edited(self, text: str) -> None:
         """Push the edited label into the draft, stripped of surrounding whitespace."""
@@ -264,10 +316,7 @@ class JobEditor(QDialog):
         days_layout = QHBoxLayout(days_widget)
         days_layout.setContentsMargins(0, 0, 0, 0)
         self._weekdays: list[QCheckBox] = []
-        for day, label in zip(
-            ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"),
-            ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"), strict=True,
-        ):
+        for day, label in zip(DAY_NAMES, DAY_LABELS, strict=True):
             box = QCheckBox(label, days_widget)
             box.setObjectName(f"editor-weekday-{day}")
             self._weekdays.append(box)
@@ -281,6 +330,20 @@ class JobEditor(QDialog):
             " is asleep the run is not woken, and missed runs are not retried."
         )
         form.addRow(self._schedule_note)
+        self._preview_heading = QLabel(group)
+        self._preview_heading.setObjectName("editor-preview-heading")
+        self._preview_heading.setText(PREVIEW_HEADING)
+        self._preview_disclosure = QLabel(group)
+        self._preview_disclosure.setObjectName("editor-preview-disclosure")
+        self._preview_disclosure.setWordWrap(True)
+        self._preview_disclosure.setText(PREVIEW_DISCLOSURE)
+        self._preview_occurrences = QLabel(group)
+        self._preview_occurrences.setObjectName("editor-preview-occurrences")
+        self._preview_occurrences.setWordWrap(True)
+        self._preview_occurrences.setText(PREVIEW_INCOMPLETE)
+        form.addRow(self._preview_heading)
+        form.addRow(self._preview_disclosure)
+        form.addRow(self._preview_occurrences)
         return group
 
     def _build_environment(self) -> QGroupBox:
@@ -368,11 +431,7 @@ class JobEditor(QDialog):
         self._executable.setText(d.executable_path)
         self._executable_args.set_rows([[value] for value in d.executable_arguments])
         self._time.setText(d.time)
-        for box, day in zip(
-            self._weekdays,
-            ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"),
-            strict=True,
-        ):
+        for box, day in zip(self._weekdays, DAY_NAMES, strict=True):
             box.setChecked(day in d.weekdays)
         self._working_directory.setText(d.working_directory)
         self._environment.set_rows([[key, value] for key, value in d.environment])
@@ -382,6 +441,7 @@ class JobEditor(QDialog):
         self._errors.hide()
         self._errors.clear()
         self._save_button.setEnabled(True)
+        self._refresh_schedule_preview()
 
     def _collect(self) -> None:
         """Push every visible field back into the draft through the controller mutators."""
@@ -409,11 +469,7 @@ class JobEditor(QDialog):
             d,
             {
                 day
-                for box, day in zip(
-                    self._weekdays,
-                    ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"),
-                    strict=True,
-                )
+                for day, box in zip(DAY_NAMES, self._weekdays, strict=True)
                 if box.isChecked()
             },
         )

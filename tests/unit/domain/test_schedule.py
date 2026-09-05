@@ -1,7 +1,7 @@
 """Tests for the schedule model: calendar and interval variants."""
 
 import json
-from datetime import time
+from datetime import datetime, time
 
 import pytest
 from pydantic import TypeAdapter, ValidationError
@@ -13,6 +13,7 @@ from task_scheduler.domain import (
     Schedule,
     Weekday,
     human_interval,
+    upcoming_occurrences,
 )
 
 ALL_WEEKDAYS = set(Weekday)
@@ -152,3 +153,91 @@ class TestUnionAndRendering:
     )
     def test_human_interval(self, seconds: int, expected: str) -> None:
         assert human_interval(seconds) == expected
+
+
+# Weekday anchors (verified against the 2026 calendar):
+# 2026-08-26 Wed, 2026-08-30 Sun, 2026-08-31 Mon, 2026-09-02 Wed,
+# 2026-09-04 Fri, 2026-09-05 Sat, 2026-09-06 Sun, 2026-09-07 Mon,
+# 2026-09-09 Wed, 2026-09-14 Mon, 2026-09-16 Wed, 2026-09-21 Mon
+
+
+class TestUpcomingOccurrences:
+    MONDAY_0730 = CalendarSchedule(times=["07:30"], weekdays={Weekday.MONDAY})
+
+    def test_same_day_before_time(self) -> None:
+        """A configured time later the same day is the first occurrence."""
+        now = datetime(2026, 8, 31, 7, 0)  # Monday 07:00
+        result = upcoming_occurrences(self.MONDAY_0730, now=now, count=5)
+        assert result == [
+            datetime(2026, 8, 31, 7, 30),
+            datetime(2026, 9, 7, 7, 30),
+            datetime(2026, 9, 14, 7, 30),
+            datetime(2026, 9, 21, 7, 30),
+            datetime(2026, 9, 28, 7, 30),
+        ]
+
+    def test_exact_boundary_includes_now(self) -> None:
+        """An occurrence exactly at now is included."""
+        now = datetime(2026, 8, 31, 7, 30)  # Monday 07:30
+        result = upcoming_occurrences(self.MONDAY_0730, now=now, count=2)
+        assert result == [now, datetime(2026, 9, 7, 7, 30)]
+
+    def test_same_day_after_time_skips_today(self) -> None:
+        """Once past the configured time, the next configured weekday wins."""
+        now = datetime(2026, 8, 31, 7, 31)  # Monday 07:31
+        assert upcoming_occurrences(self.MONDAY_0730, now=now, count=1) == [
+            datetime(2026, 9, 7, 7, 30)
+        ]
+
+    def test_friday_to_saturday_rollover(self) -> None:
+        schedule = CalendarSchedule(times=["09:00"], weekdays={Weekday.SATURDAY})
+        now = datetime(2026, 9, 4, 8, 0)  # Friday
+        assert upcoming_occurrences(schedule, now=now, count=1) == [
+            datetime(2026, 9, 5, 9, 0)
+        ]
+
+    def test_sunday_to_monday_rollover(self) -> None:
+        schedule = CalendarSchedule(times=["00:30"], weekdays={Weekday.MONDAY})
+        now = datetime(2026, 9, 6, 23, 0)  # Sunday 23:00
+        assert upcoming_occurrences(schedule, now=now, count=1) == [
+            datetime(2026, 9, 7, 0, 30)
+        ]
+
+    def test_multi_time_chronological_ordering(self) -> None:
+        schedule = CalendarSchedule(
+            times=["17:30", "07:30"], weekdays={Weekday.MONDAY, Weekday.WEDNESDAY}
+        )
+        now = datetime(2026, 9, 7, 8, 0)  # Monday 08:00, past the 07:30 run
+        result = upcoming_occurrences(schedule, now=now, count=5)
+        assert result == [
+            datetime(2026, 9, 7, 17, 30),
+            datetime(2026, 9, 9, 7, 30),
+            datetime(2026, 9, 9, 17, 30),
+            datetime(2026, 9, 14, 7, 30),
+            datetime(2026, 9, 14, 17, 30),
+        ]
+
+    def test_requested_count(self) -> None:
+        now = datetime(2026, 8, 31, 12, 0)  # Monday, past the 07:30 run
+        assert len(upcoming_occurrences(self.MONDAY_0730, now=now, count=1)) == 1
+        assert len(upcoming_occurrences(self.MONDAY_0730, now=now, count=10)) == 10
+
+    def test_run_at_load_adds_no_dated_occurrence(self) -> None:
+        schedule = CalendarSchedule(
+            times=["07:30"], weekdays={Weekday.MONDAY}, run_at_load=True
+        )
+        now = datetime(2026, 8, 31, 7, 0)
+        assert upcoming_occurrences(schedule, now=now, count=5) == upcoming_occurrences(
+            self.MONDAY_0730, now=now, count=5
+        )
+
+    def test_occurrences_are_naive_local_datetimes(self) -> None:
+        now = datetime(2026, 8, 31, 7, 0)
+        result = upcoming_occurrences(self.MONDAY_0730, now=now, count=3)
+        assert all(occurrence.tzinfo is None for occurrence in result)
+        assert all(occurrence.time() == time(7, 30) for occurrence in result)
+
+    @pytest.mark.parametrize("count", [0, -3])
+    def test_invalid_count_rejected(self, count: int) -> None:
+        with pytest.raises(ValueError):
+            upcoming_occurrences(self.MONDAY_0730, now=datetime(2026, 8, 31, 12, 0), count=count)

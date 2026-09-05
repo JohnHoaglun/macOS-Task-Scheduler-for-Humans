@@ -49,6 +49,22 @@ to the launchd LaunchAgent plist format by the platform layer
 (`platform/macos/`). The domain never knows about plist keys, JSON layout,
 or XML structure.
 
+The schedule is a schema v2 discriminated variant: `CalendarSchedule`
+(multiple `HH:MM` times × a weekday set, minute precision, `run_at_load`
+additive only) or `IntervalSchedule` (minimum 60 seconds). Legacy v1 files —
+a flat `schedule.time` plus `schedule.weekdays` — still read: the storage
+layer migrates them to the v2 calendar variant on read, and every write is
+v2. The domain model stays platform- and layout-agnostic; the migration is a
+storage concern, and the plist translation of a multi-time calendar schedule
+is the full weekday × time Cartesian product.
+
+The pure `upcoming_occurrences(schedule, *, now, count)` domain calculator
+(Increment 15) walks local dates from `now.date()` over configured weekdays
+× sorted times, includes an occurrence exactly at `now`, and returns exactly
+`count` naive local datetimes oldest first. It does no I/O, touches no
+clock, and knows nothing about launchd; the GUI renders its output as the
+estimated next-run preview.
+
 The application services layer (Increments 7–11) adds the `TaskCommandService`
 facade, which both the `mactask` CLI and the GUI call. It coordinates
 `JobService` (catalog resolution and conflict checks), `LogService`, the

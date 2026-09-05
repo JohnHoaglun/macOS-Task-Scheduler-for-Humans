@@ -3,13 +3,21 @@
 from __future__ import annotations
 
 import plistlib
+from datetime import datetime
 from enum import StrEnum
 
 from task_scheduler.application.task_command_service import (
     ListingKind,
     TaskListing,
 )
-from task_scheduler.domain import IntervalSchedule, JobDefinition, command_argv, human_interval
+from task_scheduler.domain import (
+    CalendarSchedule,
+    IntervalSchedule,
+    JobDefinition,
+    command_argv,
+    human_interval,
+    upcoming_occurrences,
+)
 from task_scheduler.platform.macos import (
     LaunchAgentStatus,
     ParseSupport,
@@ -17,6 +25,12 @@ from task_scheduler.platform.macos import (
 
 __all__ = [
     "AgentClassification",
+    "PREVIEW_COUNT",
+    "PREVIEW_DISCLOSURE",
+    "PREVIEW_DISABLED_HEADING",
+    "PREVIEW_HEADING",
+    "PREVIEW_INCOMPLETE",
+    "PREVIEW_UNAVAILABLE",
     "classify",
     "format_command",
     "format_enabled",
@@ -25,12 +39,27 @@ __all__ = [
     "format_name",
     "format_raw_plist",
     "format_schedule",
+    "format_upcoming_heading",
+    "format_upcoming_occurrences",
+    "format_upcoming_occurrences_for",
     "format_lifecycle_state",
     "format_state",
     "format_status",
     "format_warnings",
     "format_working_directory",
 ]
+
+PREVIEW_COUNT = 5
+PREVIEW_DISCLOSURE = (
+    "Estimated upcoming schedule occurrences — application-derived schedule "
+    "preview, not launchd's internal queue"
+)
+PREVIEW_HEADING = "Next scheduled times"
+PREVIEW_DISABLED_HEADING = "Next scheduled times (configured disabled)"
+PREVIEW_INCOMPLETE = "Complete the schedule to preview occurrences."
+PREVIEW_UNAVAILABLE = "No schedule available to preview."
+PREVIEW_NO_INTERVAL = "Interval schedules have no dated occurrences to preview."
+PREVIEW_LINE_FORMAT = "%a %b %d %H:%M"
 
 
 class AgentClassification(StrEnum):
@@ -109,6 +138,33 @@ def format_schedule(listing: TaskListing) -> str:
     if schedule.run_at_load:
         text += " + at login"
     return text
+
+
+def format_upcoming_heading(listing: TaskListing) -> str:
+    """The preview heading, with the configured-disabled label for disabled jobs."""
+    job = _job_of(listing)
+    if job is not None and not job.enabled:
+        return PREVIEW_DISABLED_HEADING
+    return PREVIEW_HEADING
+
+
+def format_upcoming_occurrences(schedule: CalendarSchedule, *, now: datetime) -> str:
+    """The next PREVIEW_COUNT occurrences as local-time lines, oldest first."""
+    return "\n".join(
+        occurrence.strftime(PREVIEW_LINE_FORMAT)
+        for occurrence in upcoming_occurrences(schedule, now=now, count=PREVIEW_COUNT)
+    )
+
+
+def format_upcoming_occurrences_for(listing: TaskListing, *, now: datetime) -> str:
+    """The preview lines for a listing, or the honest no-preview note."""
+    job = _job_of(listing)
+    if job is None:
+        return PREVIEW_UNAVAILABLE
+    schedule = job.schedule
+    if isinstance(schedule, IntervalSchedule):
+        return PREVIEW_NO_INTERVAL
+    return format_upcoming_occurrences(schedule, now=now)
 
 
 def format_state(listing: TaskListing) -> str:

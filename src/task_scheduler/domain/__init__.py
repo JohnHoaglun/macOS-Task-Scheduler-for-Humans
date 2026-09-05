@@ -18,6 +18,7 @@ from task_scheduler.domain.schedule import (
     Schedule,
     Weekday,
     human_interval,
+    upcoming_occurrences,
 )
 
 __all__ = [
@@ -37,4 +38,5 @@ __all__ = [
     "Weekday",
     "command_argv",
     "human_interval",
+    "upcoming_occurrences",
 ]

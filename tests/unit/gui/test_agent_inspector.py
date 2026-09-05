@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -14,7 +15,13 @@ from task_scheduler.application.task_command_service import (
     ListingKind,
     TaskListing,
 )
+from task_scheduler.domain import IntervalSchedule
 from task_scheduler.gui.presenters.agent_presenter import (
+    PREVIEW_DISABLED_HEADING,
+    PREVIEW_DISCLOSURE,
+    PREVIEW_HEADING,
+    PREVIEW_NO_INTERVAL,
+    PREVIEW_UNAVAILABLE,
     format_environment,
     format_schedule,
     format_warnings,
@@ -310,3 +317,67 @@ class TestShowError:
         message = _message_label(inspector)
         assert message.text() == "boom"
         assert message.isVisible()
+
+
+PREVIEW_NOW = datetime(2026, 9, 4, 12, 0)
+PREVIEW_LINES = (
+    "Mon Sep 07 07:30\n"
+    "Mon Sep 14 07:30\n"
+    "Mon Sep 21 07:30\n"
+    "Mon Sep 28 07:30\n"
+    "Mon Oct 05 07:30"
+)
+
+
+class TestSchedulePreview:
+    """Increment 15: the next-run preview block under the Schedule line."""
+
+    def _fixed_inspector(self, qtbot: QtBot) -> AgentInspector:
+        widget = AgentInspector(clock=lambda: PREVIEW_NOW)
+        qtbot.addWidget(widget)
+        widget.show()
+        return widget
+
+    def test_calendar_preview_lines(self, qtbot: QtBot) -> None:
+        inspector = self._fixed_inspector(qtbot)
+        listing = _managed_listing()
+        inspector.show_agent(listing, _report(listing))
+        assert _value_label(inspector, "schedule-preview-heading").text() == (
+            PREVIEW_HEADING
+        )
+        assert _value_label(inspector, "schedule-preview-disclosure").text() == (
+            PREVIEW_DISCLOSURE
+        )
+        assert _value_label(inspector, "schedule-preview-occurrences").text() == (
+            PREVIEW_LINES
+        )
+
+    def test_disabled_job_still_previews_with_label(self, qtbot: QtBot) -> None:
+        inspector = self._fixed_inspector(qtbot)
+        listing = _disabled_listing()
+        inspector.show_agent(listing, _report(listing))
+        assert _value_label(inspector, "schedule-preview-heading").text() == (
+            PREVIEW_DISABLED_HEADING
+        )
+        assert _value_label(inspector, "schedule-preview-occurrences").text() == (
+            PREVIEW_LINES
+        )
+
+    def test_listing_without_job(self, qtbot: QtBot) -> None:
+        inspector = self._fixed_inspector(qtbot)
+        listing = _external_listing()
+        inspector.show_agent(listing, _report(listing))
+        assert _value_label(inspector, "schedule-preview-occurrences").text() == (
+            PREVIEW_UNAVAILABLE
+        )
+
+    def test_interval_job(self, qtbot: QtBot) -> None:
+        inspector = self._fixed_inspector(qtbot)
+        job = make_job(schedule=IntervalSchedule(seconds=1800))
+        listing = TaskListing(
+            kind=ListingKind.SAVED, path=None, parsed=None, job=job, managed=True
+        )
+        inspector.show_saved(listing)
+        assert _value_label(inspector, "schedule-preview-occurrences").text() == (
+            PREVIEW_NO_INTERVAL
+        )

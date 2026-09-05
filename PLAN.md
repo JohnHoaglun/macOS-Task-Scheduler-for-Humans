@@ -18,7 +18,7 @@ Crawl Increments 0–12 complete and pushed to `sched_dev_opencode` (version 0.0
 - **Increment 12:** GUI diagnostics/logs: job-based façade contracts (`test_job(job, *, detection=None)`, `test(label)` delegating, `compare_environment(job, terminal_environment)`, `read_logs_for(job)` with `read_logs(label)` delegating, `gui_environment()` in the composition layer), Qt-free `DiagnosticsController` + `QThread` `DiagnosticsWorker`, shared `DiagnosticLogsPanel` (test summary, diagnostics, direct/persisted stdout/stderr with Refresh, name-only environment comparison, Python recommendations), main-window Test action with selection/stale-result guard, `DirectTestDialog` for the editor's Test Draft (persists nothing); 766 tests
 - Verification at v0.0.12: 766 tests, 100% coverage, ruff + mypy strict clean
 
-Current focus: **Walk Increment 14 — Schedule Model and Migration** (approved plan below; Walk plan approved 2026-09-04).
+Current focus: **Walk Increment 16 — Calendar Scheduling Expansion** (Walk plan approved 2026-09-04; increments 14–15 complete at v0.0.15).
 
 ---
 
@@ -579,7 +579,7 @@ Schedule = Annotated[Union[CalendarSchedule, IntervalSchedule], Field(discrimina
 - Plist codec: calendar → `StartCalendarInterval` grouped by time ascending, weekdays canonical order within each time; interval → `StartInterval`; `run_at_load=True` → `RunAtLoad: True` (absent when `False`).
 - Plist reader: multi-time calendar → Cartesian reconstruction; `StartInterval` ≥ 60 → interval variant; `StartInterval` < 60 → partial-support warning, no job; both schedule keys present → conflict warning, no job; `RunAtLoad`-only → warning, no job; `StartInterval`/`RunAtLoad` join `SUPPORTED_KEYS`.
 
-### Increment 14 — Schedule Model and Migration (§57) — current
+### Increment 14 — Schedule Model and Migration (§57) — DONE (196b0d3)
 1. Replace the mandatory single `Schedule(time, weekdays)` contract with the pinned v2 variants.
 2. Retain v1 JSON read compatibility; newly saved jobs use schema v2.
 3. Centralize v1→v2 normalization in the storage layer.
@@ -588,8 +588,23 @@ Schedule = Annotated[Union[CalendarSchedule, IntervalSchedule], Field(discrimina
 6. CLI `format_schedule` and GUI presenters/inspector become variant-aware; the editor continues to author single-time calendar schedules (multi-time authoring is increment 16).
 7. Migration, validation, codec, parser, and JSON round-trip tests using fixtures only; `make check` + 100% coverage; docs updated (README schedule limits, architecture v2 persistence).
 
-### Increment 15 — Next-Run Preview (§62)
+### Increment 15 — Next-Run Preview (§62) — DONE (v0.0.15)
 Pure `upcoming_occurrences(schedule, *, now, count)` with an injected clock; mandatory wording “Estimated upcoming schedule occurrences — application-derived schedule preview, not launchd's internal queue”; displayed in the inspector and editor with a fixed count in local time; disabled jobs show occurrences labeled “configured disabled”; no recurring preview for login-only (not representable anyway); formatting stays in presenters; deterministic boundary tests (same-day before/after, weekday rollover, ordering, count, local-time behavior).
+
+**Pinned decisions (approved 2026-09-04):**
+1. **Preview count:** fixed 5 occurrences in both the inspector and the editor.
+2. **Boundary rule:** an occurrence exactly at `now` is included (`>= now`).
+3. **Calendar-only:** `IntervalSchedule` previews (anchor estimation) are deferred to increment 17; the preview block shows an honest no-preview note for interval schedules.
+4. **`run_at_load`** never contributes a dated occurrence (additive only).
+5. **Display:** local, naive datetimes; lines formatted `%a %b %d %H:%M` (e.g. `Wed Aug 26 07:30`); the exact disclosure sentence always accompanies the occurrence list; the editor shows a neutral “complete the schedule” state while the visible time/weekday fields are incomplete or invalid.
+6. **GUI:** widgets take an injectable `clock: Callable[[], datetime]` (default `datetime.now`) so tests stay deterministic; all wording/formatting lives in the presenter, widgets only place text.
+
+**Implementation plan:**
+- `domain/schedule.py`: `upcoming_occurrences(schedule: CalendarSchedule, *, now: datetime, count: int) -> list[datetime]` — pure, no I/O; raises `ValueError` for `count < 1`; walks local dates from `now.date()`, combines configured weekdays (Python `date.weekday()` mapping) with the sorted configured times, keeps candidates `>= now`, returns exactly `count` in chronological order. Exported from `domain/__init__.py`.
+- `gui/presenters/agent_presenter.py`: `PREVIEW_COUNT`, `PREVIEW_DISCLOSURE` (exact mandatory sentence), `PREVIEW_HEADING`, `PREVIEW_DISABLED_HEADING`, `PREVIEW_INCOMPLETE`, `PREVIEW_UNAVAILABLE` constants; `format_upcoming_heading(listing)`, `format_upcoming_occurrences(schedule, *, now)` (editor path), `format_upcoming_occurrences_for(listing, *, now)` (inspector path: no job → unavailable note, interval → no-preview note).
+- `gui/widgets/agent_inspector.py`: Schedule group gains `schedule-preview-heading` / `schedule-preview-disclosure` / `schedule-preview-occurrences` labels, filled in `_fill`; `__init__` gains the `clock` kwarg.
+- `gui/widgets/job_editor.py`: Schedule group gains `editor-preview-heading` / `editor-preview-disclosure` / `editor-preview-occurrences` labels; the preview recomputes from the *visible* time/weekday fields (draft is stale until collect) on load and on every field edit; weekday day-name tuple hoisted to a module constant; `__init__` gains the `clock` kwarg.
+- Tests: domain boundary matrix (same-day before/exact/after, Saturday-from-Friday and Sunday→Monday rollovers, multi-time + multi-weekday ordering, counts, naive local-time shape, `run_at_load` ignored, `count < 1` rejected); presenter exact wording and no-preview states; inspector saved/discovered/disabled/interval/invalid states with a fixed clock; editor initial/refresh-on-edit/neutral-incomplete states with a fixed clock.
 
 ### Increment 16 — Calendar Scheduling Expansion (§57)
 Multiple times per day for calendar schedules (times apply to the selected weekdays); reusable time-row editor — `job_editor.py` (489 lines) and `editor_controller.py` (430 lines) are near the review threshold, so decompose rather than append; update rendered descriptions, inspectors, previews, and next-run calculation; ordering/dedupe/invalid-time/round-trip tests.

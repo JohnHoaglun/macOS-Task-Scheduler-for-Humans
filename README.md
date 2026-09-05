@@ -653,13 +653,19 @@ command arguments.
 
 ## Current Status
 
-The project is currently in the **Crawl** phase.
+The project is currently in the **Walk** phase (Crawl complete: all 13
+Crawl increments; the standalone `.app` bundle from Increment 13 remains the
+packaging baseline).
 
 Current implementation scope:
 
 * repository/tooling foundation
 * normalized job domain model
-* schema-versioned JSON persistence
+* schema-versioned JSON persistence (schema v2 schedule variants with
+  backward-compatible v1 reads, migrated on read)
+* multiple scheduled times per weekday and interval schedules
+  (minimum 60 seconds); `run_at_load` is additive only
+* estimated next-run previews in the GUI inspector and job editor
 * LaunchAgent plist generation
 * LaunchAgent plist parsing
 * LaunchAgent store (write, remove, discovery in `~/Library/LaunchAgents`)
@@ -687,26 +693,44 @@ Not yet implemented:
 * privileged helpers
 * notarization / App Store distribution
 
-## Initial Scheduling Model
+## Scheduling Model
 
-The first scheduling model intentionally remains simple.
+A task may be scheduled in one of two ways (schema v2 schedule variants):
 
-A task may run at:
-
-* one specific time
-* on one or more selected weekdays
-
-For example:
+**Calendar schedule** — one or more specific times on one or more selected
+weekdays. Times use `HH:MM` (minute precision). For example:
 
 ```text
-07:30
+07:30, 17:30
 
 Monday
 Wednesday
 Friday
 ```
 
-More advanced scheduling will be added incrementally after the core implementation is stable.
+launchd fires the task at each configured time on each selected weekday.
+
+**Interval schedule** — every N seconds, where N is at least 60. For example:
+
+```text
+Every 30 minutes
+```
+
+`run_at_load` is additive only: it marks the task to run once when it is
+loaded (e.g. at login) but it never acts as the sole schedule.
+
+**Next-run previews** — the GUI shows the estimated next five local-time
+occurrences for a calendar schedule, in the inspector and while editing.
+This is an application-derived estimate of the configured schedule, not
+launchd's internal queue. Interval schedules and listings without a
+parseable job show an honest no-preview note instead.
+
+Legacy v1 job files (a single `time` plus `weekdays`) still read
+transparently: they are migrated to the v2 calendar variant on read, and all
+writes are v2.
+
+More advanced scheduling (for example interval/login trigger combinations)
+will be added incrementally as the Walk phase continues.
 
 ## Supported Task Types
 
@@ -751,13 +775,13 @@ Absolute paths are preferred so scheduled execution does not unexpectedly depend
 
 ## JSON Job Definitions
 
-Managed jobs will use a schema-versioned, human-readable JSON representation.
-
-Conceptually:
+Managed jobs use a schema-versioned, human-readable JSON representation.
+The schedule is a schema v2 discriminated variant; a calendar schedule looks
+like this:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "name": "Daily Backup",
   "label": "io.github.macos-task-scheduler.user.daily-backup",
   "enabled": true,
@@ -768,12 +792,16 @@ Conceptually:
     "arguments": []
   },
   "schedule": {
-    "time": "07:30",
+    "kind": "calendar",
+    "times": [
+      "07:30"
+    ],
     "weekdays": [
       "monday",
       "wednesday",
       "friday"
-    ]
+    ],
+    "run_at_load": false
   },
   "environment": {
     "variables": {}
@@ -782,7 +810,10 @@ Conceptually:
 }
 ```
 
-The exact schema may evolve while the initial domain model is being implemented.
+An interval schedule uses `"kind": "interval"` with a `"seconds"` value
+(minimum 60) instead of `times`/`weekdays`. Legacy v1 files — a flat
+`schedule.time` plus `schedule.weekdays` — still read; they are migrated to
+the v2 calendar variant on read, and every write is v2.
 
 ## Open Source
 

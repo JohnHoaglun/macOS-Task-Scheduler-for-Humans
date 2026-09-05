@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -27,6 +28,10 @@ from task_scheduler.domain import (
 )
 from task_scheduler.gui.controllers.diagnostics_controller import DiagnosticsController
 from task_scheduler.gui.controllers.editor_controller import EditorController
+from task_scheduler.gui.presenters.agent_presenter import (
+    PREVIEW_HEADING,
+    PREVIEW_INCOMPLETE,
+)
 from task_scheduler.gui.widgets.direct_test_dialog import DirectTestDialog
 from task_scheduler.gui.widgets.job_editor import JobEditor
 from task_scheduler.gui.widgets.row_table import RowTable
@@ -569,3 +574,77 @@ class TestDirectTestDraft:
         assert len(opened) == 1
         assert opened[0].name == "Renamed Backup"
         assert opened[0].label == make_job().label
+
+
+PREVIEW_NOW = datetime(2026, 9, 4, 12, 0)  # Friday
+PREVIEW_LINES_0730 = (
+    "Mon Sep 07 07:30\n"
+    "Mon Sep 14 07:30\n"
+    "Mon Sep 21 07:30\n"
+    "Mon Sep 28 07:30\n"
+    "Mon Oct 05 07:30"
+)
+PREVIEW_LINES_0800 = (
+    "Mon Sep 07 08:00\n"
+    "Mon Sep 14 08:00\n"
+    "Mon Sep 21 08:00\n"
+    "Mon Sep 28 08:00\n"
+    "Mon Oct 05 08:00"
+)
+
+
+class TestSchedulePreview:
+    """Increment 15: the live next-run preview in the editor's Schedule group."""
+
+    def _fixed_editor(
+        self, qtbot: QtBot, tmp_path: Path, job: JobDefinition | None
+    ) -> JobEditor:
+        world = FakeTaskWorld(tmp_path)
+        editor = JobEditor(EditorController(world.services), clock=lambda: PREVIEW_NOW)
+        qtbot.addWidget(editor)
+        if job is None:
+            editor.open_new()
+        else:
+            editor.open_existing(job)
+        editor.show()
+        return editor
+
+    def test_existing_job_shows_preview(self, qtbot: QtBot, tmp_path: Path) -> None:
+        editor = self._fixed_editor(qtbot, tmp_path, make_job())
+        preview = editor.findChild(QLabel, "editor-preview-occurrences")
+        assert preview is not None
+        assert preview.text() == PREVIEW_LINES_0730
+        heading = editor.findChild(QLabel, "editor-preview-heading")
+        assert heading is not None
+        assert heading.text() == PREVIEW_HEADING
+
+    def test_new_job_starts_neutral(self, qtbot: QtBot, tmp_path: Path) -> None:
+        editor = self._fixed_editor(qtbot, tmp_path, None)
+        preview = editor.findChild(QLabel, "editor-preview-occurrences")
+        assert preview is not None
+        assert preview.text() == PREVIEW_INCOMPLETE
+
+    def test_time_edit_refreshes_preview(self, qtbot: QtBot, tmp_path: Path) -> None:
+        editor = self._fixed_editor(qtbot, tmp_path, make_job())
+        edit = line_edit(editor, "editor-time")
+        edit.selectAll()
+        qtbot.keyClicks(edit, "08:00")
+        preview = editor.findChild(QLabel, "editor-preview-occurrences")
+        assert preview is not None
+        assert preview.text() == PREVIEW_LINES_0800
+
+    def test_invalid_time_is_neutral(self, qtbot: QtBot, tmp_path: Path) -> None:
+        editor = self._fixed_editor(qtbot, tmp_path, make_job())
+        edit = line_edit(editor, "editor-time")
+        edit.selectAll()
+        qtbot.keyClicks(edit, "25:99")
+        preview = editor.findChild(QLabel, "editor-preview-occurrences")
+        assert preview is not None
+        assert preview.text() == PREVIEW_INCOMPLETE
+
+    def test_no_weekday_selected_is_neutral(self, qtbot: QtBot, tmp_path: Path) -> None:
+        editor = self._fixed_editor(qtbot, tmp_path, make_job())
+        checkbox(editor, "monday").setChecked(False)
+        preview = editor.findChild(QLabel, "editor-preview-occurrences")
+        assert preview is not None
+        assert preview.text() == PREVIEW_INCOMPLETE

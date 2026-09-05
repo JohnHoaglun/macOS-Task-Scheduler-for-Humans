@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,11 @@ from task_scheduler.domain import (
     Weekday,
 )
 from task_scheduler.gui.presenters.agent_presenter import (
+    PREVIEW_DISABLED_HEADING,
+    PREVIEW_DISCLOSURE,
+    PREVIEW_HEADING,
+    PREVIEW_NO_INTERVAL,
+    PREVIEW_UNAVAILABLE,
     AgentClassification,
     classify,
     format_command,
@@ -28,6 +34,9 @@ from task_scheduler.gui.presenters.agent_presenter import (
     format_schedule,
     format_state,
     format_status,
+    format_upcoming_heading,
+    format_upcoming_occurrences,
+    format_upcoming_occurrences_for,
     format_warnings,
     format_working_directory,
 )
@@ -410,4 +419,60 @@ class TestFormatRawPlist:
     def test_saved_reports_no_deployed_plist(self) -> None:
         assert format_raw_plist(_saved(make_job())) == (
             "(no deployed plist — saved in the task catalog)"
+        )
+
+
+class TestPreviewWording:
+    """Increment 15: the next-run preview wording is pinned by the spec."""
+
+    def test_disclosure_matches_spec_verbatim(self) -> None:
+        assert PREVIEW_DISCLOSURE == (
+            "Estimated upcoming schedule occurrences — application-derived"
+            " schedule preview, not launchd's internal queue"
+        )
+
+    def test_headings(self) -> None:
+        assert PREVIEW_HEADING == "Next scheduled times"
+        assert PREVIEW_DISABLED_HEADING == "Next scheduled times (configured disabled)"
+
+    def test_format_upcoming_heading_enabled(self) -> None:
+        assert format_upcoming_heading(_saved(make_job())) == PREVIEW_HEADING
+
+    def test_format_upcoming_heading_disabled(self) -> None:
+        job = make_job(enabled=False)
+        assert format_upcoming_heading(_saved(job)) == PREVIEW_DISABLED_HEADING
+
+    def test_format_upcoming_occurrences_lines(self) -> None:
+        schedule = make_job().schedule
+        assert isinstance(schedule, CalendarSchedule)
+        lines = format_upcoming_occurrences(schedule, now=datetime(2026, 9, 4, 12, 0))
+        assert lines == (
+            "Mon Sep 07 07:30\n"
+            "Mon Sep 14 07:30\n"
+            "Mon Sep 21 07:30\n"
+            "Mon Sep 28 07:30\n"
+            "Mon Oct 05 07:30"
+        )
+
+    def test_format_upcoming_occurrences_for_discovered_without_job(self) -> None:
+        listing = _discovered(_parsed())
+        assert (
+            format_upcoming_occurrences_for(listing, now=datetime(2026, 9, 4, 12, 0))
+            == PREVIEW_UNAVAILABLE
+        )
+
+    def test_format_upcoming_occurrences_for_interval(self) -> None:
+        job = make_job(schedule=IntervalSchedule(seconds=1800))
+        assert (
+            format_upcoming_occurrences_for(_saved(job), now=datetime(2026, 9, 4, 12, 0))
+            == PREVIEW_NO_INTERVAL
+        )
+
+    def test_format_upcoming_occurrences_for_calendar(self) -> None:
+        job = make_job()
+        schedule = job.schedule
+        assert isinstance(schedule, CalendarSchedule)
+        now = datetime(2026, 9, 4, 12, 0)
+        assert format_upcoming_occurrences_for(_saved(job), now=now) == (
+            format_upcoming_occurrences(schedule, now=now)
         )

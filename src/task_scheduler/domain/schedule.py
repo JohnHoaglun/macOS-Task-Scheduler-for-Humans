@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from datetime import time as Time
 from enum import StrEnum
 from typing import Annotated, Literal
@@ -120,6 +121,44 @@ def human_interval(seconds: int) -> str:
     if count == 1:
         return f"Every {unit}"
     return f"Every {count} {unit}s"
+
+
+_WEEKDAY_TO_PYTHON_INDEX = {
+    Weekday.MONDAY: 0,
+    Weekday.TUESDAY: 1,
+    Weekday.WEDNESDAY: 2,
+    Weekday.THURSDAY: 3,
+    Weekday.FRIDAY: 4,
+    Weekday.SATURDAY: 5,
+    Weekday.SUNDAY: 6,
+}
+
+
+def upcoming_occurrences(
+    schedule: CalendarSchedule, *, now: datetime, count: int
+) -> list[datetime]:
+    """The next *count* calendar occurrences at or after *now*, oldest first.
+
+    Occurrences are naive local datetimes derived from the injected *now* —
+    no clock, I/O, or timezone handling. An occurrence exactly at *now* is
+    included. ``run_at_load`` is additive and never contributes a dated
+    occurrence. Raises ``ValueError`` when *count* is less than 1.
+    """
+    if count < 1:
+        raise ValueError("count must be at least 1")
+    target_days = {_WEEKDAY_TO_PYTHON_INDEX[weekday] for weekday in schedule.weekdays}
+    occurrences: list[datetime] = []
+    day = now.date()
+    while len(occurrences) < count:
+        if day.weekday() in target_days:
+            for scheduled_time in schedule.times:
+                candidate = datetime.combine(day, scheduled_time)
+                if candidate >= now:
+                    occurrences.append(candidate)
+                    if len(occurrences) >= count:
+                        break
+        day += timedelta(days=1)
+    return occurrences
 
 
 Schedule = Annotated[CalendarSchedule | IntervalSchedule, Field(discriminator="kind")]
