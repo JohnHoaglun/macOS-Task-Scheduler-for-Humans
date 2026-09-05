@@ -1,4 +1,4 @@
-# TODOS.md (v0.0.16)
+# TODOS.md (v0.0.17)
 
 ## Walk Increment 15 — Next-Run Preview (§62) (DONE)
 
@@ -94,10 +94,47 @@
 - [x] Docs: README multi-time authoring (editor Schedule group + New Task validity), architecture draft `times` contract + TimeRowEditor boundary + `times` field key, development test conventions (object names, `textEdited`)
 - [x] Version 0.0.15 → 0.0.16, registry update, stale-reference grep, commit, push
 
-## Walk Increment 17 — Interval and Login Triggers (§57) (PLANNED)
-- Interval schedule editor (duration input, persisted seconds, ≥60s) + `RunAtLoad` toggle
-- Preview wording for interval anchor; read-only external policy retained
-- Details in PLAN.md
+## Walk Increment 17 — Interval and Login Triggers (§57) (IN PROGRESS)
+
+### Pinned decisions (approved 2026-09-05) — full text in PLAN.md
+- Schema/plist untouched: v2 `{"kind": "interval", "seconds": int, "run_at_load": bool}`; `MIN_INTERVAL_SECONDS = 60`
+- `JobDraft` gains `schedule_kind` (default `"calendar"`), `interval_value: str` (verbatim), `interval_unit` (seconds/minutes/hours/days), `run_at_load: bool` (default `False`)
+- Duration input: whole number + unit selector (Seconds/Minutes/Hours/Days — Seconds mandatory to round-trip e.g. 61s); GUI does only the single unit conversion; domain owns the ≥60 rule
+- Load normalization: largest exact unit (days → hours → minutes → seconds)
+- Mode switching preserves per-mode values; `run_at_load` shared and additive only (no login-only schedule)
+- Invalid duration / sub-60 total → stable field key `interval` (domain message)
+- New pure `upcoming_interval_occurrences(schedule, *, now, count)`: first occurrence exactly `now + seconds`, naive local, chronological, exact count (≥1), `run_at_load` ignored; displayed `%a %b %d %H:%M:%S`
+- Preview: existing mandatory disclosure verbatim; interval body states estimate starts one interval after the application clock and launchd's anchor is unknown; `PREVIEW_NO_INTERVAL` replaced in inspector + editor
+- External jobs stay read-only (inspector shows the estimate; no edit path)
+- Object names: `editor-schedule-kind`, `editor-schedule-stack`, `editor-calendar-schedule`, `editor-interval-schedule`, `editor-interval-value`, `editor-interval-unit`, `editor-run-at-load`
+
+### Lane A — domain preview helper
+- [ ] `domain/schedule.py`: `upcoming_interval_occurrences` (IntervalSchedule only; `now + seconds` first)
+- [ ] `domain/__init__.py` export if convention requires
+- [ ] `tests/unit/domain/test_schedule.py`: first-occurrence boundary, chronology, multi-day span, sub-minute seconds, counts, `count < 1`, `run_at_load` ignored, calendar rejected
+
+### Lane B — controller migration
+- [ ] `editor_controller.py`: `JobDraft` fields + `set_schedule_kind` / `set_interval` / `set_run_at_load`; `open_existing` loads both variants faithfully (incl. `run_at_load`); `_build_schedule` branches by kind; empty/non-integer/zero/negative → `_DraftError("interval", ...)`; sub-60 via domain validator → `interval` field
+- [ ] `tests/unit/gui/test_editor_controller.py`: defaults, unit conversions, sub-60 rejection, 61s/93600s round-trip fidelity, interval+login, calendar+login, mode-preserved values, plist preview `StartInterval`/`RunAtLoad`
+
+### Lane C — presenter + inspector
+- [ ] `agent_presenter.py`: interval estimate formatting + anchor wording + exact `PREVIEW_*` constants
+- [ ] `agent_inspector.py`: consumes new presenter output
+- [ ] `tests/unit/gui/test_agent_presenter.py` + `test_agent_inspector.py`: exact wording, disabled interval, second precision, calendar regression
+
+### Lane D — JobEditor composition
+- [ ] `job_editor.py`: kind combo + stacked pages (calendar reuses existing `editor-time*`/weekday names), interval value/unit, `editor-run-at-load`; wire to draft-change/load/collect/errors/Validate/Preview/Test Draft/Save; live preview branches by kind (neutral on invalid/blank)
+
+### Lane E — JobEditor tests + regression gate
+- [ ] `tests/unit/gui/test_job_editor.py`: object names, mode switching preserves values, fixed-clock interval preview (second precision), `interval` field errors, plist preview interval+login, save/reopen fidelity, calendar regressions
+- [ ] `tests/unit/gui/test_main_window.py`: update only if calendar-default helper breaks
+- [ ] `tests/unit/platform/test_round_trip.py`: +1 interval + `RunAtLoad` semantic round-trip
+
+### Closeout
+- [ ] `make check` green + 100% whole-package coverage
+- [ ] Source-size review (logic-heavy files < 500 lines)
+- [ ] Docs: README interval authoring + login trigger + preview wording; architecture draft contract + interval estimate boundary; development test conventions
+- [ ] Version 0.0.16 → 0.0.17, registry update, stale-reference grep, commit, push
 
 ## Walk Increment 18 — Python Environment Detectors (§58) (PLANNED)
 - Detector protocol + ordered registry; extract existing detection as first detector
