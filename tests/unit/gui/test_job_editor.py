@@ -44,6 +44,8 @@ from task_scheduler.gui.widgets.job_editor import JobEditor
 from task_scheduler.gui.widgets.row_table import RowTable
 from task_scheduler.platform.macos import (
     CandidateSource,
+    DetectionNote,
+    DetectorKind,
     InterpreterCandidate,
     PythonDetectionResult,
 )
@@ -124,12 +126,14 @@ def _detection_result(
     script_text: str,
     candidates,
     working_directory=None,
+    notes=None,
 ) -> PythonDetectionResult:
     """A canned detection result for dialog tests."""
     return PythonDetectionResult(
         script=Path(script_text),
         candidates=candidates,
         working_directory=working_directory,
+        notes=notes or [],
     )
 
 
@@ -137,10 +141,11 @@ def fake_detection(
     editor: JobEditor,
     candidates,
     working_directory=None,
+    notes=None,
 ) -> None:
     """Replace the controller's detect_python with a canned responder."""
     editor._controller.detect_python = lambda script: _detection_result(
-        str(script), candidates, working_directory
+        str(script), candidates, working_directory, notes
     )
 
 
@@ -482,6 +487,68 @@ class TestPythonDetection:
         assert note is not None
         assert note.text() == (
             "No interpreters detected for this script. Type the interpreter path above."
+        )
+
+    def test_ecosystem_provenance_shown_in_combo(
+        self, qtbot: QtBot, tmp_path: Path
+    ) -> None:
+        """A candidate found by an ecosystem detector shows the detector suffix."""
+        _, editor, _ = make_editor(qtbot, tmp_path)
+        fake_detection(
+            editor,
+            [
+                InterpreterCandidate(
+                    path=Path("/tmp/proj/.venv/bin/python"),
+                    source=CandidateSource.VENV,
+                    detectors=(DetectorKind.CORE, DetectorKind.UV),
+                )
+            ],
+        )
+        editor.findChild(QLineEdit, "editor-script").setText("/tmp/proj/main.py")
+        combo = editor.findChild(QComboBox, "editor-candidates")
+        assert combo is not None
+        assert combo.itemText(0) == "/tmp/proj/.venv/bin/python (.venv; uv)"
+
+    def test_detection_notes_appended_to_note(
+        self, qtbot: QtBot, tmp_path: Path
+    ) -> None:
+        """Non-fatal detection notes are appended to the base detection note."""
+        _, editor, _ = make_editor(qtbot, tmp_path)
+        fake_detection(
+            editor,
+            [InterpreterCandidate(path=Path("/usr/bin/python3"), source=CandidateSource.PATH)],
+            notes=[
+                DetectionNote(
+                    detector=DetectorKind.UV,
+                    message="a uv project was detected, but no usable .venv "
+                    "interpreter is available",
+                )
+            ],
+        )
+        editor.findChild(QLineEdit, "editor-script").setText("/tmp/proj/main.py")
+        note = editor.findChild(QLabel, "editor-detection-note")
+        assert note is not None
+        assert note.text() == (
+            "Choose a candidate or type an interpreter path above.\n"
+            "a uv project was detected, but no usable .venv interpreter is available"
+        )
+
+    def test_no_candidates_with_notes_appends_to_base_note(
+        self, qtbot: QtBot, tmp_path: Path
+    ) -> None:
+        """Notes also append to the no-match base note."""
+        _, editor, _ = make_editor(qtbot, tmp_path)
+        fake_detection(
+            editor,
+            [],
+            notes=[DetectionNote(detector=DetectorKind.POETRY, message="poetry note line")],
+        )
+        editor.findChild(QLineEdit, "editor-script").setText("/tmp/proj/main.py")
+        note = editor.findChild(QLabel, "editor-detection-note")
+        assert note is not None
+        assert note.text() == (
+            "No interpreters detected for this script. Type the interpreter path above.\n"
+            "poetry note line"
         )
 
     def test_script_cleared_resets_detection(self, qtbot: QtBot, tmp_path: Path) -> None:

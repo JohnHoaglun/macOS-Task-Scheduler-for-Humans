@@ -9,6 +9,7 @@ from task_scheduler.application.diagnostic_service import evaluate_diagnostics
 from task_scheduler.domain import JobDefinition, PythonCommand
 from task_scheduler.platform.macos import (
     CandidateSource,
+    DetectorKind,
     InterpreterCandidate,
     LaunchFailureKind,
     ProcessLaunchFailure,
@@ -125,6 +126,22 @@ class TestRuleCoverage:
             candidates=[InterpreterCandidate(path=interpreter, source=CandidateSource.VENV)],
         )
         assert "interpreter_mismatch" not in _codes(
+            evaluate_diagnostics(job, detection=detection)
+        )
+
+    def test_interpreter_mismatch_with_ecosystem_provenance(self, tmp_path: Path) -> None:
+        job, interpreter, script = _healthy_job(tmp_path)
+        detection = PythonDetectionResult(
+            script=script,
+            candidates=[
+                InterpreterCandidate(
+                    path=tmp_path / "other" / ".venv" / "bin" / "python",
+                    source=CandidateSource.VENV,
+                    detectors=(DetectorKind.CORE, DetectorKind.UV),
+                )
+            ],
+        )
+        assert "interpreter_mismatch" in _codes(
             evaluate_diagnostics(job, detection=detection)
         )
 

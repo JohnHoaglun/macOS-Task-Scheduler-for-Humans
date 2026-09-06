@@ -47,6 +47,10 @@ from task_scheduler.gui.presenters.agent_presenter import (
     format_upcoming_interval_occurrences,
     format_upcoming_occurrences,
 )
+from task_scheduler.gui.presenters.diagnostics_presenter import (
+    format_detection_notes,
+    format_python_candidate,
+)
 from task_scheduler.gui.widgets.direct_test_dialog import DirectTestDialog
 from task_scheduler.gui.widgets.row_table import RowTable
 from task_scheduler.gui.widgets.time_row_editor import TimeRowEditor
@@ -246,14 +250,16 @@ class JobEditor(QDialog):
         self._working_dir_hint = result.working_directory
         self._candidates.clear()
         for candidate in result.candidates:
-            self._candidates.addItem(f"{candidate.path} ({candidate.source.value})", candidate.path)
+            self._candidates.addItem(format_python_candidate(candidate), candidate.path)
         self._use_candidate.setEnabled(self._candidates.count() > 0)
         if result.candidates:
-            self._detection_note.setText("Choose a candidate or type an interpreter path above.")
+            note = "Choose a candidate or type an interpreter path above."
         else:
-            self._detection_note.setText(
-                "No interpreters detected for this script. Type the interpreter path above."
-            )
+            note = "No interpreters detected for this script. Type the interpreter path above."
+        notes = format_detection_notes(result.notes)
+        if notes:
+            note = f"{note}\n{notes}"
+        self._detection_note.setText(note)
 
     def _on_use_candidate(self) -> None:
         """Populate the interpreter field with the selected candidate."""

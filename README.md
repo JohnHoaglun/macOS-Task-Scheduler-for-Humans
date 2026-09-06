@@ -522,10 +522,19 @@ The dialog is a scrollable form with the following sections:
 * **Command** — a Python / Shell / Executable selector with a page per
   kind, each with a row table of arguments. On the Python page, editing
   the script path runs interpreter detection: candidates are listed as
-  `path (source)` (sources: `.venv`, `venv`, `current`, `path`), and the
+  `path (source)` (sources: `.venv`, `venv`, `current`, `path`); a
+  candidate also found in a uv or Poetry project root is annotated with
+  those detectors (for example `path (.venv; uv, poetry)`), and the
   **Use** button fills the interpreter field — and the working directory
   while it is blank — from the detection result. Informative notes cover
-  the idle and no-match cases.
+  the idle and no-match cases and non-fatal discovery problems (for
+  example, a detected uv or Poetry project without a usable `.venv`
+  interpreter, or a `pyproject.toml` that could not be read or parsed).
+  Detection is local-only: it reads the filesystem near the script —
+  including the nearest-project-root walk for uv/Poetry markers (`uv.lock`
+  or `[tool.uv]`, `poetry.lock` or `[tool.poetry]`) — and never runs
+  `uv`, `poetry`, or a shell, never resolves symlinks, and never modifies
+  anything.
 * **Schedule** — a schedule kind selector (Calendar / Interval). The
   Calendar page holds one `HH:MM` row per scheduled time (Add/Remove
   controls; at least one row is always kept, and removing the last row

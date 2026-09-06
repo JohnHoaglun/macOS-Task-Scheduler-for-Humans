@@ -18,7 +18,7 @@ Crawl Increments 0–12 complete and pushed to `sched_dev_opencode` (version 0.0
 - **Increment 12:** GUI diagnostics/logs: job-based façade contracts (`test_job(job, *, detection=None)`, `test(label)` delegating, `compare_environment(job, terminal_environment)`, `read_logs_for(job)` with `read_logs(label)` delegating, `gui_environment()` in the composition layer), Qt-free `DiagnosticsController` + `QThread` `DiagnosticsWorker`, shared `DiagnosticLogsPanel` (test summary, diagnostics, direct/persisted stdout/stderr with Refresh, name-only environment comparison, Python recommendations), main-window Test action with selection/stale-result guard, `DirectTestDialog` for the editor's Test Draft (persists nothing); 766 tests
 - Verification at v0.0.12: 766 tests, 100% coverage, ruff + mypy strict clean
 
-Current focus: **Walk Increment 18 — Python Environment Detectors** (Walk plan approved 2026-09-04; increments 14–17 complete at v0.0.17).
+Current focus: **Walk Increment 19 — Expanded Diagnostics** (Walk plan approved 2026-09-04; increments 14–18 complete at v0.0.18).
 
 ---
 
@@ -654,7 +654,7 @@ The domain, plist codec/reader, CLI rendering, and inspector already support `In
 - **Regression gates (no production change expected):** `platform/macos/plist_codec.py`, `plist_reader.py`, `cli/render.py`; plus one new semantic round-trip test for interval + `RunAtLoad` in `tests/unit/platform/test_round_trip.py`.
 - **Verification:** `make check` + explicit 100% package coverage + source-size review; docs (README interval authoring + login trigger + interval preview wording, architecture draft contract + interval estimate boundary, development test conventions); version 0.0.16 → 0.0.17 with registry + stale-reference grep.
 
-### Increment 18 — Python Environment Detectors (§58) — current (approved 2026-09-06)
+### Increment 18 — Python Environment Detectors (§58) — DONE (v0.0.18, approved 2026-09-06)
 Immutable detector protocol + ordered registry behind the existing `detect_python()` facade; extract current `.venv`/`venv`/current/PATH discovery as the first detector with unchanged priority; result DTOs gain detector provenance and non-fatal notes; filesystem/config-only detectors added one at a time (uv, then Poetry; pyenv, Conda, Pipenv, Homebrew in later increments); no ecosystem executables invoked; candidates remain explicit recommendations; injected filesystem/config readers keep tests host-independent.
 
 **Pinned decisions (approved 2026-09-06):**

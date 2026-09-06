@@ -16,8 +16,8 @@ from pydantic import BaseModel
 from task_scheduler.domain import JobDefinition, PythonCommand
 from task_scheduler.platform.macos.process_runner import LaunchFailureKind, ProcessResult
 from task_scheduler.platform.macos.python_detection import (
-    CandidateSource,
     PythonDetectionResult,
+    project_environment_candidate,
 )
 
 
@@ -129,14 +129,7 @@ def _rule_interpreter_mismatch(
 ) -> Diagnostic | None:
     if job is None or not isinstance(job.command, PythonCommand) or detection is None:
         return None
-    project_candidate = next(
-        (
-            candidate
-            for candidate in detection.candidates
-            if candidate.source in (CandidateSource.VENV, CandidateSource.VENV_FALLBACK)
-        ),
-        None,
-    )
+    project_candidate = project_environment_candidate(detection)
     if project_candidate is None or project_candidate.path == job.command.interpreter:
         return None
     return Diagnostic(

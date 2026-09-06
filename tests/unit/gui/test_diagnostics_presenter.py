@@ -14,10 +14,12 @@ from task_scheduler.gui.controllers.diagnostics_controller import TestOutcome
 from task_scheduler.gui.presenters.diagnostics_presenter import (
     ENVIRONMENT_DISCLOSURE_TEXT,
     TEST_LIMITATION_TEXT,
+    format_detection_notes,
     format_diagnostics,
     format_duration,
     format_environment_difference,
     format_log_stream,
+    format_python_candidate,
     format_python_detection,
     format_test_summary,
 )
@@ -28,6 +30,8 @@ from task_scheduler.platform.macos.process_runner import (
 )
 from task_scheduler.platform.macos.python_detection import (
     CandidateSource,
+    DetectionNote,
+    DetectorKind,
     EnvironmentDifference,
     InterpreterCandidate,
     PythonDetectionResult,
@@ -220,6 +224,100 @@ class TestFormatPythonDetection:
         )
         text = format_python_detection(job, detection)
         assert "No project environment detected." in text
+
+    def test_ecosystem_provenance_is_rendered(self) -> None:
+        job = make_job()
+        other = Path("/Users/example/project/.venv/bin/python")
+        detection = PythonDetectionResult(
+            script=job.command.script,
+            candidates=[
+                InterpreterCandidate(
+                    path=other,
+                    source=CandidateSource.VENV,
+                    detectors=(DetectorKind.CORE, DetectorKind.UV),
+                )
+            ],
+        )
+        text = format_python_detection(job, detection)
+        assert f"{other} (.venv; uv)" in text
+
+    def test_notes_appended_after_recommendation(self) -> None:
+        job = make_job()
+        other = Path("/Users/example/project/.venv-x/bin/python")
+        detection = PythonDetectionResult(
+            script=job.command.script,
+            candidates=[InterpreterCandidate(path=other, source=CandidateSource.VENV)],
+            notes=[
+                DetectionNote(
+                    detector=DetectorKind.POETRY,
+                    message="a poetry project was detected, but no usable "
+                    ".venv interpreter is available",
+                )
+            ],
+        )
+        text = format_python_detection(job, detection)
+        assert text.endswith(
+            f"Recommended interpreter: {other}\n\n"
+            "a poetry project was detected, but no usable "
+            ".venv interpreter is available"
+        )
+
+    def test_notes_without_candidates(self) -> None:
+        job = make_job()
+        detection = PythonDetectionResult(
+            script=job.command.script,
+            candidates=[],
+            notes=[
+                DetectionNote(
+                    detector=DetectorKind.UV,
+                    message="a uv project was detected, but no usable "
+                    ".venv interpreter is available",
+                )
+            ],
+        )
+        assert format_python_detection(job, detection) == (
+            "No candidate interpreters detected.\n\n"
+            "a uv project was detected, but no usable .venv interpreter is available"
+        )
+
+
+class TestFormatPythonCandidate:
+    def test_core_only_keeps_plain_form(self) -> None:
+        candidate = InterpreterCandidate(
+            path=Path("/proj/.venv/bin/python"), source=CandidateSource.VENV
+        )
+        assert format_python_candidate(candidate) == "/proj/.venv/bin/python (.venv)"
+
+    def test_single_ecosystem_detector_appended(self) -> None:
+        candidate = InterpreterCandidate(
+            path=Path("/proj/.venv/bin/python"),
+            source=CandidateSource.VENV,
+            detectors=(DetectorKind.UV,),
+        )
+        assert format_python_candidate(candidate) == "/proj/.venv/bin/python (.venv; uv)"
+
+    def test_multiple_ecosystem_detectors_comma_joined(self) -> None:
+        candidate = InterpreterCandidate(
+            path=Path("/proj/.venv/bin/python"),
+            source=CandidateSource.VENV,
+            detectors=(DetectorKind.CORE, DetectorKind.UV, DetectorKind.POETRY),
+        )
+        assert (
+            format_python_candidate(candidate)
+            == "/proj/.venv/bin/python (.venv; uv, poetry)"
+        )
+
+
+class TestFormatDetectionNotes:
+    def test_empty_notes_yield_empty_string(self) -> None:
+        assert format_detection_notes([]) == ""
+
+    def test_messages_joined_on_newlines(self) -> None:
+        notes = [
+            DetectionNote(detector=DetectorKind.UV, message="first note"),
+            DetectionNote(detector=DetectorKind.POETRY, message="second note"),
+        ]
+        assert format_detection_notes(notes) == "first note\nsecond note"
 
 
 class TestConstants:

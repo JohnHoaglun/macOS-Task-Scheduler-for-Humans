@@ -154,6 +154,25 @@ The diagnostics and log tests follow the GUI setup above and add:
   terminal-environment mapping — never the real `os.environ` — and assert
   on names/categories, not values.
 
+## Python Detection Test Conventions (Increment 18)
+
+* `detect_python` accepts an injected read-only filesystem view
+  (`PythonDetectorFilesystem`); the detector unit tests use a dict-backed
+  fake (file mapping plus `executable`, `dirs`, and `unreadable` path
+  sets) so synthetic uv/Poetry projects — marker files, `[tool.uv]` /
+  `[tool.poetry]` tables, unreadable or malformed `pyproject.toml`
+  content — are deterministic strings and the tests never depend on the
+  host's Python installation, PATH, or directory layout.
+* Non-fatal detection notes are asserted verbatim (detector kind plus
+  exact message), in detector-execution order.
+* A small set of tests still drives the default
+  `LocalPythonDetectorFilesystem` over real `tmp_path` files to cover the
+  live reader itself (including its `read_text` error path).
+* Job-editor tests keep using the canned `fake_detection` responder
+  (now with an optional `notes` argument); presenter tests build
+  `PythonDetectionResult` values directly with explicit `detectors` and
+  `notes`.
+
 ## Opt-in System Integration Tests
 
 The `tests/integration/` tests exercise the real

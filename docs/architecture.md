@@ -309,6 +309,61 @@ test summary, diagnostics list, direct stdout/stderr tabs, persisted
 stdout/stderr tabs plus Refresh (synchronous re-read), the environment
 comparison, and the Python recommendation group.
 
+## Python Environment Detectors (Increment 18)
+
+`platform/macos/python_detection.py` finds candidate Python interpreters
+for a selected script behind a detector registry. Detection is read-only
+and local: no `uv`/`poetry`/shell invocation, no symlink resolution, no
+path normalization — paths are reported exactly as given, and candidates
+are recommendations only.
+
+**Contracts.** `DetectorKind` is a `StrEnum` (`core`, `uv`, `poetry`);
+`DetectionNote` is a frozen `(detector, message)` model;
+`PythonDetectionResult` carries `notes: list[DetectionNote]` alongside the
+candidates. A detection run is described by the frozen `DetectionContext`
+(`script`, `current_interpreter`, `path_lookup`, `filesystem`), where
+`filesystem` is the `PythonDetectorFilesystem` read-only protocol
+(`exists`, `is_file`, `is_dir`, `is_executable`, `read_text`; never
+raises) with the live implementation
+`LocalPythonDetectorFilesystem`. Each `PythonEnvironmentDetector`
+exposes `kind` and `detect(context) -> DetectorContribution`
+(`candidates: tuple[tuple[Path, CandidateSource], ...]`,
+`notes: tuple[DetectionNote, ...]`). `default_python_detectors()` fixes
+the registry order: core, uv, Poetry. `detect_python(script, *,
+current_interpreter=None, path_lookup=None, filesystem=None)` runs the
+registry and merges the contributions; the working-directory rule is
+unchanged (script parent when the script is absolute and not a directory).
+
+**Detectors.** The core detector keeps the legacy discovery and order:
+`.venv/bin/python` beside the script, `venv/bin/python`, the current
+interpreter, then `python3` from the injected PATH lookup — each
+acceptance requires an absolute regular file with execute permission.
+The uv and Poetry detectors locate the **nearest** project root by
+walking the ancestors of the script's parent (skipped entirely for
+relative or directory scripts): uv marks a root with a `uv.lock` file or
+a `[tool.uv]` table in `pyproject.toml`; Poetry with `poetry.lock` or
+`[tool.poetry]`. Only `<root>/.venv/bin/python` is then considered, and
+it carries `source = CandidateSource.VENV` — `CandidateSource` gained no
+values; ecosystem attribution lives solely in `detectors`.
+
+**Merging and notes.** A path found by several detectors appears once, at
+its first-discovered position, with its exact spelling and original
+source kept; `InterpreterCandidate.detectors` (default
+`(DetectorKind.CORE,)`) records every discovering detector in registry
+order. Notes never raise: a project root without a usable
+`<root>/.venv/bin/python` yields a per-ecosystem "no usable `.venv`
+interpreter is available" note; an unreadable or unparseable
+`pyproject.toml` yields one parse-failure note per detector per walk and
+never cancels a lock-file marker or stops the walk. Merged notes stay in
+detector-execution order with exact duplicates removed.
+
+**Recommendation.** The project-affine anchor is the first candidate
+whose source is `VENV` or `VENV_FALLBACK` (an ecosystem `.venv`
+candidate qualifies via its source). That policy is the shared pure
+helper `project_environment_candidate(detection)`, used by both
+`diagnostic_service._rule_interpreter_mismatch` and the diagnostics
+presenter; nothing is applied automatically.
+
 ## Packaging Boundary (Increment 13)
 
 The application runtime has no packaging logic. The `.app` bundle is built
