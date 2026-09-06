@@ -136,11 +136,36 @@
 - [x] Docs: README interval authoring + login trigger + preview wording; architecture draft contract + interval estimate boundary; development test conventions
 - [x] Version 0.0.16 → 0.0.17, registry update, stale-reference grep, commit, push
 
-## Walk Increment 18 — Python Environment Detectors (§58) (PLANNED)
-- Detector protocol + ordered registry; extract existing detection as first detector
-- Filesystem/config-only detectors: uv, then Poetry; pyenv/Conda/Pipenv/Homebrew later
-- No automatic interpreter replacement; provenance surfaced in editor + diagnostics
-- Details in PLAN.md
+## Walk Increment 18 — Python Environment Detectors (§58) (IN PROGRESS)
+
+### Pinned decisions (approved 2026-09-06) — full text in PLAN.md
+- Nearest-project-root scope: uv (`uv.lock` or `[tool.uv]`), Poetry (`poetry.lock` or `[tool.poetry]`); only `<root>/.venv/bin/python` inspected; no tool invocation, no global stores
+- Registry order (core, uv, poetry); core internal order unchanged; exact-spelling dedupe with merged provenance
+- `InterpreterCandidate.detectors: tuple[DetectorKind, ...]` (default `(CORE,)`); `CandidateSource` values unchanged (ecosystem `.venv` candidates use `VENV`)
+- `PythonDetectionResult.notes: list[DetectionNote]` (frozen `detector` + `message`); exact wording pinned for the four note cases
+- Shared `project_environment_candidate()` helper replaces duplicated venv-selection logic (diagnostic rule + presenter)
+- Presentation: `format_python_candidate` / `format_detection_notes` presenter helpers; editor combo + `editor-detection-note` append; no CLI changes, no new object names
+- No automatic interpreter replacement; GUI boundary and safety guarantees unchanged
+
+### Lane A — platform detectors
+- [ ] `python_detection.py`: `DetectorKind`, `DetectionNote`, `DetectionContext`, `PythonDetectorFilesystem` + `LocalPythonDetectorFilesystem`, `DetectorContribution`, `PythonEnvironmentDetector`, core/uv/poetry detectors, normalization (merged provenance, note dedupe), `detect_python(..., filesystem=None)` façade
+- [ ] `platform/macos/__init__.py` exports
+- [ ] `tests/unit/platform/test_python_detection.py`: faked filesystem; registry order; core regression; nearest-root discovery; marker variants; no-venv notes; parse-failure notes; merged provenance; qualification; working directory; `compare_environments` regression
+
+### Lane B — presentation
+- [ ] `diagnostic_service.py`: `_rule_interpreter_mismatch` uses `project_environment_candidate`
+- [ ] `diagnostics_presenter.py`: `format_python_candidate`, `format_detection_notes`, `format_python_detection` notes + helper, affinity via shared helper
+- [ ] `job_editor.py`: combo items via `format_python_candidate`; `editor-detection-note` appends notes
+- [ ] Tests: `test_diagnostic_service.py` (uv-sourced project candidate drives mismatch), `test_diagnostics_presenter.py` (merged provenance lines, notes placement), `test_job_editor.py` (combo provenance text, note append, Use regression)
+
+### Regression
+- [ ] `test_task_command_service.py` + `test_editor_controller.py` delegation tests green unchanged; no CLI changes
+
+### Closeout
+- [ ] `make check` green + 100% whole-package coverage
+- [ ] Source-size review (`python_detection.py` < ~450 lines or split to `python_detectors.py`, report which)
+- [ ] Docs: README detection provenance + local-only semantics; architecture detector protocol/registry/notes; development synthetic-project test conventions
+- [ ] Version 0.0.17 → 0.0.18, registry update, stale-reference grep, commit, push
 
 ## Walk Increment 19 — Expanded Diagnostics (§60) (PLANNED)
 - Typed diagnostic contexts (lifecycle, plist parse, log read, inspection) alongside the direct-test engine
