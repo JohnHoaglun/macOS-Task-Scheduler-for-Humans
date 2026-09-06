@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -25,6 +26,7 @@ from task_scheduler.domain import (
     CalendarSchedule,
     EnvironmentConfig,
     ExecutableCommand,
+    IntervalSchedule,
     JobDefinition,
     LoggingConfig,
     ShellCommand,
@@ -35,6 +37,7 @@ from task_scheduler.gui.controllers.editor_controller import EditorController
 from task_scheduler.gui.presenters.agent_presenter import (
     PREVIEW_HEADING,
     PREVIEW_INCOMPLETE,
+    PREVIEW_INTERVAL_ANCHOR,
 )
 from task_scheduler.gui.widgets.direct_test_dialog import DirectTestDialog
 from task_scheduler.gui.widgets.job_editor import JobEditor
@@ -118,7 +121,9 @@ def fill_valid_python(editor: JobEditor) -> None:
 
 
 def _detection_result(
-    script_text: str, candidates, working_directory=None,
+    script_text: str,
+    candidates,
+    working_directory=None,
 ) -> PythonDetectionResult:
     """A canned detection result for dialog tests."""
     return PythonDetectionResult(
@@ -502,9 +507,7 @@ def make_test_draft_editor(
     """An editor with a diagnostics controller, ready to run Test Draft."""
     world = FakeTaskWorld(tmp_path)
     controller = EditorController(world.services)
-    editor = JobEditor(
-        controller, diagnostics=DiagnosticsController(world.services, {})
-    )
+    editor = JobEditor(controller, diagnostics=DiagnosticsController(world.services, {}))
     qtbot.addWidget(editor)
     if job is None:
         editor.open_new()
@@ -527,16 +530,12 @@ def fake_dialog_exec(monkeypatch: pytest.MonkeyPatch) -> list[JobDefinition]:
 
 
 class TestDirectTestDraft:
-    def test_button_disabled_without_diagnostics(
-        self, qtbot: QtBot, tmp_path: Path
-    ) -> None:
+    def test_button_disabled_without_diagnostics(self, qtbot: QtBot, tmp_path: Path) -> None:
         """Without a diagnostics controller, Test Draft stays disabled."""
         _, editor, _ = make_editor(qtbot, tmp_path)
         assert not button(editor, "editor-test-draft").isEnabled()
 
-    def test_button_enabled_with_diagnostics(
-        self, qtbot: QtBot, tmp_path: Path
-    ) -> None:
+    def test_button_enabled_with_diagnostics(self, qtbot: QtBot, tmp_path: Path) -> None:
         """With a diagnostics controller, Test Draft is enabled."""
         _, editor = make_test_draft_editor(qtbot, tmp_path)
         assert button(editor, "editor-test-draft").isEnabled()
@@ -582,18 +581,10 @@ class TestDirectTestDraft:
 
 PREVIEW_NOW = datetime(2026, 9, 4, 12, 0)  # Friday
 PREVIEW_LINES_0730 = (
-    "Mon Sep 07 07:30\n"
-    "Mon Sep 14 07:30\n"
-    "Mon Sep 21 07:30\n"
-    "Mon Sep 28 07:30\n"
-    "Mon Oct 05 07:30"
+    "Mon Sep 07 07:30\nMon Sep 14 07:30\nMon Sep 21 07:30\nMon Sep 28 07:30\nMon Oct 05 07:30"
 )
 PREVIEW_LINES_0800 = (
-    "Mon Sep 07 08:00\n"
-    "Mon Sep 14 08:00\n"
-    "Mon Sep 21 08:00\n"
-    "Mon Sep 28 08:00\n"
-    "Mon Oct 05 08:00"
+    "Mon Sep 07 08:00\nMon Sep 14 08:00\nMon Sep 21 08:00\nMon Sep 28 08:00\nMon Oct 05 08:00"
 )
 PREVIEW_LINES_MULTI = (
     "Mon Sep 07 07:30\nMon Sep 07 17:30\nMon Sep 14 07:30\nMon Sep 14 17:30\nMon Sep 21 07:30"
@@ -603,9 +594,7 @@ PREVIEW_LINES_MULTI = (
 class TestSchedulePreview:
     """Increment 15: the live next-run preview in the editor's Schedule group."""
 
-    def _fixed_editor(
-        self, qtbot: QtBot, tmp_path: Path, job: JobDefinition | None
-    ) -> JobEditor:
+    def _fixed_editor(self, qtbot: QtBot, tmp_path: Path, job: JobDefinition | None) -> JobEditor:
         world = FakeTaskWorld(tmp_path)
         editor = JobEditor(EditorController(world.services), clock=lambda: PREVIEW_NOW)
         qtbot.addWidget(editor)
@@ -753,3 +742,275 @@ class TestMultiTimeSchedule:
         assert "times: schedule time out of range (00:00-23:59), got '99:99'" in (
             pane.toPlainText()
         )
+
+
+PREVIEW_INTERVAL_LINES_900 = (
+    "Fri Sep 04 12:15:00\n"
+    "Fri Sep 04 12:30:00\n"
+    "Fri Sep 04 12:45:00\n"
+    "Fri Sep 04 13:00:00\n"
+    "Fri Sep 04 13:15:00"
+)
+PREVIEW_INTERVAL_LINES_61 = (
+    "Fri Sep 04 12:01:01\n"
+    "Fri Sep 04 12:02:02\n"
+    "Fri Sep 04 12:03:03\n"
+    "Fri Sep 04 12:04:04\n"
+    "Fri Sep 04 12:05:05"
+)
+
+
+class TestIntervalSchedule:
+    """Increment 17: interval and login-trigger authoring through the Schedule group."""
+
+    def _kind_combo(self, editor: JobEditor) -> QComboBox:
+        """The schedule-kind combo box, asserted present."""
+        found = editor.findChild(QComboBox, "editor-schedule-kind")
+        assert found is not None
+        return found
+
+    def _unit_combo(self, editor: JobEditor) -> QComboBox:
+        """The interval-unit combo box, asserted present."""
+        found = editor.findChild(QComboBox, "editor-interval-unit")
+        assert found is not None
+        return found
+
+    def _schedule_stack(self, editor: JobEditor) -> QStackedWidget:
+        """The schedule page stack, asserted present."""
+        found = editor.findChild(QStackedWidget, "editor-schedule-stack")
+        assert found is not None
+        return found
+
+    def _run_at_load(self, editor: JobEditor) -> QCheckBox:
+        """The Run at login checkbox, asserted present."""
+        found = editor.findChild(QCheckBox, "editor-run-at-load")
+        assert found is not None
+        return found
+
+    def _occurrences(self, editor: JobEditor) -> str:
+        """The live preview text, asserted present."""
+        label = editor.findChild(QLabel, "editor-preview-occurrences")
+        assert label is not None
+        return label.text()
+
+    def _fill_command(self, editor: JobEditor) -> None:
+        """Fill the command fields so a draft can validate or save."""
+        line_edit(editor, "editor-name").setText("Nightly Sync")
+        line_edit(editor, "editor-interpreter").setText("/tmp/venv/bin/python")
+        line_edit(editor, "editor-script").setText("/tmp/nightly.py")
+
+    def _fixed_editor(self, qtbot: QtBot, tmp_path: Path) -> JobEditor:
+        world = FakeTaskWorld(tmp_path)
+        editor = JobEditor(EditorController(world.services), clock=lambda: PREVIEW_NOW)
+        qtbot.addWidget(editor)
+        editor.open_new()
+        editor.show()
+        return editor
+
+    def test_schedule_object_names_present(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """Every schedule control carries its stable object name."""
+        _, editor, _ = make_editor(qtbot, tmp_path)
+        for name in (
+            "editor-schedule-kind",
+            "editor-schedule-stack",
+            "editor-calendar-schedule",
+            "editor-interval-schedule",
+            "editor-interval-value",
+            "editor-interval-unit",
+            "editor-run-at-load",
+        ):
+            assert editor.findChild(QWidget, name) is not None
+
+    def test_new_draft_defaults_to_calendar(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """A new draft opens on the calendar page with dormant interval values."""
+        _, editor, _ = make_editor(qtbot, tmp_path)
+        assert self._kind_combo(editor).currentIndex() == 0
+        assert self._schedule_stack(editor).currentIndex() == 0
+        assert line_edit(editor, "editor-interval-value").text() == "1"
+        assert self._unit_combo(editor).currentIndex() == 1
+        assert not self._run_at_load(editor).isChecked()
+
+    def test_interval_job_opens_on_interval_page(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """A stored interval job opens on the interval page in its largest exact unit."""
+        job = make_job(schedule=IntervalSchedule(seconds=900))
+        _, editor, _ = make_editor(qtbot, tmp_path, job)
+        assert self._kind_combo(editor).currentIndex() == 1
+        assert self._schedule_stack(editor).currentIndex() == 1
+        assert line_edit(editor, "editor-interval-value").text() == "15"
+        assert self._unit_combo(editor).currentIndex() == 1
+
+    def test_sub_minute_interval_opens_in_seconds(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """A stored sub-minute interval opens in the seconds unit unchanged."""
+        job = make_job(schedule=IntervalSchedule(seconds=61, run_at_load=True))
+        _, editor, _ = make_editor(qtbot, tmp_path, job)
+        assert line_edit(editor, "editor-interval-value").text() == "61"
+        assert self._unit_combo(editor).currentIndex() == 0
+        assert self._run_at_load(editor).isChecked()
+
+    def test_calendar_job_opens_with_run_at_load(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """A stored calendar job with login behavior opens checked on the calendar page."""
+        job = make_job(
+            schedule=CalendarSchedule(times=["07:30"], weekdays={Weekday.MONDAY}, run_at_load=True)
+        )
+        _, editor, _ = make_editor(qtbot, tmp_path, job)
+        assert self._kind_combo(editor).currentIndex() == 0
+        assert self._run_at_load(editor).isChecked()
+
+    def test_mode_switch_preserves_per_mode_values(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """Switching schedule kinds keeps both sets of values for the switch back."""
+        _, editor, _ = make_editor(qtbot, tmp_path)
+        line_edit(editor, "editor-time").setText("07:30")
+        checkbox(editor, "monday").setChecked(True)
+        self._kind_combo(editor).setCurrentIndex(1)
+        assert self._schedule_stack(editor).currentIndex() == 1
+        line_edit(editor, "editor-interval-value").setText("20")
+        self._kind_combo(editor).setCurrentIndex(0)
+        assert self._schedule_stack(editor).currentIndex() == 0
+        assert line_edit(editor, "editor-time").text() == "07:30"
+        assert checkbox(editor, "monday").isChecked()
+        assert line_edit(editor, "editor-interval-value").text() == "20"
+
+    def test_interval_preview_shows_estimate(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """A visible interval renders the anchored estimate with second precision."""
+        editor = self._fixed_editor(qtbot, tmp_path)
+        self._kind_combo(editor).setCurrentIndex(1)
+        edit = line_edit(editor, "editor-interval-value")
+        edit.selectAll()
+        qtbot.keyClicks(edit, "15")
+        assert self._occurrences(editor) == PREVIEW_INTERVAL_ANCHOR + "\n" + (
+            PREVIEW_INTERVAL_LINES_900
+        )
+
+    def test_sub_minute_interval_preview_keeps_seconds(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """A sub-minute interval shows its odd seconds truthfully in the estimate."""
+        editor = self._fixed_editor(qtbot, tmp_path)
+        self._kind_combo(editor).setCurrentIndex(1)
+        self._unit_combo(editor).setCurrentIndex(0)
+        edit = line_edit(editor, "editor-interval-value")
+        edit.selectAll()
+        qtbot.keyClicks(edit, "61")
+        assert self._occurrences(editor) == PREVIEW_INTERVAL_ANCHOR + "\n" + (
+            PREVIEW_INTERVAL_LINES_61
+        )
+
+    @pytest.mark.parametrize("value", ["1.5", "abc", "0", "-5"])
+    def test_invalid_interval_value_is_neutral(
+        self, qtbot: QtBot, tmp_path: Path, value: str
+    ) -> None:
+        """A non-whole, zero, or negative duration keeps the preview neutral."""
+        editor = self._fixed_editor(qtbot, tmp_path)
+        self._kind_combo(editor).setCurrentIndex(1)
+        edit = line_edit(editor, "editor-interval-value")
+        edit.selectAll()
+        qtbot.keyClicks(edit, value)
+        assert self._occurrences(editor) == PREVIEW_INCOMPLETE
+
+    def test_blank_interval_value_is_neutral(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """Clearing the duration keeps the preview neutral."""
+        editor = self._fixed_editor(qtbot, tmp_path)
+        self._kind_combo(editor).setCurrentIndex(1)
+        edit = line_edit(editor, "editor-interval-value")
+        edit.selectAll()
+        qtbot.keyClick(edit, Qt.Key.Key_Backspace)
+        assert self._occurrences(editor) == PREVIEW_INCOMPLETE
+
+    def test_sub_minimum_interval_is_neutral(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """A duration below the domain minimum keeps the preview neutral."""
+        editor = self._fixed_editor(qtbot, tmp_path)
+        self._kind_combo(editor).setCurrentIndex(1)
+        self._unit_combo(editor).setCurrentIndex(0)
+        edit = line_edit(editor, "editor-interval-value")
+        edit.selectAll()
+        qtbot.keyClicks(edit, "30")
+        assert self._occurrences(editor) == PREVIEW_INCOMPLETE
+
+    @pytest.mark.parametrize(
+        ("value", "unit_index", "expected"),
+        [
+            ("30", 0, "interval: interval must be at least 60 seconds"),
+            ("1.5", 1, "interval: enter a whole number of seconds, minutes, hours, or days"),
+            ("0", 1, "interval: enter a positive whole number of seconds, minutes, hours, or days"),
+        ],
+    )
+    def test_interval_validate_error_lines(
+        self, qtbot: QtBot, tmp_path: Path, value: str, unit_index: int, expected: str
+    ) -> None:
+        """An invalid interval surfaces its exact message under the interval field."""
+        _, editor, _ = make_editor(qtbot, tmp_path)
+        self._fill_command(editor)
+        self._kind_combo(editor).setCurrentIndex(1)
+        self._unit_combo(editor).setCurrentIndex(unit_index)
+        line_edit(editor, "editor-interval-value").setText(value)
+        button(editor, "editor-validate").click()
+        pane = errors(editor)
+        assert pane.isVisible()
+        assert expected in pane.toPlainText()
+
+    def test_save_interval_writes_catalog(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """Saving an interval draft writes the interval schedule to the catalog."""
+        world, editor, _ = make_editor(qtbot, tmp_path)
+        self._fill_command(editor)
+        self._kind_combo(editor).setCurrentIndex(1)
+        line_edit(editor, "editor-interval-value").setText("15")
+        button(editor, "editor-save").click()
+        assert editor.result() == 1
+        assert world.catalog_root in editor.saved_path.parents
+        saved = json.loads(editor.saved_path.read_text())
+        assert saved["schedule"] == {"kind": "interval", "seconds": 900, "run_at_load": False}
+
+    def test_save_interval_with_run_at_load(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """Saving an interval draft with the login trigger persists run_at_load."""
+        _, editor, _ = make_editor(qtbot, tmp_path)
+        self._fill_command(editor)
+        self._kind_combo(editor).setCurrentIndex(1)
+        line_edit(editor, "editor-interval-value").setText("15")
+        self._run_at_load(editor).setChecked(True)
+        button(editor, "editor-save").click()
+        assert editor.result() == 1
+        saved = json.loads(editor.saved_path.read_text())
+        assert saved["schedule"] == {"kind": "interval", "seconds": 900, "run_at_load": True}
+
+    def test_calendar_save_with_run_at_load(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """Saving a calendar draft with the login trigger persists run_at_load."""
+        world, editor, _ = make_editor(qtbot, tmp_path)
+        fill_valid_python(editor)
+        self._run_at_load(editor).setChecked(True)
+        button(editor, "editor-save").click()
+        assert editor.result() == 1
+        saved = json.loads(editor.saved_path.read_text())
+        assert saved["schedule"]["kind"] == "calendar"
+        assert saved["schedule"]["run_at_load"] is True
+
+    def test_interval_preview_xml(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """An interval draft previews a plist with StartInterval plus RunAtLoad."""
+        _, editor, _ = make_editor(qtbot, tmp_path)
+        self._fill_command(editor)
+        self._kind_combo(editor).setCurrentIndex(1)
+        line_edit(editor, "editor-interval-value").setText("15")
+        self._run_at_load(editor).setChecked(True)
+        button(editor, "editor-preview").click()
+        text = preview(editor).toPlainText()
+        assert "<key>StartInterval</key>" in text
+        assert "<integer>900</integer>" in text
+        assert "<key>RunAtLoad</key>" in text
+        assert "StartCalendarInterval" not in text
+
+    def test_saved_interval_job_reopens_on_interval_page(
+        self, qtbot: QtBot, tmp_path: Path
+    ) -> None:
+        """A saved interval job reopens on the interval page with normalized values."""
+        world, editor, _ = make_editor(qtbot, tmp_path)
+        self._fill_command(editor)
+        self._kind_combo(editor).setCurrentIndex(1)
+        line_edit(editor, "editor-interval-value").setText("20")
+        self._unit_combo(editor).setCurrentIndex(3)
+        button(editor, "editor-save").click()
+        assert editor.result() == 1
+        job = world.services.resolve_managed_job(editor.saved_label)
+        reopened = JobEditor(EditorController(world.services))
+        qtbot.addWidget(reopened)
+        reopened.open_existing(job)
+        reopened.show()
+        assert self._kind_combo(reopened).currentIndex() == 1
+        assert line_edit(reopened, "editor-interval-value").text() == "20"
+        assert self._unit_combo(reopened).currentIndex() == 3

@@ -161,4 +161,24 @@ def upcoming_occurrences(
     return occurrences
 
 
+def upcoming_interval_occurrences(
+    schedule: IntervalSchedule, *, now: datetime, count: int
+) -> list[datetime]:
+    """The next *count* interval occurrences after *now*, oldest first.
+
+    Occurrences are naive local datetimes derived from the injected *now* —
+    no clock, I/O, or timezone handling. The first occurrence is exactly one
+    interval after *now* — an application estimate, not a launchd anchor —
+    and *now* itself is never included. ``run_at_load`` is ignored and never
+    contributes an occurrence. Raises ``ValueError`` when *schedule* is not
+    an interval schedule or when *count* is less than 1.
+    """
+    if not isinstance(schedule, IntervalSchedule):
+        raise ValueError(f"expected an IntervalSchedule, got {type(schedule).__name__}")
+    if count < 1:
+        raise ValueError("count must be at least 1")
+    step = timedelta(seconds=schedule.seconds)
+    return [now + step * i for i in range(1, count + 1)]
+
+
 Schedule = Annotated[CalendarSchedule | IntervalSchedule, Field(discriminator="kind")]

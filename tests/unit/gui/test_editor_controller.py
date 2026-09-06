@@ -51,6 +51,10 @@ class TestOpenNew:
         assert d.executable_arguments == []
         assert d.times == [""]
         assert d.weekdays == set()
+        assert d.schedule_kind == "calendar"
+        assert d.interval_value == "1"
+        assert d.interval_unit == "minutes"
+        assert d.run_at_load is False
         assert d.working_directory == ""
         assert d.environment == []
         assert d.stdout_path == ""
@@ -273,13 +277,59 @@ class TestOpenExisting:
         assert d.times == ["07:30", "17:30"]
         assert d.weekdays == {"monday", "friday"}
 
-    def test_interval_job_opens_empty(self, tmp_path: Path) -> None:
-        """An interval job opens with a single empty time and no weekdays."""
+    def test_interval_job_opens_in_largest_exact_unit(self, tmp_path: Path) -> None:
+        """An interval job opens in interval mode with its seconds in the largest exact unit."""
         world, controller = make_controller(tmp_path)
         job = make_job(schedule=IntervalSchedule(seconds=900))
         d = controller.open_existing(job)
+        assert d.schedule_kind == "interval"
+        assert d.interval_value == "15"
+        assert d.interval_unit == "minutes"
         assert d.times == [""]
         assert d.weekdays == set()
+        assert d.run_at_load is False
+
+    @pytest.mark.parametrize(
+        ("seconds", "value", "unit"),
+        [
+            (61, "61", "seconds"),
+            (90, "90", "seconds"),
+            (3600, "1", "hours"),
+            (93600, "26", "hours"),
+            (172800, "2", "days"),
+        ],
+    )
+    def test_interval_load_normalization(
+        self, tmp_path: Path, seconds: int, value: str, unit: str
+    ) -> None:
+        """Persisted seconds load as the largest unit that divides them exactly."""
+        world, controller = make_controller(tmp_path)
+        job = make_job(schedule=IntervalSchedule(seconds=seconds))
+        d = controller.open_existing(job)
+        assert d.schedule_kind == "interval"
+        assert d.interval_value == value
+        assert d.interval_unit == unit
+
+    def test_interval_job_preserves_run_at_load(self, tmp_path: Path) -> None:
+        """An interval job with login behavior opens with run_at_load set."""
+        world, controller = make_controller(tmp_path)
+        job = make_job(schedule=IntervalSchedule(seconds=1800, run_at_load=True))
+        d = controller.open_existing(job)
+        assert d.run_at_load is True
+
+    def test_calendar_job_preserves_run_at_load(self, tmp_path: Path) -> None:
+        """A calendar job with login behavior opens with run_at_load set."""
+        world, controller = make_controller(tmp_path)
+        job = make_job(
+            schedule=CalendarSchedule(
+                times=[Time(7, 30)], weekdays={Weekday.MONDAY}, run_at_load=True
+            )
+        )
+        d = controller.open_existing(job)
+        assert d.schedule_kind == "calendar"
+        assert d.run_at_load is True
+        assert d.interval_value == "1"
+        assert d.interval_unit == "minutes"
 
 
 class TestDelegation:
@@ -498,6 +548,120 @@ class TestValidate:
         assert list(o.fields) == ["job"] and "notaday" in o.fields["job"]
 
 
+class TestIntervalSchedule:
+    def interval_draft(
+        self, controller: EditorController, tmp_path: Path, value: str, unit: str
+    ) -> JobDraft:
+        draft = controller.open_new()
+        controller.set_name(draft, "Interval Job")
+        controller.set_interpreter(draft, "/usr/bin/python3")
+        controller.set_script(draft, str(tmp_path / "job.py"))
+        controller.set_schedule_kind(draft, "interval")
+        controller.set_interval(draft, value, unit)
+        return draft
+
+    def test_interval_unit_conversions(self, tmp_path: Path) -> None:
+        """Each unit converts to the persisted whole seconds."""
+        world, controller = make_controller(tmp_path)
+        assert (
+            controller.build_job(self.interval_draft(controller, tmp_path, "2", "minutes")).schedule
+            == IntervalSchedule(seconds=120)
+        )
+        assert (
+            controller.build_job(self.interval_draft(controller, tmp_path, "2", "hours")).schedule
+            == IntervalSchedule(seconds=7200)
+        )
+        assert (
+            controller.build_job(self.interval_draft(controller, tmp_path, "1", "days")).schedule
+            == IntervalSchedule(seconds=86400)
+        )
+        assert (
+            controller.build_job(self.interval_draft(controller, tmp_path, "90", "seconds"))
+            .schedule
+            == IntervalSchedule(seconds=90)
+        )
+
+    def test_interval_sub_minimum_uses_domain_message(self, tmp_path: Path) -> None:
+        """A converted total below 60 seconds fails with the domain message on interval."""
+        world, controller = make_controller(tmp_path)
+        o = controller.validate(self.interval_draft(controller, tmp_path, "30", "seconds"))
+        assert o.ok is False
+        assert o.fields == {"interval": "interval must be at least 60 seconds"}
+
+    @pytest.mark.parametrize("value", ["", "  ", "1.5", "abc"])
+    def test_interval_non_whole_number(self, tmp_path: Path, value: str) -> None:
+        """A blank or non-integer duration fails with a whole-number message on interval."""
+        world, controller = make_controller(tmp_path)
+        o = controller.validate(self.interval_draft(controller, tmp_path, value, "minutes"))
+        assert o.ok is False
+        assert o.fields == {"interval": "enter a whole number of seconds, minutes, hours, or days"}
+
+    @pytest.mark.parametrize("value", ["0", "-5"])
+    def test_interval_non_positive(self, tmp_path: Path, value: str) -> None:
+        """A zero or negative duration fails with a positive-number message on interval."""
+        world, controller = make_controller(tmp_path)
+        o = controller.validate(self.interval_draft(controller, tmp_path, value, "minutes"))
+        assert o.ok is False
+        assert o.fields == {
+            "interval": "enter a positive whole number of seconds, minutes, hours, or days"
+        }
+
+    def test_interval_whitespace_value_is_stripped(self, tmp_path: Path) -> None:
+        """A padded duration value still builds."""
+        world, controller = make_controller(tmp_path)
+        draft = self.interval_draft(controller, tmp_path, " 15 ", "minutes")
+        assert controller.build_job(draft).schedule == IntervalSchedule(seconds=900)
+
+    def test_interval_bad_unit(self, tmp_path: Path) -> None:
+        """An unknown unit fails with a unit message on interval."""
+        world, controller = make_controller(tmp_path)
+        draft = self.interval_draft(controller, tmp_path, "5", "fortnights")
+        o = controller.validate(draft)
+        assert o.ok is False
+        assert o.fields == {
+            "interval": "the interval unit must be one of seconds, minutes, hours, or days"
+        }
+
+    def test_interval_load_rebuild_fidelity(self, tmp_path: Path) -> None:
+        """An interval job reopens and rebuilds with its exact seconds."""
+        world, controller = make_controller(tmp_path)
+        d = controller.open_existing(make_job(schedule=IntervalSchedule(seconds=61)))
+        assert controller.build_job(d).schedule == IntervalSchedule(seconds=61)
+
+    def test_interval_run_at_load_builds(self, tmp_path: Path) -> None:
+        """An interval draft with login behavior builds the flag into the schedule."""
+        world, controller = make_controller(tmp_path)
+        d = self.interval_draft(controller, tmp_path, "30", "minutes")
+        controller.set_run_at_load(d, True)
+        assert (
+            controller.build_job(d).schedule == IntervalSchedule(seconds=1800, run_at_load=True)
+        )
+
+    def test_calendar_run_at_load_builds(self, tmp_path: Path) -> None:
+        """A calendar draft with login behavior builds the flag into the schedule."""
+        world, controller = make_controller(tmp_path)
+        d = valid_draft(controller, tmp_path)
+        controller.set_run_at_load(d, True)
+        assert (
+            controller.build_job(d).schedule
+            == CalendarSchedule(
+                times=[Time(7, 30)], weekdays={Weekday.MONDAY}, run_at_load=True
+            )
+        )
+
+    def test_mode_switch_preserves_both_field_sets(self, tmp_path: Path) -> None:
+        """Switching schedule kinds keeps each mode's values for the switch back."""
+        world, controller = make_controller(tmp_path)
+        d = valid_draft(controller, tmp_path)
+        controller.set_interval(d, "20", "minutes")
+        controller.set_schedule_kind(d, "interval")
+        controller.set_schedule_kind(d, "calendar")
+        assert d.times == ["07:30"]
+        assert d.weekdays == {"monday"}
+        assert d.interval_value == "20"
+        assert d.interval_unit == "minutes"
+
+
 class TestPreview:
     def test_preview_ok(self, tmp_path: Path) -> None:
         """A valid draft renders a launchd plist containing its label."""
@@ -507,6 +671,32 @@ class TestPreview:
         assert o.ok is True
         assert "<?xml" in o.xml
         assert d.label in o.xml
+
+    def test_preview_interval_xml(self, tmp_path: Path) -> None:
+        """An interval draft previews a plist with StartInterval and no calendar keys."""
+        world, controller = make_controller(tmp_path)
+        d = valid_draft(controller, tmp_path)
+        controller.set_schedule_kind(d, "interval")
+        controller.set_interval(d, "30", "minutes")
+        o = controller.preview(d)
+        assert o.ok is True
+        assert "<key>StartInterval</key>" in o.xml
+        assert "<integer>1800</integer>" in o.xml
+        assert "StartCalendarInterval" not in o.xml
+        assert "RunAtLoad" not in o.xml
+
+    def test_preview_interval_with_run_at_load_xml(self, tmp_path: Path) -> None:
+        """An interval draft with login behavior previews StartInterval plus RunAtLoad."""
+        world, controller = make_controller(tmp_path)
+        d = valid_draft(controller, tmp_path)
+        controller.set_schedule_kind(d, "interval")
+        controller.set_interval(d, "30", "minutes")
+        controller.set_run_at_load(d, True)
+        o = controller.preview(d)
+        assert o.ok is True
+        assert "<key>StartInterval</key>" in o.xml
+        assert "<key>RunAtLoad</key>" in o.xml
+        assert "<true/>" in o.xml
 
     def test_preview_invalid(self, tmp_path: Path) -> None:
         """An invalid draft produces no preview and a name field error."""
@@ -709,6 +899,16 @@ class TestFieldErrors:
             JobDefinition.model_validate(data)
         result = controller._field_errors(excinfo.value)
         assert list(result) == ["weekdays"]
+
+    def test_schedule_seconds_loc(self, tmp_path: Path) -> None:
+        """A sub-minimum interval seconds loc maps to the interval key."""
+        world, controller = make_controller(tmp_path)
+        data = make_job().model_dump()
+        data["schedule"] = {"kind": "interval", "seconds": 30}
+        with pytest.raises(ValidationError) as excinfo:
+            JobDefinition.model_validate(data)
+        result = controller._field_errors(excinfo.value)
+        assert list(result) == ["interval"]
 
     def test_logging_nested_loc(self, tmp_path: Path) -> None:
         """A nested logging path error maps through the logging branch."""

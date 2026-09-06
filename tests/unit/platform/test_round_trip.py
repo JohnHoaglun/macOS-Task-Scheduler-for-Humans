@@ -149,3 +149,23 @@ def test_golden_json_round_trips() -> None:
         assert parsed_result.status is ParseSupport.SUPPORTED, stem
         assert parsed_result.job is not None
         _assert_round_trip(original, parsed_result.job)
+
+
+def test_interval_schedule_with_run_at_load_round_trips() -> None:
+    codec = PlistCodec()
+    original = JobDefinition(
+        schema_version=2,
+        id=uuid4(),
+        name="Frequent Ping",
+        label="io.github.macos-task-scheduler.user.frequent-ping",
+        enabled=True,
+        command=ShellCommand(
+            executable=Path("/bin/zsh"),
+            arguments=["/Users/example/scripts/ping.sh"],
+        ),
+        schedule=IntervalSchedule(seconds=300, run_at_load=True),
+    )
+    parsed_result = parse_bytes(codec.encode_bytes(original))
+    assert parsed_result.status is ParseSupport.SUPPORTED
+    assert parsed_result.job is not None
+    _assert_round_trip(original, parsed_result.job)

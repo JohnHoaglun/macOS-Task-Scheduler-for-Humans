@@ -16,6 +16,7 @@ from task_scheduler.domain import (
     JobDefinition,
     command_argv,
     human_interval,
+    upcoming_interval_occurrences,
     upcoming_occurrences,
 )
 from task_scheduler.platform.macos import (
@@ -30,6 +31,7 @@ __all__ = [
     "PREVIEW_DISABLED_HEADING",
     "PREVIEW_HEADING",
     "PREVIEW_INCOMPLETE",
+    "PREVIEW_INTERVAL_ANCHOR",
     "PREVIEW_UNAVAILABLE",
     "classify",
     "format_command",
@@ -40,6 +42,7 @@ __all__ = [
     "format_raw_plist",
     "format_schedule",
     "format_upcoming_heading",
+    "format_upcoming_interval_occurrences",
     "format_upcoming_occurrences",
     "format_upcoming_occurrences_for",
     "format_lifecycle_state",
@@ -58,8 +61,12 @@ PREVIEW_HEADING = "Next scheduled times"
 PREVIEW_DISABLED_HEADING = "Next scheduled times (configured disabled)"
 PREVIEW_INCOMPLETE = "Complete the schedule to preview occurrences."
 PREVIEW_UNAVAILABLE = "No schedule available to preview."
-PREVIEW_NO_INTERVAL = "Interval schedules have no dated occurrences to preview."
+PREVIEW_INTERVAL_ANCHOR = (
+    "The first estimate is one interval after the application clock; "
+    "launchd's actual start anchor is not known."
+)
 PREVIEW_LINE_FORMAT = "%a %b %d %H:%M"
+PREVIEW_INTERVAL_LINE_FORMAT = "%a %b %d %H:%M:%S"
 
 
 class AgentClassification(StrEnum):
@@ -156,6 +163,14 @@ def format_upcoming_occurrences(schedule: CalendarSchedule, *, now: datetime) ->
     )
 
 
+def format_upcoming_interval_occurrences(schedule: IntervalSchedule, *, now: datetime) -> str:
+    """The next PREVIEW_COUNT interval estimates as second-precision lines, oldest first."""
+    return "\n".join(
+        occurrence.strftime(PREVIEW_INTERVAL_LINE_FORMAT)
+        for occurrence in upcoming_interval_occurrences(schedule, now=now, count=PREVIEW_COUNT)
+    )
+
+
 def format_upcoming_occurrences_for(listing: TaskListing, *, now: datetime) -> str:
     """The preview lines for a listing, or the honest no-preview note."""
     job = _job_of(listing)
@@ -163,7 +178,12 @@ def format_upcoming_occurrences_for(listing: TaskListing, *, now: datetime) -> s
         return PREVIEW_UNAVAILABLE
     schedule = job.schedule
     if isinstance(schedule, IntervalSchedule):
-        return PREVIEW_NO_INTERVAL
+        return "\n".join(
+            (
+                PREVIEW_INTERVAL_ANCHOR,
+                format_upcoming_interval_occurrences(schedule, now=now),
+            )
+        )
     return format_upcoming_occurrences(schedule, now=now)
 
 

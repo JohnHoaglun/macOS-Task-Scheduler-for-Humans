@@ -62,11 +62,22 @@ The job editor tests (Crawl Increment 10) follow the setup above and add:
   test's duration.
 * Editor widgets carry stable `objectName`s (`editor-name`, `editor-save`,
   `editor-weekday-monday`, `editor-time` / `editor-time-{i}` for time rows,
-  `timerow-add` / `timerow-remove` for the row controls); tests resolve them
-  through small `findChild` helper functions rather than index-based access,
-  so layout changes do not break tests.
+  `timerow-add` / `timerow-remove` for the row controls,
+  `editor-schedule-kind` for the Calendar/Interval selector,
+  `editor-calendar-schedule` / `editor-interval-schedule` for the stacked
+  schedule pages, `editor-interval-value` / `editor-interval-unit` for the
+  duration field, `editor-run-at-load` for the login checkbox); tests
+  resolve them through small `findChild` helper functions rather than
+  index-based access, so layout changes do not break tests.
 * `TimeRowEditor` connects `textEdited` (not `textChanged`) so programmatic
-  `setText` during a load does not re-fire the draft-changed pipeline.
+  `setText` during a load does not re-fire the draft-changed pipeline. The
+  same principle covers the schedule controls: the interval value field
+  connects `textEdited`, and the schedule-kind, interval-unit, and
+  run-at-login controls connect `currentIndexChanged` / `toggled`;
+  programmatic `setCurrentIndex` / `setChecked` during a load does not fire
+  them, so the final preview refresh at the end of a load is authoritative.
+  Interval preview tests therefore type into the field (select-all plus key
+  clicks) so the draft-changed pipeline actually runs.
 * `FakeTaskWorld` (`tests/fakes.py`) builds the full service graph on
   `tmp_path` roots: catalog and LaunchAgents store under temporary
   directories, with the real `JobService`, `LaunchAgentStore`, and

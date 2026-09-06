@@ -13,6 +13,7 @@ from task_scheduler.domain import (
     Schedule,
     Weekday,
     human_interval,
+    upcoming_interval_occurrences,
     upcoming_occurrences,
 )
 
@@ -241,3 +242,83 @@ class TestUpcomingOccurrences:
     def test_invalid_count_rejected(self, count: int) -> None:
         with pytest.raises(ValueError):
             upcoming_occurrences(self.MONDAY_0730, now=datetime(2026, 8, 31, 12, 0), count=count)
+
+
+class TestUpcomingIntervalOccurrences:
+    NINETY_SECONDS = IntervalSchedule(seconds=90)
+
+    def test_first_occurrence_one_interval_after_now(self) -> None:
+        """The first occurrence is now + seconds, never now itself."""
+        now = datetime(2026, 9, 5, 12, 0, 0)
+        result = upcoming_interval_occurrences(self.NINETY_SECONDS, now=now, count=3)
+        assert result == [
+            datetime(2026, 9, 5, 12, 1, 30),
+            datetime(2026, 9, 5, 12, 3, 0),
+            datetime(2026, 9, 5, 12, 4, 30),
+        ]
+
+    def test_rollover_across_day_boundary(self) -> None:
+        schedule = IntervalSchedule(seconds=60)
+        now = datetime(2026, 9, 5, 23, 59, 30)
+        result = upcoming_interval_occurrences(schedule, now=now, count=2)
+        assert result == [
+            datetime(2026, 9, 6, 0, 0, 30),
+            datetime(2026, 9, 6, 0, 1, 30),
+        ]
+
+    def test_multi_day_span(self) -> None:
+        schedule = IntervalSchedule(seconds=90000)
+        now = datetime(2026, 9, 5, 12, 0)
+        result = upcoming_interval_occurrences(schedule, now=now, count=5)
+        assert result == [
+            datetime(2026, 9, 6, 13, 0),
+            datetime(2026, 9, 7, 14, 0),
+            datetime(2026, 9, 8, 15, 0),
+            datetime(2026, 9, 9, 16, 0),
+            datetime(2026, 9, 10, 17, 0),
+        ]
+
+    def test_sub_minute_interval(self) -> None:
+        schedule = IntervalSchedule(seconds=61)
+        now = datetime(2026, 9, 5, 12, 0)
+        result = upcoming_interval_occurrences(schedule, now=now, count=3)
+        assert result == [
+            datetime(2026, 9, 5, 12, 1, 1),
+            datetime(2026, 9, 5, 12, 2, 2),
+            datetime(2026, 9, 5, 12, 3, 3),
+        ]
+
+    def test_exact_counts(self) -> None:
+        now = datetime(2026, 9, 5, 12, 0)
+        assert len(upcoming_interval_occurrences(self.NINETY_SECONDS, now=now, count=1)) == 1
+        result = upcoming_interval_occurrences(self.NINETY_SECONDS, now=now, count=10)
+        assert len(result) == 10
+        assert result[0] == datetime(2026, 9, 5, 12, 1, 30)
+        assert result[-1] == datetime(2026, 9, 5, 12, 15, 0)
+
+    @pytest.mark.parametrize("count", [0, -1])
+    def test_invalid_count_rejected(self, count: int) -> None:
+        with pytest.raises(ValueError):
+            upcoming_interval_occurrences(
+                self.NINETY_SECONDS, now=datetime(2026, 9, 5, 12, 0), count=count
+            )
+
+    def test_run_at_load_changes_nothing(self) -> None:
+        schedule = IntervalSchedule(seconds=90, run_at_load=True)
+        now = datetime(2026, 9, 5, 12, 0)
+        assert upcoming_interval_occurrences(schedule, now=now, count=5) == (
+            upcoming_interval_occurrences(self.NINETY_SECONDS, now=now, count=5)
+        )
+
+    def test_calendar_schedule_rejected(self) -> None:
+        with pytest.raises(ValueError):
+            upcoming_interval_occurrences(
+                CalendarSchedule(times=["07:30"], weekdays={Weekday.MONDAY}),
+                now=datetime(2026, 9, 5, 12, 0),
+                count=5,
+            )
+
+    def test_occurrences_are_naive_local_datetimes(self) -> None:
+        now = datetime(2026, 9, 5, 12, 0)
+        result = upcoming_interval_occurrences(self.NINETY_SECONDS, now=now, count=3)
+        assert all(occurrence.tzinfo is None for occurrence in result)

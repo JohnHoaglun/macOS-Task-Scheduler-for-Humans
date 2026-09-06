@@ -18,7 +18,7 @@ Crawl Increments 0–12 complete and pushed to `sched_dev_opencode` (version 0.0
 - **Increment 12:** GUI diagnostics/logs: job-based façade contracts (`test_job(job, *, detection=None)`, `test(label)` delegating, `compare_environment(job, terminal_environment)`, `read_logs_for(job)` with `read_logs(label)` delegating, `gui_environment()` in the composition layer), Qt-free `DiagnosticsController` + `QThread` `DiagnosticsWorker`, shared `DiagnosticLogsPanel` (test summary, diagnostics, direct/persisted stdout/stderr with Refresh, name-only environment comparison, Python recommendations), main-window Test action with selection/stale-result guard, `DirectTestDialog` for the editor's Test Draft (persists nothing); 766 tests
 - Verification at v0.0.12: 766 tests, 100% coverage, ruff + mypy strict clean
 
-Current focus: **Walk Increment 17 — Interval and Login Triggers** (Walk plan approved 2026-09-04; increments 14–16 complete at v0.0.16).
+Current focus: **Walk Increment 18 — Python Environment Detectors** (Walk plan approved 2026-09-04; increments 14–17 complete at v0.0.17).
 
 ---
 
@@ -629,7 +629,7 @@ Multiple times per day for calendar schedules (times apply to the selected weekd
 - Retained as regression gates (no production change expected): `domain/schedule.py`, `platform/macos/plist_codec.py`, `platform/macos/plist_reader.py`, `gui/presenters/agent_presenter.py`, `gui/widgets/agent_inspector.py`, `cli/render.py`.
 - Verification: `make check` + explicit 100% package coverage + source-size review (logic-heavy files below 500 lines; `job_editor.py` must shrink from 545); docs (README multi-time authoring, architecture draft contract + time-row boundary, development test conventions); version 0.0.15 → 0.0.16 with registry + stale-reference grep.
 
-### Increment 17 — Interval and Login Triggers (§57) — current (approved 2026-09-05)
+### Increment 17 — Interval and Login Triggers (§57) — DONE (v0.0.17, approved 2026-09-05)
 The domain, plist codec/reader, CLI rendering, and inspector already support `IntervalSchedule` (`StartInterval`) and `RunAtLoad`; the editor cannot author them — `JobDraft` is calendar-only and an opened interval job loads as blank calendar fields, so saving it silently converts the schedule. This increment closes the authoring gap (interval duration + login trigger, both schedule kinds) and replaces the honest no-interval-preview note with a truthful application-clock-anchored interval estimate.
 
 **Pinned decisions (approved 2026-09-05):**

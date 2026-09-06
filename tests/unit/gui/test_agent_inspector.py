@@ -20,7 +20,7 @@ from task_scheduler.gui.presenters.agent_presenter import (
     PREVIEW_DISABLED_HEADING,
     PREVIEW_DISCLOSURE,
     PREVIEW_HEADING,
-    PREVIEW_NO_INTERVAL,
+    PREVIEW_INTERVAL_ANCHOR,
     PREVIEW_UNAVAILABLE,
     format_environment,
     format_schedule,
@@ -327,6 +327,13 @@ PREVIEW_LINES = (
     "Mon Sep 28 07:30\n"
     "Mon Oct 05 07:30"
 )
+PREVIEW_INTERVAL_LINES = (
+    "Fri Sep 04 12:15:00\n"
+    "Fri Sep 04 12:30:00\n"
+    "Fri Sep 04 12:45:00\n"
+    "Fri Sep 04 13:00:00\n"
+    "Fri Sep 04 13:15:00"
+)
 
 
 class TestSchedulePreview:
@@ -371,13 +378,62 @@ class TestSchedulePreview:
             PREVIEW_UNAVAILABLE
         )
 
-    def test_interval_job(self, qtbot: QtBot) -> None:
+    def test_interval_job_saved(self, qtbot: QtBot) -> None:
         inspector = self._fixed_inspector(qtbot)
-        job = make_job(schedule=IntervalSchedule(seconds=1800))
+        job = make_job(schedule=IntervalSchedule(seconds=900))
         listing = TaskListing(
             kind=ListingKind.SAVED, path=None, parsed=None, job=job, managed=True
         )
         inspector.show_saved(listing)
+        assert _value_label(inspector, "schedule-preview-heading").text() == (
+            PREVIEW_HEADING
+        )
+        assert _value_label(inspector, "schedule-preview-disclosure").text() == (
+            PREVIEW_DISCLOSURE
+        )
         assert _value_label(inspector, "schedule-preview-occurrences").text() == (
-            PREVIEW_NO_INTERVAL
+            PREVIEW_INTERVAL_ANCHOR + "\n" + PREVIEW_INTERVAL_LINES
+        )
+
+    def test_interval_job_discovered(self, qtbot: QtBot) -> None:
+        inspector = self._fixed_inspector(qtbot)
+        job = make_job(schedule=IntervalSchedule(seconds=900))
+        parsed = ParsedLaunchAgent(
+            status=ParseSupport.SUPPORTED,
+            job=job,
+            raw={"Label": job.label},
+        )
+        listing = TaskListing(
+            kind=ListingKind.DISCOVERED,
+            path=MANAGED_PATH,
+            parsed=parsed,
+            job=job,
+            managed=True,
+        )
+        inspector.show_agent(listing, _report(listing))
+        assert _value_label(inspector, "schedule-preview-heading").text() == (
+            PREVIEW_HEADING
+        )
+        assert _value_label(inspector, "schedule-preview-disclosure").text() == (
+            PREVIEW_DISCLOSURE
+        )
+        assert _value_label(inspector, "schedule-preview-occurrences").text() == (
+            PREVIEW_INTERVAL_ANCHOR + "\n" + PREVIEW_INTERVAL_LINES
+        )
+
+    def test_interval_job_disabled(self, qtbot: QtBot) -> None:
+        inspector = self._fixed_inspector(qtbot)
+        job = make_job(schedule=IntervalSchedule(seconds=900), enabled=False)
+        listing = TaskListing(
+            kind=ListingKind.SAVED, path=None, parsed=None, job=job, managed=True
+        )
+        inspector.show_saved(listing)
+        assert _value_label(inspector, "schedule-preview-heading").text() == (
+            PREVIEW_DISABLED_HEADING
+        )
+        assert _value_label(inspector, "schedule-preview-disclosure").text() == (
+            PREVIEW_DISCLOSURE
+        )
+        assert _value_label(inspector, "schedule-preview-occurrences").text() == (
+            PREVIEW_INTERVAL_ANCHOR + "\n" + PREVIEW_INTERVAL_LINES
         )

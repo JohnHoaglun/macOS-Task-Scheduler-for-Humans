@@ -504,8 +504,10 @@ The File menu also offers **New Task...** (`Cmd+N`) and **Edit Managed
 Task...**. Both open a modal editor dialog for a managed job:
 
 * **New Task** starts blank — no command paths and no schedule — and is
-  invalid until the name, the command fields of the selected kind, a valid
-  `HH:MM` time row, and at least one weekday are filled in.
+  invalid until the name, the command fields of the selected kind, and a
+  valid schedule are filled in: for Calendar, a valid `HH:MM` time row and
+  at least one weekday; for Interval, a whole number whose total is at
+  least 60 seconds.
 * **Edit Managed Task** works only for a selected row classified as
   **Managed**, and resolves the catalog job by its launchd label. A
   selection that cannot be parsed, or a label missing from the catalog,
@@ -524,12 +526,19 @@ The dialog is a scrollable form with the following sections:
   **Use** button fills the interpreter field — and the working directory
   while it is blank — from the detection result. Informative notes cover
   the idle and no-match cases.
-* **Schedule** — one `HH:MM` row per scheduled time (Add/Remove controls;
-  at least one row is always kept, and removing the last row clears it to
-  blank instead) and seven weekday checkboxes. Every configured time applies
-  to every selected weekday, and duplicates collapse on save. A note covers
-  launchd behavior: if the Mac is asleep at a scheduled time it is not
-  woken, and missed runs are not retried.
+* **Schedule** — a schedule kind selector (Calendar / Interval). The
+  Calendar page holds one `HH:MM` row per scheduled time (Add/Remove
+  controls; at least one row is always kept, and removing the last row
+  clears it to blank instead) and seven weekday checkboxes; every
+  configured time applies to every selected weekday, and duplicates
+  collapse on save. The Interval page holds a whole number plus a unit
+  selector (Seconds / Minutes / Hours / Days); the total must be at least
+  60 seconds. A **Run at login** checkbox applies to either kind: it marks
+  the task to run once when the LaunchAgent is loaded (e.g. at login) in
+  addition to the schedule — a login-only schedule is not representable.
+  Switching kinds keeps each mode's configured values. A note covers
+  launchd behavior: if the Mac is asleep a run is not woken, and missed
+  runs are not retried.
 * **Environment** — key/value rows for the job's environment variables.
 * **Advanced** — the working directory and optional stdout/stderr log
   paths; leave a path empty to disable that stream. The default log root
@@ -668,7 +677,11 @@ Current implementation scope:
   backward-compatible v1 reads, migrated on read)
 * multiple scheduled times per weekday and interval schedules
   (minimum 60 seconds); `run_at_load` is additive only
-* estimated next-run previews in the GUI inspector and job editor
+* interval-schedule authoring (whole number + unit, minimum 60 seconds)
+  and the additive `run_at_login` trigger for both schedule kinds in the
+  GUI editor
+* estimated next-run previews (calendar minute-precision, interval
+  second-precision with an anchor note) in the GUI inspector and job editor
 * LaunchAgent plist generation
 * LaunchAgent plist parsing
 * LaunchAgent store (write, remove, discovery in `~/Library/LaunchAgents`)
@@ -723,10 +736,13 @@ Every 30 minutes
 loaded (e.g. at login) but it never acts as the sole schedule.
 
 **Next-run previews** — the GUI shows the estimated next five local-time
-occurrences for a calendar schedule, in the inspector and while editing.
+occurrences, in the inspector and while editing. For a calendar schedule
+the lines are minute-precision; for an interval schedule the estimate
+starts one interval after the application clock and keeps second
+precision, with a note that launchd's actual start anchor is not known.
 This is an application-derived estimate of the configured schedule, not
-launchd's internal queue. Interval schedules and listings without a
-parseable job show an honest no-preview note instead.
+launchd's internal queue. Listings without a parseable job show an honest
+no-preview note instead.
 
 Legacy v1 job files (a single `time` plus `weekdays`) still read
 transparently: they are migrated to the v2 calendar variant on read, and all

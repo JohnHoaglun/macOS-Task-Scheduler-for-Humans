@@ -63,7 +63,13 @@ The pure `upcoming_occurrences(schedule, *, now, count)` domain calculator
 × sorted times, includes an occurrence exactly at `now`, and returns exactly
 `count` naive local datetimes oldest first. It does no I/O, touches no
 clock, and knows nothing about launchd; the GUI renders its output as the
-estimated next-run preview.
+estimated next-run preview. Its interval sibling,
+`upcoming_interval_occurrences(schedule, *, now, count)` (Increment 17),
+returns `now + seconds * i` for `i` in `1..count` — the first estimate is
+exactly one interval after the application clock — and ignores
+`run_at_load`. Because launchd's actual start anchor for `StartInterval` is
+not exposed, the GUI renders this as an estimate with an explicit anchor
+note, never as launchd's queue.
 
 The application services layer (Increments 7–11) adds the `TaskCommandService`
 facade, which both the `mactask` CLI and the GUI call. It coordinates
@@ -148,13 +154,25 @@ time parsing. All time validation, ascending sort, and duplicate collapse
 happen in `CalendarSchedule`, which the controller builds from the raw rows;
 a failed build maps to the `times` field with the domain's message.
 
+The draft's schedule kind is `schedule_kind` (`"calendar"` | `"interval"`).
+For interval jobs the draft additionally carries `interval_value` (the raw
+visible whole number, verbatim — a fresh draft holds `"1"`) and
+`interval_unit` (`seconds` / `minutes` / `hours` / `days`), plus the shared
+`run_at_load` flag. The dialog renders the kind as a selector over two
+stacked pages; the interval page performs only the single unit conversion,
+and the controller hands the total seconds to `IntervalSchedule`, which
+owns the minimum-60-seconds rule; a failed build maps to the `interval`
+field. Switching kinds preserves each mode's values on the draft, and
+`open_existing()` normalizes a stored interval to the largest exact unit
+(days → hours → minutes → seconds) before it reaches the widgets.
+
 **EditorController outcomes** keep the view exception-free. `validate()`,
 `preview()`, and `save()` return frozen outcomes: `EditorOutcome` (`ok`,
 `message`, `fields`), `PreviewOutcome` (adds the generated launchd plist
 XML), and `SaveOutcome` (adds the persisted catalog path and final label).
 Failures map to per-field errors keyed by stable field names — `name`,
 `label`, `interpreter`, `script`, `shell_executable`, `executable`, `times`,
-`weekdays`, `working_directory`, `environment`, `stdout_path`,
+`weekdays`, `interval`, `working_directory`, `environment`, `stdout_path`,
 `stderr_path`, with a `job` key for whole-job failures — so the dialog can
 display errors independently of widget layout. `save()` validates before
 persisting; a catalog conflict and a write failure also become outcomes

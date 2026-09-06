@@ -20,7 +20,7 @@ from task_scheduler.gui.presenters.agent_presenter import (
     PREVIEW_DISABLED_HEADING,
     PREVIEW_DISCLOSURE,
     PREVIEW_HEADING,
-    PREVIEW_NO_INTERVAL,
+    PREVIEW_INTERVAL_ANCHOR,
     PREVIEW_UNAVAILABLE,
     AgentClassification,
     classify,
@@ -35,6 +35,7 @@ from task_scheduler.gui.presenters.agent_presenter import (
     format_state,
     format_status,
     format_upcoming_heading,
+    format_upcoming_interval_occurrences,
     format_upcoming_occurrences,
     format_upcoming_occurrences_for,
     format_warnings,
@@ -435,11 +436,25 @@ class TestPreviewWording:
         assert PREVIEW_HEADING == "Next scheduled times"
         assert PREVIEW_DISABLED_HEADING == "Next scheduled times (configured disabled)"
 
+    def test_interval_anchor_matches_spec_verbatim(self) -> None:
+        assert PREVIEW_INTERVAL_ANCHOR == (
+            "The first estimate is one interval after the application clock; "
+            "launchd's actual start anchor is not known."
+        )
+
     def test_format_upcoming_heading_enabled(self) -> None:
         assert format_upcoming_heading(_saved(make_job())) == PREVIEW_HEADING
 
     def test_format_upcoming_heading_disabled(self) -> None:
         job = make_job(enabled=False)
+        assert format_upcoming_heading(_saved(job)) == PREVIEW_DISABLED_HEADING
+
+    def test_format_upcoming_heading_interval_enabled(self) -> None:
+        job = make_job(schedule=IntervalSchedule(seconds=900))
+        assert format_upcoming_heading(_saved(job)) == PREVIEW_HEADING
+
+    def test_format_upcoming_heading_interval_disabled(self) -> None:
+        job = make_job(schedule=IntervalSchedule(seconds=900), enabled=False)
         assert format_upcoming_heading(_saved(job)) == PREVIEW_DISABLED_HEADING
 
     def test_format_upcoming_occurrences_lines(self) -> None:
@@ -461,11 +476,48 @@ class TestPreviewWording:
             == PREVIEW_UNAVAILABLE
         )
 
+    def test_format_upcoming_interval_occurrences_lines(self) -> None:
+        schedule = IntervalSchedule(seconds=900)
+        lines = format_upcoming_interval_occurrences(schedule, now=datetime(2026, 9, 4, 12, 0, 0))
+        assert lines == (
+            "Fri Sep 04 12:15:00\n"
+            "Fri Sep 04 12:30:00\n"
+            "Fri Sep 04 12:45:00\n"
+            "Fri Sep 04 13:00:00\n"
+            "Fri Sep 04 13:15:00"
+        )
+
+    def test_format_upcoming_interval_occurrences_odd_seconds(self) -> None:
+        schedule = IntervalSchedule(seconds=61)
+        lines = format_upcoming_interval_occurrences(schedule, now=datetime(2026, 9, 4, 12, 0, 0))
+        assert lines == (
+            "Fri Sep 04 12:01:01\n"
+            "Fri Sep 04 12:02:02\n"
+            "Fri Sep 04 12:03:03\n"
+            "Fri Sep 04 12:04:04\n"
+            "Fri Sep 04 12:05:05"
+        )
+
     def test_format_upcoming_occurrences_for_interval(self) -> None:
-        job = make_job(schedule=IntervalSchedule(seconds=1800))
+        job = make_job(schedule=IntervalSchedule(seconds=900))
+        now = datetime(2026, 9, 4, 12, 0, 0)
+        assert format_upcoming_occurrences_for(_saved(job), now=now) == (
+            PREVIEW_INTERVAL_ANCHOR
+            + "\n"
+            + "Fri Sep 04 12:15:00\n"
+            + "Fri Sep 04 12:30:00\n"
+            + "Fri Sep 04 12:45:00\n"
+            + "Fri Sep 04 13:00:00\n"
+            + "Fri Sep 04 13:15:00"
+        )
+
+    def test_interval_run_at_load_adds_no_line(self) -> None:
+        base = make_job(schedule=IntervalSchedule(seconds=900))
+        job = make_job(schedule=IntervalSchedule(seconds=900, run_at_load=True))
+        now = datetime(2026, 9, 4, 12, 0, 0)
         assert (
-            format_upcoming_occurrences_for(_saved(job), now=datetime(2026, 9, 4, 12, 0))
-            == PREVIEW_NO_INTERVAL
+            format_upcoming_occurrences_for(_saved(job), now=now)
+            == format_upcoming_occurrences_for(_saved(base), now=now)
         )
 
     def test_format_upcoming_occurrences_for_calendar(self) -> None:

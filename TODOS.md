@@ -94,7 +94,7 @@
 - [x] Docs: README multi-time authoring (editor Schedule group + New Task validity), architecture draft `times` contract + TimeRowEditor boundary + `times` field key, development test conventions (object names, `textEdited`)
 - [x] Version 0.0.15 → 0.0.16, registry update, stale-reference grep, commit, push
 
-## Walk Increment 17 — Interval and Login Triggers (§57) (IN PROGRESS)
+## Walk Increment 17 — Interval and Login Triggers (§57) (DONE — v0.0.17)
 
 ### Pinned decisions (approved 2026-09-05) — full text in PLAN.md
 - Schema/plist untouched: v2 `{"kind": "interval", "seconds": int, "run_at_load": bool}`; `MIN_INTERVAL_SECONDS = 60`
@@ -108,33 +108,33 @@
 - External jobs stay read-only (inspector shows the estimate; no edit path)
 - Object names: `editor-schedule-kind`, `editor-schedule-stack`, `editor-calendar-schedule`, `editor-interval-schedule`, `editor-interval-value`, `editor-interval-unit`, `editor-run-at-load`
 
-### Lane A — domain preview helper
-- [ ] `domain/schedule.py`: `upcoming_interval_occurrences` (IntervalSchedule only; `now + seconds` first)
-- [ ] `domain/__init__.py` export if convention requires
-- [ ] `tests/unit/domain/test_schedule.py`: first-occurrence boundary, chronology, multi-day span, sub-minute seconds, counts, `count < 1`, `run_at_load` ignored, calendar rejected
+### Lane A — domain preview helper — done via `general`
+- [x] `domain/schedule.py`: `upcoming_interval_occurrences` (IntervalSchedule only; `now + seconds` first; wrong-type rejection `expected an IntervalSchedule, got …`)
+- [x] `domain/__init__.py` export
+- [x] `tests/unit/domain/test_schedule.py`: `TestUpcomingIntervalOccurrences` (first-occurrence boundary, chronology, multi-day span, sub-minute seconds, counts, `count < 1`, `run_at_load` ignored, calendar + non-schedule rejected)
 
-### Lane B — controller migration
-- [ ] `editor_controller.py`: `JobDraft` fields + `set_schedule_kind` / `set_interval` / `set_run_at_load`; `open_existing` loads both variants faithfully (incl. `run_at_load`); `_build_schedule` branches by kind; empty/non-integer/zero/negative → `_DraftError("interval", ...)`; sub-60 via domain validator → `interval` field
-- [ ] `tests/unit/gui/test_editor_controller.py`: defaults, unit conversions, sub-60 rejection, 61s/93600s/172800s load+rebuild fidelity, interval+login, calendar+login, mode-preserved values, plist preview `StartInterval`/`RunAtLoad`
+### Lane B — controller migration — orchestrator-executed after empty `general` ×2 + `escalate` dispatches (disclosed in SUMMARY.md)
+- [x] `editor_controller.py`: `JobDraft` fields (`schedule_kind`, `interval_value`, `interval_unit`, `run_at_load`) + `set_schedule_kind` / `set_interval` / `set_run_at_load`; `open_existing` loads both variants faithfully (largest exact unit, incl. `run_at_load`); `_build_schedule` branches by kind (calendar path now passes `run_at_load`); empty/non-integer/zero/negative → `_DraftError("interval", ...)`; sub-60 via domain validator → `interval` field
+- [x] `tests/unit/gui/test_editor_controller.py`: defaults, unit conversions, sub-60 rejection, 61s/93600s/172800s load+rebuild fidelity, interval+login, calendar+login, mode-preserved values, plist preview `StartInterval`/`RunAtLoad` — 292/292 coverage
 
-### Lane C — presenter + inspector
-- [ ] `agent_presenter.py`: interval estimate formatting + anchor wording + exact `PREVIEW_*` constants
-- [ ] `agent_inspector.py`: consumes new presenter output
-- [ ] `tests/unit/gui/test_agent_presenter.py` + `test_agent_inspector.py`: exact wording, disabled interval, second precision, calendar regression
+### Lane C — presenter + inspector — done via `general` retry
+- [x] `agent_presenter.py`: `format_upcoming_interval_occurrences` (lines only, second precision) + `PREVIEW_INTERVAL_ANCHOR` + `PREVIEW_INTERVAL_LINE_FORMAT`; `format_upcoming_occurrences_for` branches (anchor prepended for intervals); `PREVIEW_NO_INTERVAL` retired
+- [x] `agent_inspector.py`: zero code changes (consumes presenter output only)
+- [x] `tests/unit/gui/test_agent_presenter.py` + `test_agent_inspector.py`: exact wording, anchor line, second precision (incl. odd seconds), calendar regression unchanged
 
-### Lane D — JobEditor composition
-- [ ] `job_editor.py`: kind combo + stacked pages (calendar reuses existing `editor-time*`/weekday names), interval value/unit, `editor-run-at-load`; wire to draft-change/load/collect/errors/Validate/Preview/Test Draft/Save; live preview branches by kind (neutral on invalid/blank)
+### Lane D — JobEditor composition — orchestrator-executed after empty `general` ×2 dispatches (disclosed in SUMMARY.md)
+- [x] `job_editor.py`: kind combo + stacked pages (calendar reuses existing `editor-time*`/weekday names), interval value/unit, `editor-run-at-load`; wired to draft-change/load/collect/errors/Validate/Preview/Test Draft/Save; live preview branches by kind (anchor + lines for intervals; neutral on invalid/blank/sub-60); 539 → 628 lines (UI-construction growth; validation logic stays in the controller)
 
 ### Lane E — JobEditor tests + regression gate
-- [ ] `tests/unit/gui/test_job_editor.py`: object names, mode switching preserves values, fixed-clock interval preview (second precision), `interval` field errors, plist preview interval+login, save/reopen fidelity, calendar regressions
-- [ ] `tests/unit/gui/test_main_window.py`: update only if calendar-default helper breaks
-- [ ] `tests/unit/platform/test_round_trip.py`: +1 interval + `RunAtLoad` semantic round-trip
+- [x] `tests/unit/gui/test_job_editor.py`: `TestIntervalSchedule` (object names, mode switching preserves per-mode values, fixed-clock interval preview with anchor + second precision, `interval` field errors verbatim, plist preview `StartInterval`/`RunAtLoad`, save/reopen fidelity incl. 20 Days, calendar regressions) — 16 tests
+- [x] `tests/unit/gui/test_main_window.py`: no changes needed (Calendar default page keeps `_fill_valid_python` green)
+- [x] `tests/unit/platform/test_round_trip.py`: `test_interval_schedule_with_run_at_load_round_trips` (300s) — done via `general`
 
 ### Closeout
-- [ ] `make check` green + 100% whole-package coverage
-- [ ] Source-size review (logic-heavy files < 500 lines)
-- [ ] Docs: README interval authoring + login trigger + preview wording; architecture draft contract + interval estimate boundary; development test conventions
-- [ ] Version 0.0.16 → 0.0.17, registry update, stale-reference grep, commit, push
+- [x] `make check` green + 100% whole-package coverage (936 passed, 2 deselected, 3531 stmts, 0 missed)
+- [x] Source-size review: `editor_controller.py` 516 (logic-heavy; +84 for schedule branching, under the 550 guideline), `job_editor.py` 628 (UI construction; over the ~600 soft pin, under 700 — rationale in SUMMARY.md)
+- [x] Docs: README interval authoring + login trigger + preview wording; architecture draft contract + interval estimate boundary; development test conventions
+- [x] Version 0.0.16 → 0.0.17, registry update, stale-reference grep, commit, push
 
 ## Walk Increment 18 — Python Environment Detectors (§58) (PLANNED)
 - Detector protocol + ordered registry; extract existing detection as first detector

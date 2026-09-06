@@ -29,18 +29,22 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from task_scheduler.domain import CalendarSchedule, JobDefinition, Weekday
+from task_scheduler.domain import CalendarSchedule, IntervalSchedule, JobDefinition, Weekday
 from task_scheduler.gui.controllers.diagnostics_controller import DiagnosticsController
 from task_scheduler.gui.controllers.editor_controller import (
     CommandKind,
     EditorController,
     EditorOutcome,
+    IntervalUnit,
     JobDraft,
+    ScheduleKind,
 )
 from task_scheduler.gui.presenters.agent_presenter import (
     PREVIEW_DISCLOSURE,
     PREVIEW_HEADING,
     PREVIEW_INCOMPLETE,
+    PREVIEW_INTERVAL_ANCHOR,
+    format_upcoming_interval_occurrences,
     format_upcoming_occurrences,
 )
 from task_scheduler.gui.widgets.direct_test_dialog import DirectTestDialog
@@ -59,6 +63,7 @@ DAY_NAMES = (
     "sunday",
 )
 DAY_LABELS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+_SCHEDULE_UNIT_SECONDS = (1, 60, 3600, 86400)
 
 
 class JobEditor(QDialog):
@@ -134,6 +139,10 @@ class JobEditor(QDialog):
         self._use_candidate.clicked.connect(self._on_use_candidate)
         for checkbox in self._weekdays:
             checkbox.toggled.connect(self._on_draft_changed)
+        self._schedule_kind_combo.currentIndexChanged.connect(self._on_schedule_kind_changed)
+        self._interval_value.textEdited.connect(self._on_draft_changed)
+        self._interval_unit.currentIndexChanged.connect(self._on_draft_changed)
+        self._run_at_load.toggled.connect(self._on_draft_changed)
         self._kind_combo.currentIndexChanged.connect(self._on_kind_changed)
         self._python_args.rowsChanged.connect(self._on_draft_changed)
         self._shell_args.rowsChanged.connect(self._on_draft_changed)
@@ -257,8 +266,10 @@ class JobEditor(QDialog):
         self._save_button.setEnabled(True)
         self._refresh_schedule_preview()
 
-    def _form_schedule(self) -> CalendarSchedule | None:
-        """The visible times and weekdays as a schedule, or None when incomplete or invalid."""
+    def _form_schedule(self) -> CalendarSchedule | IntervalSchedule | None:
+        """The visible schedule as a domain schedule, or None when incomplete or invalid."""
+        if self._schedule_kind_combo.currentIndex() == 1:
+            return self._form_interval_schedule()
         weekdays = {
             Weekday(day)
             for day, box in zip(DAY_NAMES, self._weekdays, strict=True)
@@ -272,11 +283,38 @@ class JobEditor(QDialog):
         except ValidationError:
             return None
 
+    def _form_interval_schedule(self) -> IntervalSchedule | None:
+        """The visible interval value and unit as a schedule, or None when invalid."""
+        value = self._interval_value.text().strip()
+        try:
+            number = int(value)
+        except ValueError:
+            return None
+        if number <= 0:
+            return None
+        try:
+            return IntervalSchedule(
+                seconds=number * _SCHEDULE_UNIT_SECONDS[self._interval_unit.currentIndex()]
+            )
+        except ValidationError:
+            return None
+
+    def _on_schedule_kind_changed(self, index: int) -> None:
+        """Switch the schedule page when the schedule kind selection changes."""
+        self._schedule_stack.setCurrentIndex(index)
+        self._on_draft_changed()
+
     def _refresh_schedule_preview(self) -> None:
         """Render the next-run preview for the schedule the form currently shows."""
         schedule = self._form_schedule()
         if schedule is None:
             self._preview_occurrences.setText(PREVIEW_INCOMPLETE)
+        elif isinstance(schedule, IntervalSchedule):
+            self._preview_occurrences.setText(
+                PREVIEW_INTERVAL_ANCHOR
+                + "\n"
+                + format_upcoming_interval_occurrences(schedule, now=self._clock())
+            )
         else:
             self._preview_occurrences.setText(
                 format_upcoming_occurrences(schedule, now=self._clock())
@@ -306,13 +344,23 @@ class JobEditor(QDialog):
         return (line_edit, container)
 
     def _build_schedule(self) -> QGroupBox:
-        """The Schedule group: HH:MM time rows and weekday checkboxes."""
+        """The Schedule group: kind selector, a page per schedule kind, and login trigger."""
         group = QGroupBox("Schedule")
         form = QFormLayout(group)
-        self._times = TimeRowEditor(group)
+        self._schedule_kind_combo = QComboBox(group)
+        self._schedule_kind_combo.setObjectName("editor-schedule-kind")
+        self._schedule_kind_combo.addItem("Calendar")
+        self._schedule_kind_combo.addItem("Interval")
+        form.addRow("Schedule type", self._schedule_kind_combo)
+        self._schedule_stack = QStackedWidget(group)
+        self._schedule_stack.setObjectName("editor-schedule-stack")
+        calendar_page = QWidget(self._schedule_stack)
+        calendar_page.setObjectName("editor-calendar-schedule")
+        calendar_form = QFormLayout(calendar_page)
+        self._times = TimeRowEditor(calendar_page)
         self._times.setObjectName("editor-times")
-        form.addRow("Times (HH:MM)", self._times)
-        days_widget = QWidget(group)
+        calendar_form.addRow("Times (HH:MM)", self._times)
+        days_widget = QWidget(calendar_page)
         days_layout = QHBoxLayout(days_widget)
         days_layout.setContentsMargins(0, 0, 0, 0)
         self._weekdays: list[QCheckBox] = []
@@ -321,13 +369,37 @@ class JobEditor(QDialog):
             box.setObjectName(f"editor-weekday-{day}")
             self._weekdays.append(box)
             days_layout.addWidget(box)
-        form.addRow("Weekdays", days_widget)
+        calendar_form.addRow("Weekdays", days_widget)
+        self._schedule_stack.addWidget(calendar_page)
+        interval_page = QWidget(self._schedule_stack)
+        interval_page.setObjectName("editor-interval-schedule")
+        interval_form = QFormLayout(interval_page)
+        self._interval_value = QLineEdit(interval_page)
+        self._interval_value.setObjectName("editor-interval-value")
+        self._interval_value.setPlaceholderText("1")
+        self._interval_unit = QComboBox(interval_page)
+        self._interval_unit.setObjectName("editor-interval-unit")
+        self._interval_unit.addItem("Seconds")
+        self._interval_unit.addItem("Minutes")
+        self._interval_unit.addItem("Hours")
+        self._interval_unit.addItem("Days")
+        every_row = QWidget(interval_page)
+        every_layout = QHBoxLayout(every_row)
+        every_layout.setContentsMargins(0, 0, 0, 0)
+        every_layout.addWidget(self._interval_value)
+        every_layout.addWidget(self._interval_unit)
+        interval_form.addRow("Every", every_row)
+        self._schedule_stack.addWidget(interval_page)
+        form.addRow("", self._schedule_stack)
+        self._run_at_load = QCheckBox("Run at login", group)
+        self._run_at_load.setObjectName("editor-run-at-load")
+        form.addRow(self._run_at_load)
         self._schedule_note = QLabel(group)
         self._schedule_note.setObjectName("editor-schedule-note")
         self._schedule_note.setWordWrap(True)
         self._schedule_note.setText(
-            "launchd starts the job at each scheduled time on the selected days. If the"
-            " Mac is asleep the run is not woken, and missed runs are not retried."
+            "launchd runs the job on the selected schedule. If the Mac is asleep the run is"
+            " not woken, and missed runs are not retried."
         )
         form.addRow(self._schedule_note)
         self._preview_heading = QLabel(group)
@@ -430,9 +502,17 @@ class JobEditor(QDialog):
         self._shell_args.set_rows([[value] for value in d.shell_arguments])
         self._executable.setText(d.executable_path)
         self._executable_args.set_rows([[value] for value in d.executable_arguments])
+        schedule_index = {"calendar": 0, "interval": 1}[d.schedule_kind]
+        self._schedule_kind_combo.setCurrentIndex(schedule_index)
+        self._schedule_stack.setCurrentIndex(schedule_index)
         self._times.set_times(d.times)
         for box, day in zip(self._weekdays, DAY_NAMES, strict=True):
             box.setChecked(day in d.weekdays)
+        self._interval_value.setText(d.interval_value)
+        self._interval_unit.setCurrentIndex(
+            ("seconds", "minutes", "hours", "days").index(d.interval_unit)
+        )
+        self._run_at_load.setChecked(d.run_at_load)
         self._working_directory.setText(d.working_directory)
         self._environment.set_rows([[key, value] for key, value in d.environment])
         self._stdout_path.setText(d.stdout_path)
@@ -467,6 +547,15 @@ class JobEditor(QDialog):
             day for day, box in zip(DAY_NAMES, self._weekdays, strict=True) if box.isChecked()
         }
         c.set_weekdays(d, selected)
+        schedule_kind: ScheduleKind = ("calendar", "interval")[
+            self._schedule_kind_combo.currentIndex()
+        ]
+        c.set_schedule_kind(d, schedule_kind)
+        interval_unit: IntervalUnit = ("seconds", "minutes", "hours", "days")[
+            self._interval_unit.currentIndex()
+        ]
+        c.set_interval(d, self._interval_value.text(), interval_unit)
+        c.set_run_at_load(d, self._run_at_load.isChecked())
         c.set_working_directory(d, self._working_directory.text().strip())
         c.set_environment(d, [(row[0], row[1]) for row in self._environment.rows()])
         c.set_stdout_path(d, self._stdout_path.text().strip())

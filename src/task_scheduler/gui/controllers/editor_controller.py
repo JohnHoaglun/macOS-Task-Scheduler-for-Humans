@@ -18,9 +18,11 @@ from task_scheduler.domain import (
     Command,
     EnvironmentConfig,
     ExecutableCommand,
+    IntervalSchedule,
     JobDefinition,
     LoggingConfig,
     PythonCommand,
+    Schedule,
     ShellCommand,
     Weekday,
 )
@@ -30,12 +32,22 @@ __all__ = [
     "CommandKind",
     "EditorController",
     "EditorOutcome",
+    "IntervalUnit",
     "JobDraft",
     "PreviewOutcome",
     "SaveOutcome",
+    "ScheduleKind",
 ]
 
 CommandKind = Literal["python", "shell", "executable"]
+ScheduleKind = Literal["calendar", "interval"]
+IntervalUnit = Literal["seconds", "minutes", "hours", "days"]
+_UNIT_SECONDS: dict[IntervalUnit, int] = {
+    "seconds": 1,
+    "minutes": 60,
+    "hours": 3600,
+    "days": 86400,
+}
 
 
 @dataclass
@@ -57,6 +69,10 @@ class JobDraft:
     executable_arguments: list[str] = field(default_factory=list)
     times: list[str] = field(default_factory=lambda: [""])
     weekdays: set[str] = field(default_factory=set)
+    schedule_kind: ScheduleKind = "calendar"
+    interval_value: str = "1"
+    interval_unit: IntervalUnit = "minutes"
+    run_at_load: bool = False
     working_directory: str = ""
     environment: list[tuple[str, str]] = field(default_factory=list)
     stdout_path: str = ""
@@ -127,9 +143,18 @@ class EditorController:
             executable_arguments = list(command.arguments)
         schedule_times: list[str] = [""]
         schedule_weekdays: set[str] = set()
+        schedule_kind: ScheduleKind = "calendar"
+        interval_value = "1"
+        interval_unit: IntervalUnit = "minutes"
+        run_at_load = False
         if isinstance(job.schedule, CalendarSchedule):
             schedule_times = [time.strftime("%H:%M") for time in job.schedule.times]
             schedule_weekdays = {weekday.value for weekday in job.schedule.weekdays}
+            run_at_load = job.schedule.run_at_load
+        elif isinstance(job.schedule, IntervalSchedule):
+            schedule_kind = "interval"
+            run_at_load = job.schedule.run_at_load
+            interval_value, interval_unit = self._interval_display(job.schedule.seconds)
         return JobDraft(
             job_id=job.id,
             name=job.name,
@@ -146,6 +171,10 @@ class EditorController:
             executable_arguments=executable_arguments,
             times=schedule_times,
             weekdays=schedule_weekdays,
+            schedule_kind=schedule_kind,
+            interval_value=interval_value,
+            interval_unit=interval_unit,
+            run_at_load=run_at_load,
             working_directory=(
                 str(job.working_directory) if job.working_directory is not None else ""
             ),
@@ -214,6 +243,19 @@ class EditorController:
     def set_weekdays(self, draft: JobDraft, selected: set[str]) -> None:
         """Replace the selected weekdays."""
         draft.weekdays = set(selected)
+
+    def set_schedule_kind(self, draft: JobDraft, kind: ScheduleKind) -> None:
+        """Switch the draft's schedule kind, preserving the other mode's values."""
+        draft.schedule_kind = kind
+
+    def set_interval(self, draft: JobDraft, value: str, unit: IntervalUnit) -> None:
+        """Set the interval duration verbatim; build validates the unit."""
+        draft.interval_value = value
+        draft.interval_unit = unit
+
+    def set_run_at_load(self, draft: JobDraft, enabled: bool) -> None:
+        """Set whether the job also runs once when loaded, in addition to its schedule."""
+        draft.run_at_load = enabled
 
     def set_working_directory(self, draft: JobDraft, value: str) -> None:
         """Set the working directory path."""
@@ -332,6 +374,8 @@ class EditorController:
                     fields = {str(part) for part in loc[1:]}
                     if "weekdays" in fields:
                         return {"weekdays": str(error["msg"])}
+                    if fields & {"seconds", "run_at_load"}:
+                        return {"interval": str(error["msg"])}
                     return {"times": str(error["msg"])}
                 if head == "logging":
                     return {second or "stdout_path": str(error["msg"])}
@@ -405,8 +449,10 @@ class EditorController:
                 arguments=list(draft.executable_arguments),
             )
 
-    def _build_schedule(self, draft: JobDraft) -> CalendarSchedule:
-        """Build the weekly schedule from the draft's times and selected weekdays."""
+    def _build_schedule(self, draft: JobDraft) -> Schedule:
+        """Build the schedule variant selected by the draft."""
+        if draft.schedule_kind == "interval":
+            return self._build_interval_schedule(draft)
         if not draft.weekdays:
             raise _DraftError("weekdays", "at least one weekday is required")
         if not draft.times:
@@ -415,10 +461,48 @@ class EditorController:
             return CalendarSchedule(
                 times=cast("list[Time]", draft.times),
                 weekdays={Weekday(w) for w in draft.weekdays},
+                run_at_load=draft.run_at_load,
             )
         except ValidationError as exc:
             message = str(exc.errors()[0]["msg"])
             raise _DraftError("times", message.removeprefix("Value error, ")) from None
+
+    def _build_interval_schedule(self, draft: JobDraft) -> IntervalSchedule:
+        """Build the interval schedule from the draft's duration value and unit."""
+        if draft.interval_unit not in _UNIT_SECONDS:
+            raise _DraftError(
+                "interval", "the interval unit must be one of seconds, minutes, hours, or days"
+            )
+        value = draft.interval_value.strip()
+        try:
+            number = int(value)
+        except ValueError:
+            raise _DraftError(
+                "interval", "enter a whole number of seconds, minutes, hours, or days"
+            ) from None
+        if number <= 0:
+            raise _DraftError(
+                "interval", "enter a positive whole number of seconds, minutes, hours, or days"
+            )
+        try:
+            return IntervalSchedule(
+                seconds=number * _UNIT_SECONDS[draft.interval_unit],
+                run_at_load=draft.run_at_load,
+            )
+        except ValidationError as exc:
+            message = str(exc.errors()[0]["msg"])
+            raise _DraftError("interval", message.removeprefix("Value error, ")) from None
+
+    @staticmethod
+    def _interval_display(seconds: int) -> tuple[str, IntervalUnit]:
+        """Express persisted seconds as the largest exact unit."""
+        if seconds % 86400 == 0:
+            return str(seconds // 86400), "days"
+        if seconds % 3600 == 0:
+            return str(seconds // 3600), "hours"
+        if seconds % 60 == 0:
+            return str(seconds // 60), "minutes"
+        return str(seconds), "seconds"
 
     def _build_variables(self, draft: JobDraft) -> dict[str, str]:
         """Collect environment rows, raising on empty keys and duplicate keys."""
