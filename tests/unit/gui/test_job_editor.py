@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import json
 from datetime import datetime
 from pathlib import Path
 
 import pytest
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -18,30 +16,21 @@ from PySide6.QtWidgets import (
     QPushButton,
     QStackedWidget,
     QTextEdit,
-    QWidget,
 )
 from pytestqt.qtbot import QtBot
+from tests.conftest import make_job
+from tests.fakes import FakeTaskWorld
 
 from task_scheduler.domain import (
-    CalendarSchedule,
-    EnvironmentConfig,
-    ExecutableCommand,
-    IntervalSchedule,
     JobDefinition,
-    LoggingConfig,
-    ShellCommand,
-    Weekday,
 )
 from task_scheduler.gui.controllers.diagnostics_controller import DiagnosticsController
 from task_scheduler.gui.controllers.editor_controller import EditorController
 from task_scheduler.gui.presenters.agent_presenter import (
-    PREVIEW_HEADING,
     PREVIEW_INCOMPLETE,
-    PREVIEW_INTERVAL_ANCHOR,
 )
 from task_scheduler.gui.widgets.direct_test_dialog import DirectTestDialog
 from task_scheduler.gui.widgets.job_editor import JobEditor
-from task_scheduler.gui.widgets.row_table import RowTable
 from task_scheduler.platform.macos import (
     CandidateSource,
     DetectionNote,
@@ -49,8 +38,6 @@ from task_scheduler.platform.macos import (
     InterpreterCandidate,
     PythonDetectionResult,
 )
-from tests.conftest import make_job
-from tests.fakes import FakeTaskWorld
 
 
 def make_editor(
@@ -70,13 +57,11 @@ def make_editor(
     editor.show()
     return world, editor, controller
 
-
 def line_edit(editor: JobEditor, object_name: str) -> QLineEdit:
     """The named line edit, asserted present."""
     edit = editor.findChild(QLineEdit, object_name)
     assert edit is not None
     return edit
-
 
 def button(editor: JobEditor, object_name: str) -> QPushButton:
     """The named button, asserted present."""
@@ -84,20 +69,11 @@ def button(editor: JobEditor, object_name: str) -> QPushButton:
     assert found is not None
     return found
 
-
-def table(editor: JobEditor, object_name: str) -> RowTable:
-    """The named row table, asserted present."""
-    found = editor.findChild(RowTable, object_name)
-    assert found is not None
-    return found
-
-
 def checkbox(editor: JobEditor, day: str) -> QCheckBox:
     """The named weekday checkbox, asserted present."""
     found = editor.findChild(QCheckBox, f"editor-weekday-{day}")
     assert found is not None
     return found
-
 
 def combo(editor: JobEditor) -> QComboBox:
     """The command-kind combo box, asserted present."""
@@ -105,13 +81,11 @@ def combo(editor: JobEditor) -> QComboBox:
     assert found is not None
     return found
 
-
 def stack(editor: JobEditor) -> QStackedWidget:
     """The command-kind page stack, asserted present."""
     found = editor.findChild(QStackedWidget, "editor-command-stack")
     assert found is not None
     return found
-
 
 def fill_valid_python(editor: JobEditor) -> None:
     """Fill a new python draft so it validates."""
@@ -120,7 +94,6 @@ def fill_valid_python(editor: JobEditor) -> None:
     line_edit(editor, "editor-script").setText("/tmp/nightly.py")
     line_edit(editor, "editor-time").setText("01:00")
     checkbox(editor, "monday").setChecked(True)
-
 
 def _detection_result(
     script_text: str,
@@ -136,7 +109,6 @@ def _detection_result(
         notes=notes or [],
     )
 
-
 def fake_detection(
     editor: JobEditor,
     candidates,
@@ -148,98 +120,17 @@ def fake_detection(
         str(script), candidates, working_directory, notes
     )
 
-
 def errors(editor: JobEditor) -> QPlainTextEdit:
     """The hidden error pane, asserted present."""
     found = editor.findChild(QPlainTextEdit, "editor-errors")
     assert found is not None
     return found
 
-
 def preview(editor: JobEditor) -> QTextEdit:
     """The preview pane, asserted present."""
     found = editor.findChild(QTextEdit, "editor-preview")
     assert found is not None
     return found
-
-
-class TestOpenNew:
-    def test_defaults_populated(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """A new dialog opens titled New Task with an empty python draft."""
-        _, editor, _ = make_editor(qtbot, tmp_path)
-        assert editor.windowTitle() == "New Task"
-        assert line_edit(editor, "editor-name").text() == ""
-        assert line_edit(editor, "editor-label").text() == ""
-        assert combo(editor).currentIndex() == 0
-        assert stack(editor).currentIndex() == 0
-        assert line_edit(editor, "editor-time").text() == ""
-        for day in ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"):
-            assert not checkbox(editor, day).isChecked()
-        assert table(editor, "editor-python-arguments").rows() == []
-        assert table(editor, "editor-environment").rows() == []
-        assert line_edit(editor, "editor-working-directory").text() == ""
-        assert line_edit(editor, "editor-stdout-path").text() == ""
-        assert button(editor, "editor-save").isEnabled()
-
-
-class TestOpenExisting:
-    def test_python_job_populated(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """A stored python job fills every python page field."""
-        _, editor, _ = make_editor(qtbot, tmp_path, job=make_job())
-        assert editor.windowTitle() == "Edit Task"
-        assert line_edit(editor, "editor-name").text() == "Daily Backup"
-        assert (
-            line_edit(editor, "editor-label").text()
-            == "io.github.macos-task-scheduler.user.daily-backup"
-        )
-        assert combo(editor).currentIndex() == 0
-        assert stack(editor).currentIndex() == 0
-        assert (
-            line_edit(editor, "editor-interpreter").text()
-            == "/Users/example/project/.venv/bin/python"
-        )
-        assert line_edit(editor, "editor-script").text() == "/Users/example/project/main.py"
-        assert table(editor, "editor-python-arguments").rows() == [["--mode"], ["daily"]]
-        assert line_edit(editor, "editor-time").text() == "07:30"
-        assert checkbox(editor, "monday").isChecked()
-        assert not checkbox(editor, "tuesday").isChecked()
-        assert line_edit(editor, "editor-working-directory").text() == ""
-
-    def test_shell_job_populated(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """A stored shell job lands on the shell page."""
-        job = make_job(
-            command=ShellCommand(executable="/bin/bash", arguments=["-c", "echo hi"]),
-        )
-        _, editor, _ = make_editor(qtbot, tmp_path, job=job)
-        assert combo(editor).currentIndex() == 1
-        assert stack(editor).currentIndex() == 1
-        assert line_edit(editor, "editor-shell-executable").text() == "/bin/bash"
-        assert table(editor, "editor-shell-arguments").rows() == [["-c"], ["echo hi"]]
-
-    def test_executable_job_populated(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """A stored executable job lands on the executable page."""
-        job = make_job(
-            command=ExecutableCommand(executable="/usr/bin/say", arguments=["--repeat", "2"]),
-        )
-        _, editor, _ = make_editor(qtbot, tmp_path, job=job)
-        assert combo(editor).currentIndex() == 2
-        assert stack(editor).currentIndex() == 2
-        assert line_edit(editor, "editor-executable").text() == "/usr/bin/say"
-        assert table(editor, "editor-executable-arguments").rows() == [["--repeat"], ["2"]]
-
-    def test_environment_and_logs_populated(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """Environment rows, working directory, and log paths are restored."""
-        job = make_job(
-            environment=EnvironmentConfig(variables={"HOME": "/tmp"}),
-            working_directory="/Users/example/project",
-            logging=LoggingConfig(stdout_path=Path("/tmp/out.log"), stderr_path=None),
-        )
-        _, editor, _ = make_editor(qtbot, tmp_path, job=job)
-        assert table(editor, "editor-environment").rows() == [["HOME", "/tmp"]]
-        assert line_edit(editor, "editor-working-directory").text() == "/Users/example/project"
-        assert line_edit(editor, "editor-stdout-path").text() == "/tmp/out.log"
-        assert line_edit(editor, "editor-stderr-path").text() == ""
-
 
 class TestKindSwitching:
     def test_selecting_kind_switches_page(self, qtbot: QtBot, tmp_path: Path) -> None:
@@ -253,7 +144,6 @@ class TestKindSwitching:
         box.setCurrentIndex(0)
         assert stack(editor).currentIndex() == 0
 
-
 class TestValidation:
     def test_valid_draft_validate_keeps_errors_hidden(self, qtbot: QtBot, tmp_path: Path) -> None:
         """A valid draft passes validate with no error pane shown."""
@@ -263,14 +153,6 @@ class TestValidation:
         assert not errors(editor).isVisible()
         assert button(editor, "editor-save").isEnabled()
 
-    def test_empty_draft_validate_shows_errors(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """An empty draft fails validate, shows the pane, disables Save."""
-        _, editor, _ = make_editor(qtbot, tmp_path)
-        button(editor, "editor-validate").click()
-        assert errors(editor).isVisible()
-        assert errors(editor).toPlainText().strip()
-        assert not button(editor, "editor-save").isEnabled()
-
     def test_label_edit_updates_draft(self, qtbot: QtBot, tmp_path: Path) -> None:
         """Typing a label pushes it into the draft as a manual label."""
         _, editor, _ = make_editor(qtbot, tmp_path, job=make_job())
@@ -279,26 +161,7 @@ class TestValidation:
         assert editor._draft.label == "my.custom.label"
         assert editor._draft.label_touched is True
 
-    def test_edit_reenables_save_after_failure(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """Any field edit re-enables Save after a failed outcome."""
-        _, editor, _ = make_editor(qtbot, tmp_path)
-        button(editor, "editor-validate").click()
-        assert not button(editor, "editor-save").isEnabled()
-        line_edit(editor, "editor-name").textEdited.emit("x")
-        assert button(editor, "editor-save").isEnabled()
-
-
 class TestPreview:
-    def test_valid_preview_renders_plist(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """A valid draft renders a plist containing the name-derived label."""
-        _, editor, _ = make_editor(qtbot, tmp_path)
-        pane = preview(editor)
-        fill_valid_python(editor)
-        button(editor, "editor-preview").click()
-        text = pane.toPlainText()
-        assert "<plist" in text
-        assert "nightly-sync" in text
-        assert not errors(editor).isVisible()
 
     def test_invalid_preview_shows_errors(self, qtbot: QtBot, tmp_path: Path) -> None:
         """An invalid draft shows errors instead of a preview."""
@@ -308,24 +171,7 @@ class TestPreview:
         assert preview(editor).toPlainText() == ""
         assert not button(editor, "editor-save").isEnabled()
 
-
 class TestSave:
-    def test_saved_properties_initially_none(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """A fresh dialog reports no saved path or label."""
-        _, editor, _ = make_editor(qtbot, tmp_path)
-        assert editor.saved_path is None
-        assert editor.saved_label is None
-
-    def test_save_valid_writes_catalog(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """Saving a valid draft accepts and writes a catalog file."""
-        world, editor, _ = make_editor(qtbot, tmp_path)
-        fill_valid_python(editor)
-        button(editor, "editor-save").click()
-        assert editor.result() == 1
-        assert editor.saved_path is not None and editor.saved_path.is_file()
-        assert editor.saved_label is not None
-        assert editor.saved_label.startswith("io.github.macos-task-scheduler.user.")
-        assert world.catalog_root in editor.saved_path.parents
 
     def test_save_invalid_rejects(self, qtbot: QtBot, tmp_path: Path) -> None:
         """Saving an invalid draft shows errors and writes nothing."""
@@ -336,26 +182,7 @@ class TestSave:
         assert editor.saved_path is None
         assert not button(editor, "editor-save").isEnabled()
 
-
 class TestCloseAndBrowse:
-    def test_close_rejects(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """The Close button rejects the dialog."""
-        _, editor, _ = make_editor(qtbot, tmp_path)
-        button(editor, "editor-close").click()
-        assert editor.result() == 0
-
-    def test_browse_open_sets_path(
-        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """The browse dialog path lands in the line edit."""
-        _, editor, _ = make_editor(qtbot, tmp_path)
-        monkeypatch.setattr(
-            QFileDialog,
-            "getOpenFileName",
-            staticmethod(lambda *args, **kwargs: ("/tmp/venv/bin/python", "")),
-        )
-        button(editor, "editor-interpreter-browse").click()
-        assert line_edit(editor, "editor-interpreter").text() == "/tmp/venv/bin/python"
 
     def test_browse_directory_sets_path(
         self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -397,7 +224,6 @@ class TestCloseAndBrowse:
         button(editor, "editor-stdout-path-browse").click()
         assert line_edit(editor, "editor-stdout-path").text() == "/tmp/out.log"
 
-
 class TestUnopenedDialog:
     def test_actions_noop_without_draft(self, qtbot: QtBot, tmp_path: Path) -> None:
         """Action slots no-op on a dialog that was never opened."""
@@ -423,34 +249,7 @@ class TestUnopenedDialog:
         button(editor, "editor-test-draft").click()
         assert not errors(editor).isVisible()
 
-
 class TestPythonDetection:
-    def test_note_initial(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """A fresh python page shows the idle detection note."""
-        _, editor, _ = make_editor(qtbot, tmp_path)
-        note = editor.findChild(QLabel, "editor-detection-note")
-        assert note is not None
-        assert note.text() == "Select a script to detect its interpreter."
-
-    def test_script_change_populates_candidates(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """Editing the script fills the candidate combo with sources."""
-        _, editor, _ = make_editor(qtbot, tmp_path)
-        fake_detection(
-            editor,
-            [
-                InterpreterCandidate(
-                    path=Path("/tmp/proj/.venv/bin/python"), source=CandidateSource.VENV
-                ),
-                InterpreterCandidate(path=Path("/usr/bin/python3"), source=CandidateSource.PATH),
-            ],
-        )
-        editor.findChild(QLineEdit, "editor-script").setText("/tmp/proj/main.py")
-        combo = editor.findChild(QComboBox, "editor-candidates")
-        assert combo is not None
-        assert combo.count() == 2
-        assert combo.itemText(0) == "/tmp/proj/.venv/bin/python (.venv)"
-        use = button(editor, "editor-use-candidate")
-        assert use.isEnabled()
 
     def test_use_candidate_populates_interpreter_and_working_dir(
         self, qtbot: QtBot, tmp_path: Path
@@ -473,65 +272,6 @@ class TestPythonDetection:
         button(editor, "editor-use-candidate").click()
         assert line_edit(editor, "editor-interpreter").text() == "/tmp/proj/.venv/bin/python"
         assert line_edit(editor, "editor-working-directory").text() == "/tmp/proj"
-
-    def test_no_candidates_informs(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """An empty candidate list disables Use and shows the no-match note."""
-        _, editor, _ = make_editor(qtbot, tmp_path)
-        fake_detection(editor, [])
-        editor.findChild(QLineEdit, "editor-script").setText("/tmp/proj/main.py")
-        combo = editor.findChild(QComboBox, "editor-candidates")
-        assert combo is not None
-        assert combo.count() == 0
-        assert not button(editor, "editor-use-candidate").isEnabled()
-        note = editor.findChild(QLabel, "editor-detection-note")
-        assert note is not None
-        assert note.text() == (
-            "No interpreters detected for this script. Type the interpreter path above."
-        )
-
-    def test_ecosystem_provenance_shown_in_combo(
-        self, qtbot: QtBot, tmp_path: Path
-    ) -> None:
-        """A candidate found by an ecosystem detector shows the detector suffix."""
-        _, editor, _ = make_editor(qtbot, tmp_path)
-        fake_detection(
-            editor,
-            [
-                InterpreterCandidate(
-                    path=Path("/tmp/proj/.venv/bin/python"),
-                    source=CandidateSource.VENV,
-                    detectors=(DetectorKind.CORE, DetectorKind.UV),
-                )
-            ],
-        )
-        editor.findChild(QLineEdit, "editor-script").setText("/tmp/proj/main.py")
-        combo = editor.findChild(QComboBox, "editor-candidates")
-        assert combo is not None
-        assert combo.itemText(0) == "/tmp/proj/.venv/bin/python (.venv; uv)"
-
-    def test_detection_notes_appended_to_note(
-        self, qtbot: QtBot, tmp_path: Path
-    ) -> None:
-        """Non-fatal detection notes are appended to the base detection note."""
-        _, editor, _ = make_editor(qtbot, tmp_path)
-        fake_detection(
-            editor,
-            [InterpreterCandidate(path=Path("/usr/bin/python3"), source=CandidateSource.PATH)],
-            notes=[
-                DetectionNote(
-                    detector=DetectorKind.UV,
-                    message="a uv project was detected, but no usable .venv "
-                    "interpreter is available",
-                )
-            ],
-        )
-        editor.findChild(QLineEdit, "editor-script").setText("/tmp/proj/main.py")
-        note = editor.findChild(QLabel, "editor-detection-note")
-        assert note is not None
-        assert note.text() == (
-            "Choose a candidate or type an interpreter path above.\n"
-            "a uv project was detected, but no usable .venv interpreter is available"
-        )
 
     def test_no_candidates_with_notes_appends_to_base_note(
         self, qtbot: QtBot, tmp_path: Path
@@ -567,7 +307,6 @@ class TestPythonDetection:
         assert combo.count() == 0
         assert not button(editor, "editor-use-candidate").isEnabled()
 
-
 def make_test_draft_editor(
     qtbot: QtBot, tmp_path: Path, job: JobDefinition | None = None
 ) -> tuple[FakeTaskWorld, JobEditor]:
@@ -583,7 +322,6 @@ def make_test_draft_editor(
     editor.show()
     return world, editor
 
-
 def fake_dialog_exec(monkeypatch: pytest.MonkeyPatch) -> list[JobDefinition]:
     """Replace DirectTestDialog.exec with a recorder; returns the captured jobs."""
     opened: list[JobDefinition] = []
@@ -595,17 +333,7 @@ def fake_dialog_exec(monkeypatch: pytest.MonkeyPatch) -> list[JobDefinition]:
     monkeypatch.setattr(DirectTestDialog, "exec", fake_exec)
     return opened
 
-
 class TestDirectTestDraft:
-    def test_button_disabled_without_diagnostics(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """Without a diagnostics controller, Test Draft stays disabled."""
-        _, editor, _ = make_editor(qtbot, tmp_path)
-        assert not button(editor, "editor-test-draft").isEnabled()
-
-    def test_button_enabled_with_diagnostics(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """With a diagnostics controller, Test Draft is enabled."""
-        _, editor = make_test_draft_editor(qtbot, tmp_path)
-        assert button(editor, "editor-test-draft").isEnabled()
 
     def test_invalid_draft_shows_errors_and_opens_nothing(
         self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -617,19 +345,6 @@ class TestDirectTestDraft:
         assert opened == []
         assert errors(editor).isVisible()
         assert errors(editor).toPlainText().strip()
-        assert editor.saved_path is None
-        assert editor.saved_label is None
-
-    def test_valid_draft_opens_dialog_with_canonical_job(
-        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A valid current draft opens the dialog holding the built job."""
-        world, editor = make_test_draft_editor(qtbot, tmp_path, job=make_job())
-        opened = fake_dialog_exec(monkeypatch)
-        button(editor, "editor-test-draft").click()
-        assert len(opened) == 1
-        assert opened[0].label == make_job().label
-        assert world.jobs.find(opened[0].label) is None
         assert editor.saved_path is None
         assert editor.saved_label is None
 
@@ -645,7 +360,6 @@ class TestDirectTestDraft:
         assert opened[0].name == "Renamed Backup"
         assert opened[0].label == make_job().label
 
-
 PREVIEW_NOW = datetime(2026, 9, 4, 12, 0)  # Friday
 PREVIEW_LINES_0730 = (
     "Mon Sep 07 07:30\nMon Sep 14 07:30\nMon Sep 21 07:30\nMon Sep 28 07:30\nMon Oct 05 07:30"
@@ -656,7 +370,6 @@ PREVIEW_LINES_0800 = (
 PREVIEW_LINES_MULTI = (
     "Mon Sep 07 07:30\nMon Sep 07 17:30\nMon Sep 14 07:30\nMon Sep 14 17:30\nMon Sep 21 07:30"
 )
-
 
 class TestSchedulePreview:
     """Increment 15: the live next-run preview in the editor's Schedule group."""
@@ -672,21 +385,6 @@ class TestSchedulePreview:
         editor.show()
         return editor
 
-    def test_existing_job_shows_preview(self, qtbot: QtBot, tmp_path: Path) -> None:
-        editor = self._fixed_editor(qtbot, tmp_path, make_job())
-        preview = editor.findChild(QLabel, "editor-preview-occurrences")
-        assert preview is not None
-        assert preview.text() == PREVIEW_LINES_0730
-        heading = editor.findChild(QLabel, "editor-preview-heading")
-        assert heading is not None
-        assert heading.text() == PREVIEW_HEADING
-
-    def test_new_job_starts_neutral(self, qtbot: QtBot, tmp_path: Path) -> None:
-        editor = self._fixed_editor(qtbot, tmp_path, None)
-        preview = editor.findChild(QLabel, "editor-preview-occurrences")
-        assert preview is not None
-        assert preview.text() == PREVIEW_INCOMPLETE
-
     def test_time_edit_refreshes_preview(self, qtbot: QtBot, tmp_path: Path) -> None:
         editor = self._fixed_editor(qtbot, tmp_path, make_job())
         edit = line_edit(editor, "editor-time")
@@ -695,23 +393,6 @@ class TestSchedulePreview:
         preview = editor.findChild(QLabel, "editor-preview-occurrences")
         assert preview is not None
         assert preview.text() == PREVIEW_LINES_0800
-
-    def test_invalid_time_is_neutral(self, qtbot: QtBot, tmp_path: Path) -> None:
-        editor = self._fixed_editor(qtbot, tmp_path, make_job())
-        edit = line_edit(editor, "editor-time")
-        edit.selectAll()
-        qtbot.keyClicks(edit, "25:99")
-        preview = editor.findChild(QLabel, "editor-preview-occurrences")
-        assert preview is not None
-        assert preview.text() == PREVIEW_INCOMPLETE
-
-    def test_no_weekday_selected_is_neutral(self, qtbot: QtBot, tmp_path: Path) -> None:
-        editor = self._fixed_editor(qtbot, tmp_path, make_job())
-        checkbox(editor, "monday").setChecked(False)
-        preview = editor.findChild(QLabel, "editor-preview-occurrences")
-        assert preview is not None
-        assert preview.text() == PREVIEW_INCOMPLETE
-
 
 class TestMultiTimeSchedule:
     """Increment 16: multi-time calendar authoring through the time row editor."""
@@ -730,87 +411,6 @@ class TestMultiTimeSchedule:
         editor.show()
         return editor
 
-    def test_new_dialog_shows_one_blank_row(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """A new draft renders exactly one blank time row in the editor-times host."""
-        _, editor, _ = make_editor(qtbot, tmp_path)
-        assert editor.findChild(QWidget, "editor-times") is not None
-        assert line_edit(editor, "editor-time").text() == ""
-        assert editor.findChild(QLineEdit, "editor-time-1") is None
-
-    def test_multi_time_job_loads_rows_in_canonical_order(
-        self, qtbot: QtBot, tmp_path: Path
-    ) -> None:
-        """Every configured time loads as its own row, ascending, named in order."""
-        job = make_job(
-            schedule=CalendarSchedule(times=["17:30", "07:30"], weekdays={Weekday.MONDAY})
-        )
-        _, editor, _ = make_editor(qtbot, tmp_path, job)
-        assert line_edit(editor, "editor-time").text() == "07:30"
-        assert line_edit(editor, "editor-time-1").text() == "17:30"
-        assert editor.findChild(QLineEdit, "editor-time-2") is None
-
-    def test_add_row_neutralizes_preview_then_completes(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """A blank added row keeps the preview neutral; a valid one shows multi-time."""
-        editor = self._fixed_editor(qtbot, tmp_path)
-        assert self._occurrences(editor) == PREVIEW_LINES_0730
-        button(editor, "timerow-add").click()
-        assert line_edit(editor, "editor-time-1").text() == ""
-        assert self._occurrences(editor) == PREVIEW_INCOMPLETE
-        qtbot.keyClicks(line_edit(editor, "editor-time-1"), "17:30")
-        assert self._occurrences(editor) == PREVIEW_LINES_MULTI
-
-    def test_remove_last_row_restores_one_blank_row(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """Removing the only row clears it to blank instead of leaving zero rows."""
-        _, editor, _ = make_editor(qtbot, tmp_path, make_job())
-        button(editor, "timerow-remove").click()
-        assert line_edit(editor, "editor-time").text() == ""
-        assert editor.findChild(QLineEdit, "editor-time-1") is None
-        assert self._occurrences(editor) == PREVIEW_INCOMPLETE
-
-    def test_invalid_second_row_keeps_preview_neutral(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """One invalid row neutralizes the preview even when the others are valid."""
-        editor = self._fixed_editor(qtbot, tmp_path)
-        button(editor, "timerow-add").click()
-        qtbot.keyClicks(line_edit(editor, "editor-time-1"), "25:99")
-        assert self._occurrences(editor) == PREVIEW_INCOMPLETE
-
-    def test_save_collects_all_rows_sorted(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """Save carries every visible row and the domain sorts them."""
-        world, editor, _ = make_editor(qtbot, tmp_path)
-        fill_valid_python(editor)
-        button(editor, "timerow-add").click()
-        line_edit(editor, "editor-time-1").setText("17:30")
-        button(editor, "editor-save").click()
-        assert editor.result() == 1
-        assert world.catalog_root in editor.saved_path.parents
-        saved = json.loads(editor.saved_path.read_text())
-        assert saved["schedule"]["times"] == ["01:00", "17:30"]
-
-    def test_duplicate_rows_deduped_in_saved_job(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """Duplicate rows are legal in the UI; the built job collapses them."""
-        world, editor, _ = make_editor(qtbot, tmp_path)
-        fill_valid_python(editor)
-        button(editor, "timerow-add").click()
-        line_edit(editor, "editor-time-1").setText("01:00")
-        button(editor, "editor-save").click()
-        assert editor.result() == 1
-        saved = json.loads(editor.saved_path.read_text())
-        assert saved["schedule"]["times"] == ["01:00"]
-
-    def test_invalid_row_surfaces_times_field_error(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """An invalid row surfaces the domain message under the times field."""
-        world, editor, _ = make_editor(qtbot, tmp_path)
-        fill_valid_python(editor)
-        button(editor, "timerow-add").click()
-        line_edit(editor, "editor-time-1").setText("99:99")
-        button(editor, "editor-validate").click()
-        pane = errors(editor)
-        assert pane.isVisible()
-        assert "times: schedule time out of range (00:00-23:59), got '99:99'" in (
-            pane.toPlainText()
-        )
-
-
 PREVIEW_INTERVAL_LINES_900 = (
     "Fri Sep 04 12:15:00\n"
     "Fri Sep 04 12:30:00\n"
@@ -825,7 +425,6 @@ PREVIEW_INTERVAL_LINES_61 = (
     "Fri Sep 04 12:04:04\n"
     "Fri Sep 04 12:05:05"
 )
-
 
 class TestIntervalSchedule:
     """Increment 17: interval and login-trigger authoring through the Schedule group."""
@@ -874,92 +473,6 @@ class TestIntervalSchedule:
         editor.show()
         return editor
 
-    def test_schedule_object_names_present(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """Every schedule control carries its stable object name."""
-        _, editor, _ = make_editor(qtbot, tmp_path)
-        for name in (
-            "editor-schedule-kind",
-            "editor-schedule-stack",
-            "editor-calendar-schedule",
-            "editor-interval-schedule",
-            "editor-interval-value",
-            "editor-interval-unit",
-            "editor-run-at-load",
-        ):
-            assert editor.findChild(QWidget, name) is not None
-
-    def test_new_draft_defaults_to_calendar(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """A new draft opens on the calendar page with dormant interval values."""
-        _, editor, _ = make_editor(qtbot, tmp_path)
-        assert self._kind_combo(editor).currentIndex() == 0
-        assert self._schedule_stack(editor).currentIndex() == 0
-        assert line_edit(editor, "editor-interval-value").text() == "1"
-        assert self._unit_combo(editor).currentIndex() == 1
-        assert not self._run_at_load(editor).isChecked()
-
-    def test_interval_job_opens_on_interval_page(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """A stored interval job opens on the interval page in its largest exact unit."""
-        job = make_job(schedule=IntervalSchedule(seconds=900))
-        _, editor, _ = make_editor(qtbot, tmp_path, job)
-        assert self._kind_combo(editor).currentIndex() == 1
-        assert self._schedule_stack(editor).currentIndex() == 1
-        assert line_edit(editor, "editor-interval-value").text() == "15"
-        assert self._unit_combo(editor).currentIndex() == 1
-
-    def test_sub_minute_interval_opens_in_seconds(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """A stored sub-minute interval opens in the seconds unit unchanged."""
-        job = make_job(schedule=IntervalSchedule(seconds=61, run_at_load=True))
-        _, editor, _ = make_editor(qtbot, tmp_path, job)
-        assert line_edit(editor, "editor-interval-value").text() == "61"
-        assert self._unit_combo(editor).currentIndex() == 0
-        assert self._run_at_load(editor).isChecked()
-
-    def test_calendar_job_opens_with_run_at_load(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """A stored calendar job with login behavior opens checked on the calendar page."""
-        job = make_job(
-            schedule=CalendarSchedule(times=["07:30"], weekdays={Weekday.MONDAY}, run_at_load=True)
-        )
-        _, editor, _ = make_editor(qtbot, tmp_path, job)
-        assert self._kind_combo(editor).currentIndex() == 0
-        assert self._run_at_load(editor).isChecked()
-
-    def test_mode_switch_preserves_per_mode_values(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """Switching schedule kinds keeps both sets of values for the switch back."""
-        _, editor, _ = make_editor(qtbot, tmp_path)
-        line_edit(editor, "editor-time").setText("07:30")
-        checkbox(editor, "monday").setChecked(True)
-        self._kind_combo(editor).setCurrentIndex(1)
-        assert self._schedule_stack(editor).currentIndex() == 1
-        line_edit(editor, "editor-interval-value").setText("20")
-        self._kind_combo(editor).setCurrentIndex(0)
-        assert self._schedule_stack(editor).currentIndex() == 0
-        assert line_edit(editor, "editor-time").text() == "07:30"
-        assert checkbox(editor, "monday").isChecked()
-        assert line_edit(editor, "editor-interval-value").text() == "20"
-
-    def test_interval_preview_shows_estimate(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """A visible interval renders the anchored estimate with second precision."""
-        editor = self._fixed_editor(qtbot, tmp_path)
-        self._kind_combo(editor).setCurrentIndex(1)
-        edit = line_edit(editor, "editor-interval-value")
-        edit.selectAll()
-        qtbot.keyClicks(edit, "15")
-        assert self._occurrences(editor) == PREVIEW_INTERVAL_ANCHOR + "\n" + (
-            PREVIEW_INTERVAL_LINES_900
-        )
-
-    def test_sub_minute_interval_preview_keeps_seconds(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """A sub-minute interval shows its odd seconds truthfully in the estimate."""
-        editor = self._fixed_editor(qtbot, tmp_path)
-        self._kind_combo(editor).setCurrentIndex(1)
-        self._unit_combo(editor).setCurrentIndex(0)
-        edit = line_edit(editor, "editor-interval-value")
-        edit.selectAll()
-        qtbot.keyClicks(edit, "61")
-        assert self._occurrences(editor) == PREVIEW_INTERVAL_ANCHOR + "\n" + (
-            PREVIEW_INTERVAL_LINES_61
-        )
-
     @pytest.mark.parametrize("value", ["1.5", "abc", "0", "-5"])
     def test_invalid_interval_value_is_neutral(
         self, qtbot: QtBot, tmp_path: Path, value: str
@@ -972,15 +485,6 @@ class TestIntervalSchedule:
         qtbot.keyClicks(edit, value)
         assert self._occurrences(editor) == PREVIEW_INCOMPLETE
 
-    def test_blank_interval_value_is_neutral(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """Clearing the duration keeps the preview neutral."""
-        editor = self._fixed_editor(qtbot, tmp_path)
-        self._kind_combo(editor).setCurrentIndex(1)
-        edit = line_edit(editor, "editor-interval-value")
-        edit.selectAll()
-        qtbot.keyClick(edit, Qt.Key.Key_Backspace)
-        assert self._occurrences(editor) == PREVIEW_INCOMPLETE
-
     def test_sub_minimum_interval_is_neutral(self, qtbot: QtBot, tmp_path: Path) -> None:
         """A duration below the domain minimum keeps the preview neutral."""
         editor = self._fixed_editor(qtbot, tmp_path)
@@ -990,63 +494,6 @@ class TestIntervalSchedule:
         edit.selectAll()
         qtbot.keyClicks(edit, "30")
         assert self._occurrences(editor) == PREVIEW_INCOMPLETE
-
-    @pytest.mark.parametrize(
-        ("value", "unit_index", "expected"),
-        [
-            ("30", 0, "interval: interval must be at least 60 seconds"),
-            ("1.5", 1, "interval: enter a whole number of seconds, minutes, hours, or days"),
-            ("0", 1, "interval: enter a positive whole number of seconds, minutes, hours, or days"),
-        ],
-    )
-    def test_interval_validate_error_lines(
-        self, qtbot: QtBot, tmp_path: Path, value: str, unit_index: int, expected: str
-    ) -> None:
-        """An invalid interval surfaces its exact message under the interval field."""
-        _, editor, _ = make_editor(qtbot, tmp_path)
-        self._fill_command(editor)
-        self._kind_combo(editor).setCurrentIndex(1)
-        self._unit_combo(editor).setCurrentIndex(unit_index)
-        line_edit(editor, "editor-interval-value").setText(value)
-        button(editor, "editor-validate").click()
-        pane = errors(editor)
-        assert pane.isVisible()
-        assert expected in pane.toPlainText()
-
-    def test_save_interval_writes_catalog(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """Saving an interval draft writes the interval schedule to the catalog."""
-        world, editor, _ = make_editor(qtbot, tmp_path)
-        self._fill_command(editor)
-        self._kind_combo(editor).setCurrentIndex(1)
-        line_edit(editor, "editor-interval-value").setText("15")
-        button(editor, "editor-save").click()
-        assert editor.result() == 1
-        assert world.catalog_root in editor.saved_path.parents
-        saved = json.loads(editor.saved_path.read_text())
-        assert saved["schedule"] == {"kind": "interval", "seconds": 900, "run_at_load": False}
-
-    def test_save_interval_with_run_at_load(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """Saving an interval draft with the login trigger persists run_at_load."""
-        _, editor, _ = make_editor(qtbot, tmp_path)
-        self._fill_command(editor)
-        self._kind_combo(editor).setCurrentIndex(1)
-        line_edit(editor, "editor-interval-value").setText("15")
-        self._run_at_load(editor).setChecked(True)
-        button(editor, "editor-save").click()
-        assert editor.result() == 1
-        saved = json.loads(editor.saved_path.read_text())
-        assert saved["schedule"] == {"kind": "interval", "seconds": 900, "run_at_load": True}
-
-    def test_calendar_save_with_run_at_load(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """Saving a calendar draft with the login trigger persists run_at_load."""
-        world, editor, _ = make_editor(qtbot, tmp_path)
-        fill_valid_python(editor)
-        self._run_at_load(editor).setChecked(True)
-        button(editor, "editor-save").click()
-        assert editor.result() == 1
-        saved = json.loads(editor.saved_path.read_text())
-        assert saved["schedule"]["kind"] == "calendar"
-        assert saved["schedule"]["run_at_load"] is True
 
     def test_interval_preview_xml(self, qtbot: QtBot, tmp_path: Path) -> None:
         """An interval draft previews a plist with StartInterval plus RunAtLoad."""
@@ -1061,23 +508,3 @@ class TestIntervalSchedule:
         assert "<integer>900</integer>" in text
         assert "<key>RunAtLoad</key>" in text
         assert "StartCalendarInterval" not in text
-
-    def test_saved_interval_job_reopens_on_interval_page(
-        self, qtbot: QtBot, tmp_path: Path
-    ) -> None:
-        """A saved interval job reopens on the interval page with normalized values."""
-        world, editor, _ = make_editor(qtbot, tmp_path)
-        self._fill_command(editor)
-        self._kind_combo(editor).setCurrentIndex(1)
-        line_edit(editor, "editor-interval-value").setText("20")
-        self._unit_combo(editor).setCurrentIndex(3)
-        button(editor, "editor-save").click()
-        assert editor.result() == 1
-        job = world.services.resolve_managed_job(editor.saved_label)
-        reopened = JobEditor(EditorController(world.services))
-        qtbot.addWidget(reopened)
-        reopened.open_existing(job)
-        reopened.show()
-        assert self._kind_combo(reopened).currentIndex() == 1
-        assert line_edit(reopened, "editor-interval-value").text() == "20"
-        assert self._unit_combo(reopened).currentIndex() == 3

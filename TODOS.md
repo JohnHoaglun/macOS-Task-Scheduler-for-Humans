@@ -213,16 +213,16 @@
 - [x] Source-size review (`diagnostic_service.py`, `diagnostic_probes.py`)
 - [x] Version 0.0.18 → 0.0.19, registry update, stale-reference grep, commit, push
 
-## Walk Increment 20 — Application-Observed Execution History (§59) (IN PROGRESS)
+## Walk Increment 20 — Application-Observed Execution History (§59) (DONE — v0.0.20)
 - [x] Plan approved 2026-09-07 (event scope = direct tests, manual runs, explicit status, aggregate diagnostic result; writes best-effort non-blocking); parallel-lane plan pinned in PLAN.md
-- [ ] Stage 0: `application/history_models.py` (kinds, outcomes, `HistoryEvent`, `HistoryReadResult`, `HistoryRepository` port, `HISTORY_UNAVAILABLE`)
-- [ ] Lane 1A: `storage/execution_history_repository.py` + `default_history_path` + `storage/__init__.py` export + storage tests
-- [ ] Lane 1B: service recording at `test_job`/`run_now`/`status` boundaries + `history(label, *, limit)` façade + `bootstrap.py` wiring + `FakeTaskWorld` real temp repository + service tests
-- [ ] Lane 1C: `mactask history <label> --limit N` + `format_history` in `cli/render.py` + CLI tests
-- [ ] Lane 1D: `HistoryController` (synchronous) + `history_presenter` + `HistoryTableModel` + `HistoryPanel` + `MainWindow`/`gui/app.py` wiring + GUI tests
-- [ ] Lane 1E: README + `docs/architecture.md` + `docs/development.md`
-- [ ] Integration: review all lane diffs, commit per lane, `make check` + 100% coverage
-- [ ] Closeout: size review, ratio report, SUMMARY v0.0.20, version grep, push
+- [x] Stage 0: `application/history_models.py` (kinds, outcomes, `HistoryEvent`, `HistoryReadResult`, `HistoryRepository` port, `HISTORY_UNAVAILABLE`)
+- [x] Lane 1A: `storage/execution_history_repository.py` + `default_history_path` + `storage/__init__.py` export + storage tests
+- [x] Lane 1B: service recording at `test_job`/`run_now`/`status` boundaries + `history(label, *, limit)` façade + `bootstrap.py` wiring + `FakeTaskWorld` real temp repository + service tests
+- [x] Lane 1C: `mactask history <label> --limit N` + `format_history` in `cli/render.py` + CLI tests
+- [x] Lane 1D: `HistoryController` (synchronous) + `history_presenter` + `HistoryTableModel` + `HistoryPanel` + `MainWindow`/`gui/app.py` wiring + GUI tests
+- [x] Lane 1E: README + `docs/architecture.md` + `docs/development.md`
+- [x] Integration: review all lane diffs, commit per lane, `make check` + 100% coverage (per-operation sqlite connections; latent circular-import fix in `job_service`/`task_command_service`)
+- [x] Closeout: size review, test/code ratio enforcement (15,004 → 5,444 lines, 62.4% ≤ 75% cap; 100% coverage held), SUMMARY v0.0.20, version grep, push
 - Details in PLAN.md (pinned contract)
 
 ## Walk Increment 21 — External Plist Import (§61) (PLANNED)

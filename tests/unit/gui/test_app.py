@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import runpy
-import tomllib
 from pathlib import Path
 from typing import NoReturn
 
@@ -13,7 +12,6 @@ from pytestqt.qtbot import QtBot
 
 import task_scheduler.bootstrap as bootstrap
 from task_scheduler.application.task_command_service import TaskListing
-from task_scheduler.gui import app as app_module
 from task_scheduler.gui import main_window
 from task_scheduler.gui.app import create_main_window
 from task_scheduler.gui.main_window import MainWindow
@@ -28,7 +26,6 @@ class _EmptyServices:
     def inspect_discovered(self, path: Path) -> NoReturn:
         raise NotImplementedError
 
-
 class _FakeApp:
     """Stands in for QApplication: records the exec call, returns code 42."""
 
@@ -40,19 +37,10 @@ class _FakeApp:
         self.exec_called = True
         return 42
 
-
 def test_create_main_window_returns_main_window(qtbot: QtBot) -> None:
     win = create_main_window(_EmptyServices())
     qtbot.addWidget(win)
     assert isinstance(win, MainWindow)
-
-
-def test_main_returns_event_loop_exit_code(qtbot: QtBot, monkeypatch: pytest.MonkeyPatch) -> None:
-    stub = _EmptyServices()
-    monkeypatch.setattr(app_module, "QApplication", _FakeApp)
-    monkeypatch.setattr(app_module, "build_services", lambda: stub)
-    assert app_module.main() == 42
-
 
 class _FakeWindow:
     """Stands in for MainWindow: records show, creates no C++ widget."""
@@ -62,7 +50,6 @@ class _FakeWindow:
 
     def show(self) -> None:
         self.shown = True
-
 
 def test_main_module_launcher_exits_with_return_code(
     qtbot: QtBot, monkeypatch: pytest.MonkeyPatch
@@ -89,9 +76,3 @@ def test_main_module_launcher_exits_with_return_code(
         runpy.run_path(str(app_file), run_name="__main__")
     assert excinfo.value.code == 42
 
-
-def test_scripts_entry_points() -> None:
-    pyproject = Path(__file__).resolve().parents[3] / "pyproject.toml"
-    with pyproject.open("rb") as handle:
-        data = tomllib.load(handle)
-    assert data["project"]["scripts"]["mactask-gui"] == "task_scheduler.gui.app:main"

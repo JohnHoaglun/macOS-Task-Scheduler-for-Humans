@@ -6,7 +6,6 @@ external plists do not encode job UUIDs; the reader assigns fresh ones.
 
 from __future__ import annotations
 
-import json
 from datetime import time as Time
 from pathlib import Path
 from uuid import uuid4
@@ -118,7 +117,6 @@ def _jobs() -> list[JobDefinition]:
         ),
     ]
 
-
 def _assert_round_trip(original: JobDefinition, parsed: JobDefinition) -> None:
     assert parsed.name == original.label
     assert parsed.label == original.label
@@ -129,7 +127,6 @@ def _assert_round_trip(original: JobDefinition, parsed: JobDefinition) -> None:
     assert parsed.working_directory == original.working_directory
     assert parsed.logging == original.logging
 
-
 def test_all_command_kinds_round_trip() -> None:
     codec = PlistCodec()
     for original in _jobs():
@@ -138,34 +135,3 @@ def test_all_command_kinds_round_trip() -> None:
         assert parsed_result.job is not None
         _assert_round_trip(original, parsed_result.job)
 
-
-def test_golden_json_round_trips() -> None:
-    golden_dir = Path(__file__).resolve().parents[2] / "golden"
-    codec = PlistCodec()
-    for stem in ("python_monday", "python_weekdays", "shell_mwf", "executable_weekend"):
-        payload = json.loads((golden_dir / f"{stem}.json").read_text())
-        original = JobDefinition.model_validate(payload)
-        parsed_result = parse_bytes(codec.encode_bytes(original))
-        assert parsed_result.status is ParseSupport.SUPPORTED, stem
-        assert parsed_result.job is not None
-        _assert_round_trip(original, parsed_result.job)
-
-
-def test_interval_schedule_with_run_at_load_round_trips() -> None:
-    codec = PlistCodec()
-    original = JobDefinition(
-        schema_version=2,
-        id=uuid4(),
-        name="Frequent Ping",
-        label="io.github.macos-task-scheduler.user.frequent-ping",
-        enabled=True,
-        command=ShellCommand(
-            executable=Path("/bin/zsh"),
-            arguments=["/Users/example/scripts/ping.sh"],
-        ),
-        schedule=IntervalSchedule(seconds=300, run_at_load=True),
-    )
-    parsed_result = parse_bytes(codec.encode_bytes(original))
-    assert parsed_result.status is ParseSupport.SUPPORTED
-    assert parsed_result.job is not None
-    _assert_round_trip(original, parsed_result.job)

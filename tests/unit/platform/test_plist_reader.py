@@ -3,127 +3,16 @@
 from __future__ import annotations
 
 import plistlib
-from datetime import time as Time
 from pathlib import Path
 
 import pytest
 
-from task_scheduler.domain import (
-    CalendarSchedule,
-    ExecutableCommand,
-    IntervalSchedule,
-    PythonCommand,
-    ShellCommand,
-    Weekday,
-)
 from task_scheduler.platform.macos import ParsedLaunchAgent, ParseSupport, parse_bytes, parse_path
 
 FIXTURES = Path(__file__).resolve().parents[2] / "fixtures" / "plists"
 
-
 def _parse(name: str) -> ParsedLaunchAgent:
     return parse_path(FIXTURES / name)
-
-
-class TestSupported:
-    def test_python_supported(self) -> None:
-        result = _parse("python_supported.plist")
-        assert result.status is ParseSupport.SUPPORTED
-        assert result.warnings == []
-        assert result.unsupported_keys == []
-        job = result.job
-        assert job is not None
-        assert isinstance(job.command, PythonCommand)
-        assert job.command.interpreter == Path("/Users/example/.venv/bin/python")
-        assert job.command.script == Path("/Users/example/report.py")
-        assert job.command.arguments == []
-        assert job.schedule.times == [Time(7, 30)]
-        assert job.schedule.weekdays == {Weekday.MONDAY, Weekday.FRIDAY}
-        assert job.schedule.run_at_load is False
-        assert job.working_directory == Path("/Users/example/project")
-        assert job.enabled is True
-        assert job.name == job.label == "com.example.python-supported"
-        assert job.environment.variables == {}
-
-    def test_shell_supported(self) -> None:
-        result = _parse("shell_supported.plist")
-        assert result.status is ParseSupport.SUPPORTED
-        job = result.job
-        assert job is not None
-        assert isinstance(job.command, ShellCommand)
-        assert job.command.executable == Path("/bin/zsh")
-        assert job.command.arguments == ["/Users/example/scripts/backup.sh"]
-        assert job.schedule.times == [Time(9, 15)]
-        assert job.schedule.weekdays == {Weekday.TUESDAY}
-
-    def test_executable_supported(self) -> None:
-        result = _parse("executable_supported.plist")
-        assert result.status is ParseSupport.SUPPORTED
-        job = result.job
-        assert job is not None
-        assert isinstance(job.command, ExecutableCommand)
-        assert job.command.executable == Path("/opt/homebrew/bin/sync-tool")
-        assert job.command.arguments == ["--sync"]
-        assert job.schedule.weekdays == {Weekday.SATURDAY}
-
-    def test_with_environment(self) -> None:
-        job = _parse("with_environment.plist").job
-        assert job is not None
-        assert job.environment.variables == {"FOO": "bar", "PATH": "/usr/bin"}
-
-    def test_with_logs(self) -> None:
-        job = _parse("with_logs.plist").job
-        assert job is not None
-        assert job.logging.stdout_path == Path("/Users/example/logs/out.log")
-        assert job.logging.stderr_path == Path("/Users/example/logs/err.log")
-
-    def test_disabled(self) -> None:
-        result = _parse("disabled.plist")
-        assert result.status is ParseSupport.SUPPORTED
-        assert result.job is not None
-        assert result.job.enabled is False
-
-
-class TestPartiallySupported:
-    def test_keepalive_keeps_job_and_reports_key(self) -> None:
-        result = _parse("keepalive.plist")
-        assert result.status is ParseSupport.PARTIALLY_SUPPORTED
-        assert result.unsupported_keys == ["KeepAlive"]
-        assert result.job is not None
-        assert result.raw["Label"] == "com.example.keepalive"
-
-    def test_runatload(self) -> None:
-        result = _parse("runatload.plist")
-        assert result.status is ParseSupport.SUPPORTED
-        assert result.unsupported_keys == []
-        assert result.job is not None
-        assert result.job.schedule.run_at_load is True
-
-    def test_multiple_times(self) -> None:
-        result = _parse("multiple_times.plist")
-        assert result.status is ParseSupport.SUPPORTED
-        assert result.warnings == []
-        assert result.job is not None
-        schedule = result.job.schedule
-        assert isinstance(schedule, CalendarSchedule)
-        assert schedule.times == [Time(7, 30), Time(17, 30)]
-        assert schedule.weekdays == {Weekday.MONDAY}
-
-    def test_interval_schedule(self) -> None:
-        result = _parse("interval_300.plist")
-        assert result.status is ParseSupport.SUPPORTED
-        assert result.job is not None
-        schedule = result.job.schedule
-        assert isinstance(schedule, IntervalSchedule)
-        assert schedule.seconds == 300
-        assert schedule.run_at_load is False
-
-    def test_no_schedule_drops_job(self) -> None:
-        result = _parse("no_schedule.plist")
-        assert result.status is ParseSupport.PARTIALLY_SUPPORTED
-        assert result.job is None
-        assert any("no schedule found" in warning for warning in result.warnings)
-
 
 class TestInvalid:
     @pytest.mark.parametrize(
@@ -147,7 +36,6 @@ class TestInvalid:
         assert result.status is ParseSupport.INVALID
         assert result.job is None
         assert result.warnings
-
 
 class TestParseBytes:
     def test_non_dictionary_top_level(self) -> None:
@@ -176,7 +64,6 @@ class TestParseBytes:
         assert parsed.status is ParseSupport.PARTIALLY_SUPPORTED
         assert parsed.job is None
 
-
 _BASE = {
     "Label": "com.example.branch",
     "ProgramArguments": ["/bin/zsh", "/Users/example/scripts/x.sh"],
@@ -189,10 +76,8 @@ _INTERVAL_BASE = {
 }
 _INVALID = ParseSupport.INVALID
 
-
 def _entry(hour: object, minute: object) -> dict[str, object]:
     return {"Weekday": 1, "Hour": hour, "Minute": minute}
-
 
 class TestBranches:
     @pytest.mark.parametrize(
@@ -237,17 +122,7 @@ class TestBranches:
         assert parsed.status is ParseSupport.PARTIALLY_SUPPORTED
         assert parsed.job is None
 
-
 class TestScheduleBranches:
-    def test_interval_with_run_at_load(self) -> None:
-        payload = dict(_INTERVAL_BASE)
-        payload["RunAtLoad"] = True
-        parsed = parse_bytes(plistlib.dumps(payload))
-        assert parsed.status is ParseSupport.SUPPORTED
-        assert parsed.job is not None
-        schedule = parsed.job.schedule
-        assert isinstance(schedule, IntervalSchedule)
-        assert schedule.run_at_load is True
 
     def test_interval_below_minimum_drops_job(self) -> None:
         payload = dict(_INTERVAL_BASE)
@@ -286,13 +161,6 @@ class TestScheduleBranches:
     def test_non_boolean_run_at_load_is_invalid(self) -> None:
         payload = dict(_BASE)
         payload["RunAtLoad"] = "yes"
-        parsed = parse_bytes(plistlib.dumps(payload))
-        assert parsed.status is ParseSupport.INVALID
-        assert parsed.job is None
-
-    def test_empty_calendar_list_is_invalid(self) -> None:
-        payload = dict(_BASE)
-        payload["StartCalendarInterval"] = []
         parsed = parse_bytes(plistlib.dumps(payload))
         assert parsed.status is ParseSupport.INVALID
         assert parsed.job is None

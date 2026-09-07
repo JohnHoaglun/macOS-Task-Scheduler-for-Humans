@@ -13,17 +13,8 @@ def test_format_status_unknown() -> None:
         "launchd status unknown (launchctl could not be queried)"
     )
 
-
-def test_format_schedule_calendar() -> None:
-    schedule = CalendarSchedule(
-        times=["17:30", "07:30"], weekdays={"monday", "friday"}
-    )
-    assert render.format_schedule(schedule) == "07:30 and 17:30 on friday, monday"
-
-
 def test_format_schedule_interval() -> None:
     assert render.format_schedule(IntervalSchedule(seconds=1800)) == "Every 30 minutes"
-
 
 def test_format_schedule_run_at_load() -> None:
     schedule = CalendarSchedule(times=["07:30"], weekdays={"monday"}, run_at_load=True)

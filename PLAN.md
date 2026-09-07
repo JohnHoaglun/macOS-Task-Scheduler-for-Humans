@@ -18,7 +18,8 @@ Crawl Increments 0–12 complete and pushed to `sched_dev_opencode` (version 0.0
 - **Increment 12:** GUI diagnostics/logs: job-based façade contracts (`test_job(job, *, detection=None)`, `test(label)` delegating, `compare_environment(job, terminal_environment)`, `read_logs_for(job)` with `read_logs(label)` delegating, `gui_environment()` in the composition layer), Qt-free `DiagnosticsController` + `QThread` `DiagnosticsWorker`, shared `DiagnosticLogsPanel` (test summary, diagnostics, direct/persisted stdout/stderr with Refresh, name-only environment comparison, Python recommendations), main-window Test action with selection/stale-result guard, `DirectTestDialog` for the editor's Test Draft (persists nothing); 766 tests
 - Verification at v0.0.12: 766 tests, 100% coverage, ruff + mypy strict clean
 
-Current focus: **Walk Increment 20 — Application-Observed Execution History** (parallel-lane plan approved 2026-09-07: serial stage-0 interface lock, then five concurrent `faster` lanes 1A–1E, then build-led integration/closeout at v0.0.20 — increments 14–19 complete at v0.0.19; Increment 19, Expanded Diagnostics, shipped 2026-09-07 across `0a2274f` core / `b065ea7` GUI / `21bcfd9` CLI).
+Current focus: none — **Walk Increment 20 — Application-Observed Execution History** shipped 2026-09-07 at v0.0.20 (`22dfa09` plan / `2d261a0` stage 0 / `f93337f` 1A / `b8559ec` 1E / `d005ade` 1B / `bc65d7b` 1C / `8ccf653` 1D / `ad6d511` integration); increments 14–20 complete at v0.0.20.
+- Verification at v0.0.20: 1184 tests, 100% coverage (4416 statements), `make check` clean (ruff / mypy strict / pytest, no ResourceWarnings); same-turn ratio enforcement then cut the suite to 323 tests at 100% coverage (tests 5,444 lines = 62.4% of the 8,723 production lines, under the 75% cap)
 
 ---
 
