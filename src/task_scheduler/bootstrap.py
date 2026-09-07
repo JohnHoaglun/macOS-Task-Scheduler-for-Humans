@@ -20,7 +20,11 @@ from task_scheduler.platform.macos import (
     PlistCodec,
     SubprocessRunner,
 )
-from task_scheduler.storage import JsonJobRepository
+from task_scheduler.storage import (
+    ExecutionHistoryRepository,
+    JsonJobRepository,
+    default_history_path,
+)
 
 __all__ = ["build_services", "gui_environment"]
 
@@ -36,6 +40,7 @@ def build_services() -> TaskCommandService:
         codec=PlistCodec(),
         test=DirectTestService(SubprocessRunner()),
         logs=LogService(),
+        history=ExecutionHistoryRepository(default_history_path()),
     )
 
 

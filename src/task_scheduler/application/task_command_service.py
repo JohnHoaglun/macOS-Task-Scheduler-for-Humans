@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from uuid import UUID
@@ -29,6 +30,14 @@ from task_scheduler.application.diagnostic_models import (
 from task_scheduler.application.diagnostic_service import (
     collect_preflight_paths,
     evaluate_diagnostic_report,
+)
+from task_scheduler.application.history_models import (
+    HISTORY_UNAVAILABLE,
+    HistoryEvent,
+    HistoryEventKind,
+    HistoryOutcome,
+    HistoryReadResult,
+    HistoryRepository,
 )
 from task_scheduler.application.job_service import JobService
 from task_scheduler.application.log_service import JobLogs, LogService
@@ -162,6 +171,7 @@ class TaskCommandService:
         test: DirectTestService,
         logs: LogService,
         probes: DiagnosticProbes | None = None,
+        history: HistoryRepository | None = None,
     ) -> None:
         self._repository = repository
         self._jobs = jobs
@@ -171,8 +181,49 @@ class TaskCommandService:
         self._test = test
         self._logs = logs
         self._probes = probes or LocalDiagnosticProbes()
+        self._history = history
         if test is not None:
             self._test._probes = self._probes
+
+    # -- recording helpers ---------------------------------------------------
+
+    def _record_event(
+        self,
+        *,
+        job_id: UUID,
+        label: str,
+        kind: HistoryEventKind,
+        outcome: HistoryOutcome,
+        exit_code: int | None,
+        duration_seconds: float | None,
+        loaded: bool | None,
+        codes: tuple[str, ...],
+    ) -> None:
+        if self._history is None:
+            return
+        event = HistoryEvent(
+            created_at=datetime.now(UTC),
+            job_id=job_id,
+            label=label,
+            kind=kind,
+            outcome=outcome,
+            exit_code=exit_code,
+            duration_seconds=duration_seconds,
+            loaded=loaded,
+            diagnostic_codes=codes,
+        )
+        self._history.append(event)
+
+    # -- execution history ---------------------------------------------------
+
+    def history(self, label: str, *, limit: int = 50) -> HistoryReadResult:
+        """Return recent history events for the managed job identified by *label*."""
+        if limit < 1 or limit > 100:
+            raise ValueError("limit must be between 1 and 100 inclusive")
+        job = self._require_managed(label)
+        if self._history is None:
+            return HistoryReadResult(events=(), error=HISTORY_UNAVAILABLE)
+        return self._history.read(job.id, limit=limit)
 
     # -- discovery ---------------------------------------------------------
 
@@ -417,13 +468,37 @@ class TaskCommandService:
 
     def status(self, label: str) -> LaunchAgentStatus:
         """Report whether the managed job is loaded in launchd."""
-        self._require_managed(label)
-        return self._backend.status(label)
+        job = self._require_managed(label)
+        status = self._backend.status(label)
+        self._record_event(
+            job_id=job.id,
+            label=label,
+            kind=HistoryEventKind.STATUS_OBSERVATION,
+            outcome=HistoryOutcome.OBSERVED,
+            exit_code=status.process.exit_code,
+            duration_seconds=status.process.duration.total_seconds(),
+            loaded=status.loaded,
+            codes=(),
+        )
+        return status
 
     def run_now(self, label: str) -> LaunchctlResult:
         """Ask launchd to run the managed job now (kickstart -k)."""
-        self._require_managed(label)
-        return self._backend.trigger(label)
+        job = self._require_managed(label)
+        result = self._backend.trigger(label)
+        self._record_event(
+            job_id=job.id,
+            label=label,
+            kind=HistoryEventKind.MANUAL_RUN,
+            outcome=HistoryOutcome.SUCCESS
+            if result.process.exit_code == 0
+            else HistoryOutcome.FAILURE,
+            exit_code=result.process.exit_code,
+            duration_seconds=result.process.duration.total_seconds(),
+            loaded=None,
+            codes=(),
+        )
+        return result
 
     # -- testing and logs -----------------------------------------------------
 
@@ -447,7 +522,34 @@ class TaskCommandService:
         validated = self.validate_job(job)
         if detection is None and isinstance(validated.command, PythonCommand):
             detection = self.detect_python(validated.command.script)
-        return self._test.run(validated, detection=detection)
+        result = self._test.run(validated, detection=detection)
+        saved = self._jobs.find(validated.label)
+        if saved is not None:
+            self._record_event(
+                job_id=saved.id,
+                label=validated.label,
+                kind=HistoryEventKind.DIRECT_TEST,
+                outcome=HistoryOutcome.SUCCESS
+                if result.process.exit_code == 0
+                else HistoryOutcome.FAILURE,
+                exit_code=result.process.exit_code,
+                duration_seconds=result.process.duration.total_seconds(),
+                loaded=None,
+                codes=(),
+            )
+            self._record_event(
+                job_id=saved.id,
+                label=validated.label,
+                kind=HistoryEventKind.DIAGNOSTIC_RESULT,
+                outcome=HistoryOutcome.SUCCESS
+                if not result.report.all
+                else HistoryOutcome.FAILURE,
+                exit_code=None,
+                duration_seconds=None,
+                loaded=None,
+                codes=tuple(d.code for d in result.report.all),
+            )
+        return result
 
     def compare_environment(
         self,

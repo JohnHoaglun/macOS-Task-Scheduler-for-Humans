@@ -24,7 +24,10 @@ from task_scheduler.platform.macos.diagnostic_probes import (
     DiagnosticProbes,
     ProtectedPathFinding,
 )
-from task_scheduler.storage import JsonJobRepository
+from task_scheduler.storage import (
+    ExecutionHistoryRepository,
+    JsonJobRepository,
+)
 
 
 class FakeClock:
@@ -156,6 +159,8 @@ class FakeTaskWorld:
     ) -> None:
         self.catalog_root = tmp_path / "catalog"
         self.la_root = tmp_path / "launchagents"
+        self.history_root = tmp_path / "history"
+        self.history_root.mkdir(parents=True, exist_ok=True)
         self.store = LaunchAgentStore(self.la_root)
         self.jobs = JobService(self.catalog_root)
         if launches is not None:
@@ -164,6 +169,9 @@ class FakeTaskWorld:
             self.launch_runner = FakeProcessRunner(result=launch or OK_PROCESS)
         self.test_runner = FakeProcessRunner(result=test or OK_PROCESS)
         self.backend = LaunchAgentBackend(self.store, self.launch_runner, uid=1000)
+        self.history_repo = ExecutionHistoryRepository(
+            self.history_root / "history.sqlite3"
+        )
         self.services = TaskCommandService(
             repository=JsonJobRepository(),
             jobs=self.jobs,
@@ -173,6 +181,7 @@ class FakeTaskWorld:
             test=DirectTestService(self.test_runner),
             logs=LogService(),
             probes=probes,
+            history=self.history_repo,
         )
 
     def manage(self, job: JobDefinition) -> None:
