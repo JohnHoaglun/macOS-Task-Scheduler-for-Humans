@@ -10,7 +10,7 @@ from __future__ import annotations
 import shlex
 from datetime import timedelta
 
-from task_scheduler.application.diagnostic_service import Diagnostic
+from task_scheduler.application.diagnostic_models import Diagnostic
 from task_scheduler.application.log_service import JobLogs, LogStream
 from task_scheduler.application.task_command_service import (
     InspectReport,

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from PySide6.QtWidgets import QPlainTextEdit
 
-from task_scheduler.application.diagnostic_service import (
+from task_scheduler.application.diagnostic_models import (
     Diagnostic,
     DiagnosticSeverity,
 )

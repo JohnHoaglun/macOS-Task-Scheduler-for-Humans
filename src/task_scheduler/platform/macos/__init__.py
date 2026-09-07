@@ -2,6 +2,14 @@
 
 from __future__ import annotations
 
+from task_scheduler.platform.macos.diagnostic_probes import (
+    ArchitectureFinding,
+    DiagnosticProbes,
+    LocalDiagnosticProbes,
+    ProtectedPathFinding,
+    probe_executable_architecture,
+    probe_protected_paths,
+)
 from task_scheduler.platform.macos.filesystem import (
     LaunchAgentFilesystem,
     LocalFilesystem,
@@ -60,7 +68,13 @@ from task_scheduler.platform.macos.python_detection import (
 )
 
 __all__ = [
+    "ArchitectureFinding",
+    "DiagnosticProbes",
     "LAUNCHD_TO_WEEKDAY",
+    "LocalDiagnosticProbes",
+    "ProtectedPathFinding",
+    "probe_executable_architecture",
+    "probe_protected_paths",
     "SUPPORTED_KEYS",
     "WEEKDAY_TO_LAUNCHD",
     "CandidateSource",

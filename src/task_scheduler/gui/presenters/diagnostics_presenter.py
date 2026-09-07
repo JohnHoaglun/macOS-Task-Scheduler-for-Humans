@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import timedelta
 
-from task_scheduler.application.diagnostic_service import Diagnostic
+from task_scheduler.application.diagnostic_models import Diagnostic
 from task_scheduler.application.log_service import LogStream
 from task_scheduler.domain import JobDefinition, PythonCommand
 from task_scheduler.gui.controllers.diagnostics_controller import TestOutcome

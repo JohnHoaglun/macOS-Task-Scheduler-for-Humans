@@ -16,7 +16,7 @@ from uuid import UUID
 import pytest
 from pydantic import ValidationError
 from tests.conftest import make_job
-from tests.fakes import OK_PROCESS, FakeTaskWorld
+from tests.fakes import OK_PROCESS, FakeDiagnosticProbes, FakeTaskWorld
 
 from task_scheduler.application import (
     InstallPhase,
@@ -24,10 +24,12 @@ from task_scheduler.application import (
     JobNotFoundError,
     ListingKind,
 )
+from task_scheduler.application.diagnostic_models import DiagnosticSource
 from task_scheduler.application.job_service import (
     default_job_logs_root,
     managed_label,
 )
+from task_scheduler.application.log_service import JobLogs, LogStream
 from task_scheduler.domain import (
     EnvironmentConfig,
     JobDefinition,
@@ -45,11 +47,16 @@ from task_scheduler.platform.macos import (
     InterpreterCandidate,
     LaunchAgentStatus,
     LaunchctlAction,
+    ParsedLaunchAgent,
     ParseSupport,
     PlistCodec,
     ProcessLaunchFailure,
     ProcessResult,
     PythonDetectionResult,
+)
+from task_scheduler.platform.macos.diagnostic_probes import (
+    ArchitectureFinding,
+    ProtectedPathFinding,
 )
 
 OTHER_ID = UUID("87654321-4321-4321-4321-432143214321")
@@ -831,3 +838,143 @@ class TestEditorFacade:
         world = FakeTaskWorld(tmp_path)
         with pytest.raises(JobNotFoundError):
             world.services.resolve_managed_job("missing.label")
+
+
+class TestDiagnosticsFacade:
+    def test_diagnostic_report_for_preflight_group(self, tmp_path: Path) -> None:
+        probes = FakeDiagnosticProbes(
+            protected_findings=(
+                ProtectedPathFinding(
+                    path=Path("/Users/Shared/job"), root=Path("/Users/Shared")
+                ),
+            ),
+            architecture_finding=ArchitectureFinding(
+                path=Path("/Users/example/project/.venv/bin/python"),
+                declared=(0x07000003,),
+                host=0x0100000C,
+            ),
+        )
+        world = FakeTaskWorld(tmp_path, probes=probes)
+        report = world.services.diagnostic_report_for(make_job())
+        assert [group.source for group in report.groups] == [DiagnosticSource.PREFLIGHT]
+        assert [d.code for d in report.all] == [
+            "executable_missing",
+            "script_missing",
+            "protected_path",
+            "architecture_mismatch",
+        ]
+        assert probes.protected_calls == [
+            (
+                (
+                    Path("/Users/example/project/.venv/bin/python"),
+                    Path("/Users/example/project/main.py"),
+                ),
+                {"home": None},
+            )
+        ]
+        assert probes.architecture_calls == [
+            (Path("/Users/example/project/.venv/bin/python"), {"machine": None})
+        ]
+
+    def test_diagnostic_report_for_includes_logs_and_python_groups(
+        self, tmp_path: Path
+    ) -> None:
+        world = FakeTaskWorld(tmp_path)
+        job = make_job()
+        script = Path("/Users/example/project/main.py")
+        detection = PythonDetectionResult(
+            script=script,
+            candidates=[
+                InterpreterCandidate(
+                    path=Path("/opt/other/python"), source=CandidateSource.VENV
+                )
+            ],
+        )
+        logs = JobLogs(
+            stdout=LogStream(name="stdout", path=Path("/tmp/out.log"), error="gone"),
+            stderr=LogStream(name="stderr", path=None),
+        )
+        report = world.services.diagnostic_report_for(job, detection=detection, logs=logs)
+        assert [group.source for group in report.groups] == [
+            DiagnosticSource.PREFLIGHT,
+            DiagnosticSource.LOGS,
+            DiagnosticSource.PYTHON_ENVIRONMENT,
+        ]
+        assert [d.code for d in report.all] == [
+            "executable_missing",
+            "script_missing",
+            "log_path_unreadable",
+            "interpreter_mismatch",
+        ]
+
+    def test_log_diagnostics_for(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        job = make_job()
+        logs = JobLogs(
+            stdout=LogStream(name="stdout", path=Path("/tmp/a.log"), error="gone"),
+            stderr=LogStream(name="stderr", path=Path("/tmp/b.log"), error="gone"),
+        )
+        diagnostics = world.services.log_diagnostics_for(job, logs)
+        assert [d.code for d in diagnostics] == [
+            "log_path_unreadable",
+            "log_path_unreadable",
+        ]
+        assert "stdout" in diagnostics[0].description
+        assert "stderr" in diagnostics[1].description
+        clean = JobLogs(
+            stdout=LogStream(name="stdout", path=None, content="ok"),
+            stderr=LogStream(name="stderr", path=None),
+        )
+        assert world.services.log_diagnostics_for(job, clean) == ()
+
+    def test_lifecycle_diagnostics_bootstrap_failure(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(
+            tmp_path, launch=ProcessResult(exit_code=1, stderr="bootstrap failed")
+        )
+        job = make_job()
+        result = world.services.install(job)
+        diagnostics = world.services.lifecycle_diagnostics(job.label, "install", result)
+        assert [d.code for d in diagnostics] == ["bootstrap_failure"]
+        assert job.label in diagnostics[0].description
+
+    def test_lifecycle_diagnostics_silent_on_success(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        job = make_job()
+        result = world.services.install(job)
+        assert world.services.lifecycle_diagnostics(job.label, "install", result) == ()
+
+    def test_lifecycle_diagnostics_silent_for_launchctl_results(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        job = make_job()
+        world.manage(job)
+        result = world.services.enable(job.label)
+        assert world.services.lifecycle_diagnostics(job.label, "enable", result) == ()
+
+    def test_inspection_diagnostics(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        path = tmp_path / "external.plist"
+        undecoded = ParsedLaunchAgent(status=ParseSupport.INVALID, raw={})
+        assert [d.code for d in world.services.inspection_diagnostics(path, undecoded)] == [
+            "malformed_plist"
+        ]
+        bad_label = ParsedLaunchAgent(
+            status=ParseSupport.PARTIALLY_SUPPORTED, raw={"Label": "../escape"}
+        )
+        assert [
+            d.code for d in world.services.inspection_diagnostics(path, bad_label)
+        ] == ["invalid_plist_label"]
+        valid = ParsedLaunchAgent(
+            status=ParseSupport.SUPPORTED, raw={"Label": "com.example.ok"}
+        )
+        assert world.services.inspection_diagnostics(path, valid) == ()
+
+    def test_probes_forwarded_to_direct_test(self, tmp_path: Path) -> None:
+        probes = FakeDiagnosticProbes(
+            protected_findings=(
+                ProtectedPathFinding(path=Path("/p"), root=Path("/r")),
+            ),
+        )
+        world = FakeTaskWorld(tmp_path, probes=probes)
+        result = world.services.test_job(make_job())
+        assert "protected_path" in [d.code for d in result.report.all]
+        assert probes.protected_calls

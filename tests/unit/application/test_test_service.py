@@ -6,8 +6,9 @@ from datetime import timedelta
 from pathlib import Path
 
 from conftest import make_job
-from fakes import FakeProcessRunner
+from fakes import FakeDiagnosticProbes, FakeProcessRunner
 from task_scheduler.application import DirectTestService
+from task_scheduler.application.diagnostic_models import DiagnosticSource
 from task_scheduler.domain import (
     EnvironmentConfig,
     ExecutableCommand,
@@ -20,6 +21,14 @@ from task_scheduler.platform.macos import (
     InterpreterCandidate,
     ProcessResult,
     PythonDetectionResult,
+)
+from task_scheduler.platform.macos.diagnostic_probes import (
+    ArchitectureFinding,
+    ProtectedPathFinding,
+)
+from task_scheduler.platform.macos.process_runner import (
+    LaunchFailureKind,
+    ProcessLaunchFailure,
 )
 
 HEALTHY = ProcessResult(exit_code=0, stdout="ok", stderr="", duration=timedelta(seconds=1))
@@ -139,3 +148,100 @@ class TestDetectionInput:
         )
         result = DirectTestService(runner).run(job, detection=detection)
         assert result.diagnostics == []
+
+
+class TestReport:
+    def test_healthy_job_report_is_empty(self, tmp_path: Path) -> None:
+        runner = FakeProcessRunner(HEALTHY)
+        job, _, _ = _python_job(tmp_path)
+        result = DirectTestService(runner).run(job)
+        assert result.report.groups == ()
+        assert result.report.all == ()
+
+    def test_report_preflight_group_from_injected_probes(self, tmp_path: Path) -> None:
+        probes = FakeDiagnosticProbes(
+            protected_findings=(
+                ProtectedPathFinding(
+                    path=Path("/Users/t/Desktop/a.py"),
+                    root=Path("/Users/t/Desktop"),
+                ),
+            ),
+            architecture_finding=ArchitectureFinding(
+                path=Path("/bin/true"), declared=(0x07000003,), host=0x0100000C
+            ),
+        )
+        runner = FakeProcessRunner(HEALTHY)
+        job, venv_python, script = _python_job(tmp_path)
+        result = DirectTestService(runner, probes=probes).run(job)
+        assert [group.source for group in result.report.groups] == [
+            DiagnosticSource.PREFLIGHT
+        ]
+        assert [d.code for d in result.report.all] == [
+            "protected_path",
+            "architecture_mismatch",
+        ]
+        assert probes.protected_calls == [((venv_python, script, tmp_path), {"home": None})]
+        assert probes.architecture_calls == [(venv_python, {"machine": None})]
+
+    def test_report_direct_test_group_on_runtime_permission(self, tmp_path: Path) -> None:
+        failure = ProcessResult(
+            exit_code=None,
+            launch_failure=ProcessLaunchFailure(
+                kind=LaunchFailureKind.PERMISSION_DENIED, message="denied"
+            ),
+        )
+        runner = FakeProcessRunner(failure)
+        job, _, _ = _python_job(tmp_path)
+        result = DirectTestService(runner).run(job)
+        assert [group.source for group in result.report.groups] == [
+            DiagnosticSource.DIRECT_TEST
+        ]
+        assert [d.code for d in result.report.all] == ["permission_denied"]
+
+    def test_report_python_environment_group(self, tmp_path: Path) -> None:
+        runner = FakeProcessRunner(HEALTHY)
+        job, venv_python, script = _python_job(tmp_path)
+        other = _make_executable(tmp_path / "elsewhere" / "python")
+        detection = PythonDetectionResult(
+            script=script,
+            candidates=[InterpreterCandidate(path=other, source=CandidateSource.VENV)],
+        )
+        result = DirectTestService(runner).run(job, detection=detection)
+        assert [group.source for group in result.report.groups] == [
+            DiagnosticSource.PYTHON_ENVIRONMENT
+        ]
+        assert [d.code for d in result.report.all] == ["interpreter_mismatch"]
+
+    def test_report_all_flattens_groups_in_order(self, tmp_path: Path) -> None:
+        probes = FakeDiagnosticProbes(
+            protected_findings=(
+                ProtectedPathFinding(path=Path("/p"), root=Path("/r")),
+            ),
+            architecture_finding=ArchitectureFinding(
+                path=Path("/bin/true"), declared=(0x07000003,), host=0x0100000C
+            ),
+        )
+        not_found = ProcessResult(
+            exit_code=None,
+            launch_failure=ProcessLaunchFailure(
+                kind=LaunchFailureKind.NOT_FOUND, message="gone"
+            ),
+        )
+        runner = FakeProcessRunner(not_found)
+        job, venv_python, script = _python_job(tmp_path)
+        other = _make_executable(tmp_path / "elsewhere" / "python")
+        detection = PythonDetectionResult(
+            script=script,
+            candidates=[InterpreterCandidate(path=other, source=CandidateSource.VENV)],
+        )
+        result = DirectTestService(runner, probes=probes).run(job, detection=detection)
+        assert [d.code for d in result.report.all] == [
+            "protected_path",
+            "architecture_mismatch",
+            "executable_not_found_runtime",
+            "interpreter_mismatch",
+        ]
+        assert [d.code for d in result.diagnostics] == [
+            "executable_not_found_runtime",
+            "interpreter_mismatch",
+        ]

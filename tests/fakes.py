@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
 from task_scheduler.application import (
@@ -17,6 +18,11 @@ from task_scheduler.platform.macos import (
     LaunchAgentStore,
     PlistCodec,
     ProcessResult,
+)
+from task_scheduler.platform.macos.diagnostic_probes import (
+    ArchitectureFinding,
+    DiagnosticProbes,
+    ProtectedPathFinding,
 )
 from task_scheduler.storage import JsonJobRepository
 
@@ -146,6 +152,7 @@ class FakeTaskWorld:
         launch: ProcessResult | None = None,
         launches: list[ProcessResult] | None = None,
         test: ProcessResult | None = None,
+        probes: DiagnosticProbes | None = None,
     ) -> None:
         self.catalog_root = tmp_path / "catalog"
         self.la_root = tmp_path / "launchagents"
@@ -165,9 +172,45 @@ class FakeTaskWorld:
             codec=PlistCodec(),
             test=DirectTestService(self.test_runner),
             logs=LogService(),
+            probes=probes,
         )
 
     def manage(self, job: JobDefinition) -> None:
         """Seed both the catalog record and the managed plist for *job*."""
         self.jobs.import_job(job)
         self.store.write(job)
+
+
+class FakeDiagnosticProbes(DiagnosticProbes):
+    """Injectable probe stub that returns canned findings.
+
+    Records every call (inputs and kwargs) so tests can assert what was probed.
+    """
+
+    def __init__(
+        self,
+        protected_findings: tuple[ProtectedPathFinding, ...] = (),
+        architecture_finding: ArchitectureFinding | None = None,
+    ) -> None:
+        self.protected_findings = protected_findings
+        self.architecture_finding = architecture_finding
+        self.protected_calls: list[tuple[Sequence[Path], dict[str, object]]] = []
+        self.architecture_calls: list[tuple[Path, dict[str, object]]] = []
+
+    def probe_protected_paths(
+        self,
+        paths: Sequence[Path],
+        *,
+        home: Path | None = None,
+    ) -> tuple[ProtectedPathFinding, ...]:
+        self.protected_calls.append((paths, {"home": home}))
+        return self.protected_findings
+
+    def probe_executable_architecture(
+        self,
+        executable: Path,
+        *,
+        machine: str | None = None,
+    ) -> ArchitectureFinding | None:
+        self.architecture_calls.append((executable, {"machine": machine}))
+        return self.architecture_finding

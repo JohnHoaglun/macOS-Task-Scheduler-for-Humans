@@ -3,7 +3,7 @@
 from datetime import timedelta
 from pathlib import Path
 
-from task_scheduler.application.diagnostic_service import (
+from task_scheduler.application.diagnostic_models import (
     Diagnostic,
     DiagnosticSeverity,
 )

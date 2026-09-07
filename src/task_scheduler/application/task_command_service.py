@@ -15,6 +15,21 @@ from enum import StrEnum
 from pathlib import Path
 from uuid import UUID
 
+from task_scheduler.application.diagnostic_models import (
+    Diagnostic,
+    DiagnosticContext,
+    DiagnosticReport,
+    DiagnosticSource,
+    InspectionContext,
+    LifecycleContext,
+    LogContext,
+    PreflightContext,
+    PythonEnvironmentContext,
+)
+from task_scheduler.application.diagnostic_service import (
+    collect_preflight_paths,
+    evaluate_diagnostic_report,
+)
 from task_scheduler.application.job_service import JobService
 from task_scheduler.application.log_service import JobLogs, LogService
 from task_scheduler.application.test_service import DirectTestResult, DirectTestService
@@ -35,6 +50,10 @@ from task_scheduler.platform.macos import (
 )
 from task_scheduler.platform.macos import (
     detect_python as platform_detect_python,
+)
+from task_scheduler.platform.macos.diagnostic_probes import (
+    DiagnosticProbes,
+    LocalDiagnosticProbes,
 )
 from task_scheduler.storage import JsonJobRepository
 
@@ -142,6 +161,7 @@ class TaskCommandService:
         codec: PlistCodec,
         test: DirectTestService,
         logs: LogService,
+        probes: DiagnosticProbes | None = None,
     ) -> None:
         self._repository = repository
         self._jobs = jobs
@@ -150,6 +170,9 @@ class TaskCommandService:
         self._codec = codec
         self._test = test
         self._logs = logs
+        self._probes = probes or LocalDiagnosticProbes()
+        if test is not None:
+            self._test._probes = self._probes
 
     # -- discovery ---------------------------------------------------------
 
@@ -449,3 +472,78 @@ class TaskCommandService:
         Works for validated, unsaved drafts as well as saved jobs.
         """
         return self._logs.read(self.validate_job(job))
+
+    def diagnostic_report_for(
+        self,
+        job: JobDefinition,
+        *,
+        detection: PythonDetectionResult | None = None,
+        logs: JobLogs | None = None,
+    ) -> DiagnosticReport:
+        """Build a structured diagnostic report for a job.
+
+        Includes preflight probe findings (via injected probes), optional
+        Python-environment diagnostics (when *detection* is given), and
+        optional log diagnostics (when *logs* is given).
+        """
+        validated = self.validate_job(job)
+        paths = collect_preflight_paths(validated)
+        protected_findings = self._probes.probe_protected_paths(paths)
+        architecture_finding = self._probes.probe_executable_architecture(paths[0])
+        contexts: list[DiagnosticContext] = [
+            PreflightContext(
+                validated,
+                protected_findings=protected_findings,
+                architecture_finding=architecture_finding,
+            )
+        ]
+        if detection is not None:
+            contexts.append(PythonEnvironmentContext(validated, detection))
+        if logs is not None:
+            contexts.append(LogContext(validated, logs))
+        return evaluate_diagnostic_report(*contexts)
+
+    def log_diagnostics_for(
+        self, job: JobDefinition, logs: JobLogs
+    ) -> tuple[Diagnostic, ...]:
+        """Return the LOGS-group diagnostics for a job's log read.
+
+        Returns an empty tuple when no log diagnostics fire.
+        """
+        validated = self.validate_job(job)
+        report = evaluate_diagnostic_report(LogContext(validated, logs))
+        for group in report.groups:
+            if group.source == DiagnosticSource.LOGS:
+                return group.diagnostics
+        return ()
+
+    def lifecycle_diagnostics(
+        self,
+        label: str,
+        action: str,
+        result: InstallResult | LaunchctlResult | LaunchAgentStatus | UninstallResult,
+    ) -> tuple[Diagnostic, ...]:
+        """Return the LIFECYCLE-group diagnostics for a lifecycle result.
+
+        Returns an empty tuple when no lifecycle diagnostics fire.
+        """
+        report = evaluate_diagnostic_report(
+            LifecycleContext(label, action, result)
+        )
+        for group in report.groups:
+            if group.source == DiagnosticSource.LIFECYCLE:
+                return group.diagnostics
+        return ()
+
+    def inspection_diagnostics(
+        self, path: Path, parsed: ParsedLaunchAgent
+    ) -> tuple[Diagnostic, ...]:
+        """Return the PLIST-group diagnostics for a parsed external plist.
+
+        Returns an empty tuple when no plist diagnostics fire.
+        """
+        report = evaluate_diagnostic_report(InspectionContext(path, parsed))
+        for group in report.groups:
+            if group.source == DiagnosticSource.PLIST:
+                return group.diagnostics
+        return ()
