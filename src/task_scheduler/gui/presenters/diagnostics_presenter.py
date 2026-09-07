@@ -10,7 +10,12 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import timedelta
 
-from task_scheduler.application.diagnostic_models import Diagnostic
+from task_scheduler.application.diagnostic_models import (
+    Diagnostic,
+    DiagnosticReport,
+    DiagnosticSource,
+    EvidenceState,
+)
 from task_scheduler.application.log_service import LogStream
 from task_scheduler.domain import JobDefinition, PythonCommand
 from task_scheduler.gui.controllers.diagnostics_controller import TestOutcome
@@ -25,16 +30,37 @@ from task_scheduler.platform.macos import (
 
 __all__ = [
     "ENVIRONMENT_DISCLOSURE_TEXT",
+    "SOURCE_TITLES",
     "TEST_LIMITATION_TEXT",
     "format_detection_notes",
+    "format_diagnostic_block",
     "format_diagnostics",
     "format_duration",
     "format_environment_difference",
+    "format_evidence",
+    "format_lifecycle_diagnostics",
+    "format_log_diagnostics",
     "format_log_stream",
     "format_python_candidate",
     "format_python_detection",
+    "format_report",
     "format_test_summary",
 ]
+
+SOURCE_TITLES: dict[DiagnosticSource, str] = {
+    DiagnosticSource.PREFLIGHT: "Configuration checks",
+    DiagnosticSource.DIRECT_TEST: "Direct test",
+    DiagnosticSource.PYTHON_ENVIRONMENT: "Python environment",
+    DiagnosticSource.LIFECYCLE: "Lifecycle",
+    DiagnosticSource.LOGS: "Logs",
+    DiagnosticSource.PLIST: "Plist",
+}
+
+_EVIDENCE_SUFFIXES: dict[EvidenceState, str] = {
+    EvidenceState.CONFIRMED: "(evidence: confirmed)",
+    EvidenceState.NOT_PROVABLE: "(evidence: not provable)",
+    EvidenceState.UNAVAILABLE: "(evidence: unavailable)",
+}
 
 TEST_LIMITATION_TEXT = (
     "Test runs this command directly using its configured executable, "
@@ -87,6 +113,57 @@ def format_diagnostics(diagnostics: list[Diagnostic]) -> str:
         lines.append(f"Suggested: {diagnostic.suggested_action}")
         lines.append("")
     return "\n".join(lines).rstrip()
+
+
+def format_evidence(state: EvidenceState) -> str:
+    """The parenthesized evidence suffix for a finding's evidence state."""
+    return _EVIDENCE_SUFFIXES[state]
+
+
+def format_diagnostic_block(diagnostic: Diagnostic) -> str:
+    """One block: severity/title (+ evidence suffix), description, action."""
+    state = diagnostic.evidence_state
+    suffix = f" {format_evidence(state)}" if state is not None else ""
+    lines = [
+        f"[{diagnostic.severity.value.upper()}] {diagnostic.title}{suffix}",
+        diagnostic.description,
+        f"Suggested: {diagnostic.suggested_action}",
+    ]
+    return "\n".join(lines)
+
+
+def format_report(report: DiagnosticReport) -> str:
+    """Grouped report text: ``== <title> ==`` headings, one block per finding.
+
+    Returns "No diagnostics." when the report carries no findings at all.
+    """
+    if not report.all:
+        return "No diagnostics."
+    sections: list[str] = []
+    for group in report.groups:
+        blocks = "\n\n".join(
+            format_diagnostic_block(diagnostic) for diagnostic in group.diagnostics
+        )
+        sections.append(f"== {SOURCE_TITLES[group.source]} ==\n{blocks}")
+    return "\n\n".join(sections)
+
+
+def _format_single_group(source: DiagnosticSource, diagnostics: tuple[Diagnostic, ...]) -> str:
+    """One ``== <title> ==`` section; empty string when there are no findings."""
+    if not diagnostics:
+        return ""
+    blocks = "\n\n".join(format_diagnostic_block(diagnostic) for diagnostic in diagnostics)
+    return f"== {SOURCE_TITLES[source]} ==\n{blocks}"
+
+
+def format_log_diagnostics(diagnostics: tuple[Diagnostic, ...]) -> str:
+    """The Logs group rendered as a single section; "" when empty."""
+    return _format_single_group(DiagnosticSource.LOGS, diagnostics)
+
+
+def format_lifecycle_diagnostics(diagnostics: tuple[Diagnostic, ...]) -> str:
+    """The Lifecycle group rendered as a single section; "" when empty."""
+    return _format_single_group(DiagnosticSource.LIFECYCLE, diagnostics)
 
 
 def format_log_stream(stream: LogStream) -> str:

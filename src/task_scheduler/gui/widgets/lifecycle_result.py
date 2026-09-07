@@ -18,6 +18,9 @@ from task_scheduler.gui.controllers.lifecycle_controller import (
     LifecycleAction,
     LifecycleOutcome,
 )
+from task_scheduler.gui.presenters.diagnostics_presenter import (
+    format_lifecycle_diagnostics,
+)
 from task_scheduler.platform.macos import LaunchAgentStatus, LaunchctlResult, ProcessResult
 
 __all__ = ["LifecycleResultDialog"]
@@ -48,6 +51,18 @@ class LifecycleResultDialog(QDialog):
         self._stdout = self._output_pane("lifecycle-result-stdout")
         self._stderr = self._output_pane("lifecycle-result-stderr")
         self._fill_output()
+        self._diagnostics_box = QGroupBox("Diagnostics", self)
+        self._diagnostics_box.setObjectName("lifecycle-result-diagnostics")
+        self._diagnostics_text = QPlainTextEdit(self._diagnostics_box)
+        self._diagnostics_text.setObjectName("lifecycle-result-diagnostics-text")
+        self._diagnostics_text.setReadOnly(True)
+        self._diagnostics_text.setPlainText(
+            format_lifecycle_diagnostics(outcome.diagnostics)
+        )
+        if not outcome.diagnostics:
+            self._diagnostics_box.hide()
+        diagnostics_layout = QVBoxLayout(self._diagnostics_box)
+        diagnostics_layout.addWidget(self._diagnostics_text)
         details = QGroupBox("Technical details", self)
         details.setObjectName("lifecycle-technical-group")
         toggle = QPushButton("View technical details", details)
@@ -72,6 +87,7 @@ class LifecycleResultDialog(QDialog):
         layout.addWidget(exit_label)
         layout.addWidget(self._stdout)
         layout.addWidget(self._stderr)
+        layout.addWidget(self._diagnostics_box)
         layout.addWidget(details)
         layout.addLayout(buttons)
         toggle.toggled.connect(self._technical.setVisible)

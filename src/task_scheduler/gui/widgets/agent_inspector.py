@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from task_scheduler.application.diagnostic_models import Diagnostic
 from task_scheduler.application.task_command_service import (
     DiscoveredInspectReport,
     TaskListing,
@@ -26,6 +27,7 @@ from task_scheduler.gui.presenters.agent_presenter import (
     format_command,
     format_enabled,
     format_environment,
+    format_inspection_diagnostics,
     format_label,
     format_lifecycle_state,
     format_name,
@@ -147,7 +149,13 @@ class AgentInspector(QWidget):
         QVBoxLayout(box).addWidget(self._advanced_text)
         return box
 
-    def show_agent(self, agent: TaskListing, report: DiscoveredInspectReport) -> None:
+    def show_agent(
+        self,
+        agent: TaskListing,
+        report: DiscoveredInspectReport,
+        *,
+        diagnostics: tuple[Diagnostic, ...] = (),
+    ) -> None:
         """Fill every field for a discovered agent and reveal the form."""
         job = agent.job
         enabled = job.enabled if job is not None else None
@@ -157,6 +165,7 @@ class AgentInspector(QWidget):
             source=str(agent.path) if agent.path is not None else "(no source)",
             loaded=format_status(report.status),
             state=format_lifecycle_state(enabled, loaded),
+            diagnostics=diagnostics,
         )
 
     def show_saved(self, listing: TaskListing) -> None:
@@ -169,7 +178,13 @@ class AgentInspector(QWidget):
         )
 
     def _fill(
-        self, listing: TaskListing, *, source: str, loaded: str, state: str
+        self,
+        listing: TaskListing,
+        *,
+        source: str,
+        loaded: str,
+        state: str,
+        diagnostics: tuple[Diagnostic, ...] = (),
     ) -> None:
         """Render every section from the presenter output and reveal the form."""
         self._overview["name"].setText(format_name(listing))
@@ -188,7 +203,11 @@ class AgentInspector(QWidget):
             format_upcoming_occurrences_for(listing, now=self._clock())
         )
         self._environment_text.setText(format_environment(listing))
-        self._warnings_text.setText(format_warnings(listing))
+        warnings_text = format_warnings(listing)
+        inspection = format_inspection_diagnostics(diagnostics)
+        if inspection:
+            warnings_text = f"{warnings_text}\n\n{inspection}"
+        self._warnings_text.setText(warnings_text)
         self._advanced_text.setText(format_raw_plist(listing))
         self._message.hide()
         self._scroll.show()

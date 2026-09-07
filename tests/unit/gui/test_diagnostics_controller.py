@@ -177,6 +177,28 @@ class TestReadLogs:
         outcome = controller.read_logs(_broken(_shell_job()))
         assert outcome.logs is None
         assert outcome.error is not None
+        assert outcome.diagnostics == ()
+
+    def test_read_logs_carries_log_diagnostics(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        job = make_job(
+            logging=LoggingConfig(
+                stdout_path=tmp_path / "missing.log", stderr_path=None
+            )
+        )
+        controller = DiagnosticsController(world.services, {})
+        outcome = controller.read_logs(job)
+        assert outcome.error is None
+        assert [d.code for d in outcome.diagnostics] == ["log_path_unreadable"]
+
+    def test_read_logs_clean_has_no_diagnostics(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        out = tmp_path / "out.log"
+        out.write_text("job stdout\n")
+        job = make_job(logging=LoggingConfig(stdout_path=out, stderr_path=None))
+        controller = DiagnosticsController(world.services, {})
+        outcome = controller.read_logs(job)
+        assert outcome.diagnostics == ()
 
 
 class TestCompareEnvironment:

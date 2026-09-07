@@ -28,10 +28,11 @@ from task_scheduler.gui.controllers.diagnostics_controller import (
 from task_scheduler.gui.presenters.diagnostics_presenter import (
     ENVIRONMENT_DISCLOSURE_TEXT,
     TEST_LIMITATION_TEXT,
-    format_diagnostics,
     format_environment_difference,
+    format_log_diagnostics,
     format_log_stream,
     format_python_detection,
+    format_report,
     format_test_summary,
 )
 
@@ -60,6 +61,7 @@ class DiagnosticLogsPanel(QWidget):
         self._diagnostics_text = QPlainTextEdit(self)
         self._diagnostics_text.setObjectName("diagnostics-diagnostics")
         self._diagnostics_text.setReadOnly(True)
+        self._diagnostics_text.setPlainText("No diagnostics.")
 
         self._tabs = QTabWidget(self)
         self._tabs.setObjectName("diagnostics-tabs")
@@ -132,11 +134,11 @@ class DiagnosticLogsPanel(QWidget):
         """Render the summary, diagnostics, direct-output tabs, and detection."""
         self._summary.setText(format_test_summary(outcome))
         if outcome.result is not None:
-            self._diagnostics_text.setPlainText(
-                format_diagnostics(outcome.result.diagnostics)
-            )
+            self._diagnostics_text.setPlainText(format_report(outcome.result.report))
             self._direct_stdout.setPlainText(outcome.result.process.stdout)
             self._direct_stderr.setPlainText(outcome.result.process.stderr)
+        else:
+            self._diagnostics_text.setPlainText("No diagnostics.")
         self._python_text.setText(format_python_detection(job, outcome.detection))
 
     def show_logs_outcome(self, outcome: LogsOutcome) -> None:
@@ -145,9 +147,14 @@ class DiagnosticLogsPanel(QWidget):
             message = f"Logs unavailable: {outcome.error}"
             self._persisted_stdout.setPlainText(message)
             self._persisted_stderr.setPlainText(message)
+            self._diagnostics_text.setPlainText("No diagnostics.")
             return
         self._persisted_stdout.setPlainText(format_log_stream(outcome.logs.stdout))
         self._persisted_stderr.setPlainText(format_log_stream(outcome.logs.stderr))
+        if outcome.diagnostics:
+            self._diagnostics_text.appendPlainText(
+                format_log_diagnostics(outcome.diagnostics)
+            )
 
     def show_environment_outcome(self, outcome: EnvironmentOutcome) -> None:
         """Render the environment comparison (names only, never values)."""

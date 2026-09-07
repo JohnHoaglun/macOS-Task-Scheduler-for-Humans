@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from task_scheduler.application import TaskCommandService
+from task_scheduler.application.diagnostic_models import Diagnostic
 from task_scheduler.application.task_command_service import (
     InstallResult,
     ListingKind,
@@ -67,13 +68,15 @@ class LifecycleOutcome:
     """Immutable result of a lifecycle action, marshaled to the main thread.
 
     ``result`` is the service's structured result (or ``None`` when no process
-    ran); ``error`` is the human-readable failure reason for exceptions.
+    ran); ``error`` is the human-readable failure reason for exceptions;
+    ``diagnostics`` carries the LIFECYCLE-group findings (empty on failure).
     """
 
     action: LifecycleAction
     label: str
     result: LifecycleResult | None
     error: str | None
+    diagnostics: tuple[Diagnostic, ...] = ()
 
     @property
     def is_success(self) -> bool:
@@ -146,12 +149,19 @@ class LifecycleController:
         request = self._current
         try:
             result = self._execute_action(request)
+            diagnostics = self._services.lifecycle_diagnostics(
+                request.label, request.action.value, result
+            )
         except Exception as exc:
             return LifecycleOutcome(
                 action=request.action, label=request.label, result=None, error=str(exc)
             )
         return LifecycleOutcome(
-            action=request.action, label=request.label, result=result, error=None
+            action=request.action,
+            label=request.label,
+            result=result,
+            error=None,
+            diagnostics=diagnostics,
         )
 
     def finish(self) -> None:

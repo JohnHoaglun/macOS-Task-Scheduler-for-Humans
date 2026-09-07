@@ -7,7 +7,10 @@ from PySide6.QtWidgets import QPlainTextEdit
 
 from task_scheduler.application.diagnostic_models import (
     Diagnostic,
+    DiagnosticGroup,
+    DiagnosticReport,
     DiagnosticSeverity,
+    DiagnosticSource,
 )
 from task_scheduler.application.log_service import JobLogs, LogStream
 from task_scheduler.application.test_service import DirectTestResult
@@ -47,11 +50,17 @@ def _outcome(
         stderr=stderr,
         duration=timedelta(milliseconds=50),
     )
+    report = DiagnosticReport(
+        groups=(
+            DiagnosticGroup(
+                source=DiagnosticSource.DIRECT_TEST,
+                diagnostics=tuple(diagnostics or ()),
+            ),
+        )
+    )
     return TestOutcome(
         label=job.label,
-        result=DirectTestResult(
-            process=process, diagnostics=diagnostics or []
-        ),
+        result=DirectTestResult(process=process, report=report),
         error=None,
         detection=detection,
     )
@@ -242,4 +251,87 @@ class TestShowEnvironmentOutcome:
         assert (
             panel.findChild(object, "diagnostics-environment-text").text()
             == "Comparison unavailable: nope"
+        )
+
+
+def _info_diagnostic() -> Diagnostic:
+    return Diagnostic(
+        severity=DiagnosticSeverity.INFO,
+        code="ok",
+        title="Looks fine",
+        description="No issues.",
+        suggested_action="None.",
+    )
+
+
+class TestDiagnosticsPane:
+    def test_initial_pane_reports_no_diagnostics(self, qtbot) -> None:
+        panel = DiagnosticLogsPanel()
+        qtbot.addWidget(panel)
+        assert (
+            panel.findChild(object, "diagnostics-diagnostics").toPlainText()
+            == "No diagnostics."
+        )
+
+    def test_error_outcome_resets_pane(self, qtbot) -> None:
+        panel = DiagnosticLogsPanel()
+        qtbot.addWidget(panel)
+        job = make_job()
+        panel.show_test_outcome(job, _outcome(job, diagnostics=[_info_diagnostic()]))
+        assert (
+            panel.findChild(object, "diagnostics-diagnostics").toPlainText()
+            == "== Direct test ==\n[INFO] Looks fine\nNo issues.\nSuggested: None."
+        )
+        panel.show_test_outcome(
+            job, TestOutcome(label=job.label, result=None, error="boom")
+        )
+        assert (
+            panel.findChild(object, "diagnostics-diagnostics").toPlainText()
+            == "No diagnostics."
+        )
+
+    def test_logs_outcome_appends_logs_group(self, qtbot) -> None:
+        panel = DiagnosticLogsPanel()
+        qtbot.addWidget(panel)
+        job = make_job()
+        panel.show_test_outcome(job, _outcome(job))
+        logs = JobLogs(
+            stdout=LogStream(
+                name="stdout", path=Path("/logs/out.log"), content="persisted"
+            ),
+            stderr=LogStream(name="stderr", path=None),
+        )
+        outcome = LogsOutcome(
+            label="job",
+            logs=logs,
+            error=None,
+            diagnostics=(
+                Diagnostic(
+                    severity=DiagnosticSeverity.ERROR,
+                    code="log_path_unreadable",
+                    title="Unreadable stdout log",
+                    description="The stdout log file could not be read.",
+                    suggested_action="Check the configured path.",
+                ),
+            ),
+        )
+        panel.show_logs_outcome(outcome)
+        assert (
+            panel.findChild(object, "diagnostics-diagnostics").toPlainText()
+            == "No diagnostics.\n== Logs ==\n[ERROR] Unreadable stdout log\n"
+            "The stdout log file could not be read.\n"
+            "Suggested: Check the configured path."
+        )
+
+    def test_logs_error_resets_pane(self, qtbot) -> None:
+        panel = DiagnosticLogsPanel()
+        qtbot.addWidget(panel)
+        job = make_job()
+        panel.show_test_outcome(job, _outcome(job, diagnostics=[_info_diagnostic()]))
+        panel.show_logs_outcome(
+            LogsOutcome(label="job", logs=None, error="catalog failed")
+        )
+        assert (
+            panel.findChild(object, "diagnostics-diagnostics").toPlainText()
+            == "No diagnostics."
         )

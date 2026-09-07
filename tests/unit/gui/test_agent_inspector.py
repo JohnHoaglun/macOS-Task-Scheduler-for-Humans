@@ -10,6 +10,10 @@ from PySide6.QtWidgets import QLabel, QScrollArea, QTextEdit
 from pytestqt.qtbot import QtBot
 
 from conftest import make_job
+from task_scheduler.application.diagnostic_models import (
+    Diagnostic,
+    DiagnosticSeverity,
+)
 from task_scheduler.application.task_command_service import (
     DiscoveredInspectReport,
     ListingKind,
@@ -297,6 +301,65 @@ class TestShowAgentExternal:
         assert warnings == format_warnings(listing)
         assert "no calendar schedule found" in warnings
         assert "unsupported keys: KeepAlive" in warnings
+
+    def test_no_diagnostics_keeps_warnings_unchanged(self, inspector: AgentInspector) -> None:
+        listing = _external_listing()
+        inspector.show_agent(listing, _report(listing), diagnostics=())
+        warnings = _value_label(inspector, "warnings-text").text()
+        assert warnings == format_warnings(listing)
+        assert "plist diagnostics:" not in warnings
+
+
+class TestShowAgentDiagnostics:
+    def test_diagnostics_appended_to_warnings(self, inspector: AgentInspector) -> None:
+        listing = _invalid_listing()
+        inspector.show_agent(
+            listing,
+            _report(listing),
+            diagnostics=(
+                Diagnostic(
+                    severity=DiagnosticSeverity.ERROR,
+                    code="malformed_plist",
+                    title="The plist could not be parsed",
+                    description="The file is not a valid plist.",
+                    suggested_action="Repair or remove the file.",
+                ),
+            ),
+        )
+        warnings = _value_label(inspector, "warnings-text").text()
+        assert warnings == format_warnings(listing) + "\n\n" + (
+            "plist diagnostics:\n"
+            "[ERROR] The plist could not be parsed\n"
+            "The file is not a valid plist.\n"
+            "Suggested: Repair or remove the file."
+        )
+
+    def test_second_diagnostics_call_replaces_previous(self, inspector: AgentInspector) -> None:
+        listing = _invalid_listing()
+        first = Diagnostic(
+            severity=DiagnosticSeverity.ERROR,
+            code="malformed_plist",
+            title="The plist could not be parsed",
+            description="The file is not a valid plist.",
+            suggested_action="Repair or remove the file.",
+        )
+        second = Diagnostic(
+            severity=DiagnosticSeverity.WARNING,
+            code="invalid_plist_label",
+            title="The plist label is invalid",
+            description="The label is missing or malformed.",
+            suggested_action="Fix the Label key.",
+        )
+        inspector.show_agent(listing, _report(listing), diagnostics=(first,))
+        inspector.show_agent(listing, _report(listing), diagnostics=(second,))
+        warnings = _value_label(inspector, "warnings-text").text()
+        assert "The plist could not be parsed" not in warnings
+        assert warnings.endswith(
+            "plist diagnostics:\n"
+            "[WARNING] The plist label is invalid\n"
+            "The label is missing or malformed.\n"
+            "Suggested: Fix the Label key."
+        )
 
 
 class TestShowPlaceholder:

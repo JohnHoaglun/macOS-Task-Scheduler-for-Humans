@@ -5,7 +5,11 @@ from pathlib import Path
 
 from task_scheduler.application.diagnostic_models import (
     Diagnostic,
+    DiagnosticGroup,
+    DiagnosticReport,
     DiagnosticSeverity,
+    DiagnosticSource,
+    EvidenceState,
 )
 from task_scheduler.application.log_service import LogStream
 from task_scheduler.application.test_service import DirectTestResult
@@ -13,14 +17,20 @@ from task_scheduler.domain import ShellCommand
 from task_scheduler.gui.controllers.diagnostics_controller import TestOutcome
 from task_scheduler.gui.presenters.diagnostics_presenter import (
     ENVIRONMENT_DISCLOSURE_TEXT,
+    SOURCE_TITLES,
     TEST_LIMITATION_TEXT,
     format_detection_notes,
+    format_diagnostic_block,
     format_diagnostics,
     format_duration,
     format_environment_difference,
+    format_evidence,
+    format_lifecycle_diagnostics,
+    format_log_diagnostics,
     format_log_stream,
     format_python_candidate,
     format_python_detection,
+    format_report,
     format_test_summary,
 )
 from task_scheduler.platform.macos.process_runner import (
@@ -318,6 +328,132 @@ class TestFormatDetectionNotes:
             DetectionNote(detector=DetectorKind.POETRY, message="second note"),
         ]
         assert format_detection_notes(notes) == "first note\nsecond note"
+
+
+def _finding(
+    severity: DiagnosticSeverity = DiagnosticSeverity.ERROR,
+    code: str = "some_code",
+    title: str = "Something broke",
+    description: str = "It did not work.",
+    suggested_action: str = "Fix it.",
+    evidence_state: EvidenceState | None = None,
+) -> Diagnostic:
+    return Diagnostic(
+        severity=severity,
+        code=code,
+        title=title,
+        description=description,
+        suggested_action=suggested_action,
+        evidence_state=evidence_state,
+    )
+
+
+class TestSourceTitles:
+    def test_all_sources_have_human_titles(self) -> None:
+        assert SOURCE_TITLES == {
+            DiagnosticSource.PREFLIGHT: "Configuration checks",
+            DiagnosticSource.DIRECT_TEST: "Direct test",
+            DiagnosticSource.PYTHON_ENVIRONMENT: "Python environment",
+            DiagnosticSource.LIFECYCLE: "Lifecycle",
+            DiagnosticSource.LOGS: "Logs",
+            DiagnosticSource.PLIST: "Plist",
+        }
+
+
+class TestFormatEvidence:
+    def test_each_state_has_its_suffix(self) -> None:
+        assert format_evidence(EvidenceState.CONFIRMED) == "(evidence: confirmed)"
+        assert (
+            format_evidence(EvidenceState.NOT_PROVABLE)
+            == "(evidence: not provable)"
+        )
+        assert (
+            format_evidence(EvidenceState.UNAVAILABLE) == "(evidence: unavailable)"
+        )
+
+
+class TestFormatDiagnosticBlock:
+    def test_without_evidence_state(self) -> None:
+        assert (
+            format_diagnostic_block(_finding())
+            == "[ERROR] Something broke\nIt did not work.\nSuggested: Fix it."
+        )
+
+    def test_with_evidence_state(self) -> None:
+        assert (
+            format_diagnostic_block(
+                _finding(evidence_state=EvidenceState.CONFIRMED)
+            )
+            == "[ERROR] Something broke (evidence: confirmed)\n"
+            "It did not work.\nSuggested: Fix it."
+        )
+
+
+class TestFormatReport:
+    def test_empty_report_reports_no_diagnostics(self) -> None:
+        assert format_report(DiagnosticReport()) == "No diagnostics."
+
+    def test_report_with_empty_group_reports_no_diagnostics(self) -> None:
+        report = DiagnosticReport(
+            groups=(DiagnosticGroup(source=DiagnosticSource.LOGS, diagnostics=()),)
+        )
+        assert format_report(report) == "No diagnostics."
+
+    def test_single_group_section(self) -> None:
+        report = DiagnosticReport(
+            groups=(
+                DiagnosticGroup(
+                    source=DiagnosticSource.DIRECT_TEST, diagnostics=(_finding(),)
+                ),
+            )
+        )
+        assert (
+            format_report(report)
+            == "== Direct test ==\n[ERROR] Something broke\n"
+            "It did not work.\nSuggested: Fix it."
+        )
+
+    def test_multiple_groups_joined_with_blank_line(self) -> None:
+        report = DiagnosticReport(
+            groups=(
+                DiagnosticGroup(
+                    source=DiagnosticSource.PREFLIGHT,
+                    diagnostics=(_finding(title="First"),),
+                ),
+                DiagnosticGroup(
+                    source=DiagnosticSource.LOGS,
+                    diagnostics=(_finding(title="Second"),),
+                ),
+            )
+        )
+        assert (
+            format_report(report)
+            == "== Configuration checks ==\n[ERROR] First\n"
+            "It did not work.\nSuggested: Fix it.\n\n"
+            "== Logs ==\n[ERROR] Second\nIt did not work.\nSuggested: Fix it."
+        )
+
+
+class TestFormatLogAndLifecycleDiagnostics:
+    def test_empty_log_diagnostics_yield_empty_string(self) -> None:
+        assert format_log_diagnostics(()) == ""
+
+    def test_log_diagnostics_render_logs_section(self) -> None:
+        assert (
+            format_log_diagnostics((_finding(code="log_path_unreadable"),))
+            == "== Logs ==\n[ERROR] Something broke\n"
+            "It did not work.\nSuggested: Fix it."
+        )
+
+    def test_empty_lifecycle_diagnostics_yield_empty_string(self) -> None:
+        assert format_lifecycle_diagnostics(()) == ""
+
+    def test_lifecycle_diagnostics_render_lifecycle_section(self) -> None:
+        assert (
+            format_lifecycle_diagnostics((_finding(code="bootstrap_failure"),))
+            == "== Lifecycle ==\n[ERROR] Something broke\n"
+            "It did not work.\nSuggested: Fix it."
+        )
 
 
 class TestConstants:

@@ -4,10 +4,20 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtWidgets import QDialog, QLabel, QPlainTextEdit, QPushButton
+from PySide6.QtWidgets import (
+    QDialog,
+    QGroupBox,
+    QLabel,
+    QPlainTextEdit,
+    QPushButton,
+)
 from pytestqt.qtbot import QtBot
 
 from conftest import make_job
+from task_scheduler.application.diagnostic_models import (
+    Diagnostic,
+    DiagnosticSeverity,
+)
 from task_scheduler.application.task_command_service import (
     InstallPhase,
     InstallResult,
@@ -290,6 +300,49 @@ class TestTechnicalDetails:
         )
         dialog = _dialog(qtbot, outcome)
         assert self._technical(dialog).toPlainText() == "(no launchd process ran)"
+
+
+class TestDiagnosticsGroup:
+    def _box(self, dialog: LifecycleResultDialog) -> QGroupBox:
+        box = dialog.findChild(QGroupBox, "lifecycle-result-diagnostics")
+        assert box is not None
+        return box
+
+    def test_group_hidden_without_diagnostics(self, qtbot: QtBot) -> None:
+        outcome = LifecycleOutcome(
+            action=LifecycleAction.INSTALL,
+            label=LABEL,
+            result=_install_result(),
+            error=None,
+        )
+        dialog = _dialog(qtbot, outcome)
+        assert not self._box(dialog).isVisible()
+
+    def test_group_shown_with_diagnostics(self, qtbot: QtBot) -> None:
+        outcome = LifecycleOutcome(
+            action=LifecycleAction.INSTALL,
+            label=LABEL,
+            result=_install_result(),
+            error=None,
+            diagnostics=(
+                Diagnostic(
+                    severity=DiagnosticSeverity.ERROR,
+                    code="bootstrap_failure",
+                    title="launchd rejected the install",
+                    description="The bootstrap phase failed.",
+                    suggested_action="Check the launchctl output.",
+                ),
+            ),
+        )
+        dialog = _dialog(qtbot, outcome)
+        assert self._box(dialog).isVisible()
+        text = dialog.findChild(QPlainTextEdit, "lifecycle-result-diagnostics-text")
+        assert text is not None
+        assert (
+            text.toPlainText()
+            == "== Lifecycle ==\n[ERROR] launchd rejected the install\n"
+            "The bootstrap phase failed.\nSuggested: Check the launchctl output."
+        )
 
 
 class TestCloseButton:

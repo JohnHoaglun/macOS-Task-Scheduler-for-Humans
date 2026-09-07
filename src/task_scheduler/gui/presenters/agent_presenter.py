@@ -6,6 +6,7 @@ import plistlib
 from datetime import datetime
 from enum import StrEnum
 
+from task_scheduler.application.diagnostic_models import Diagnostic
 from task_scheduler.application.task_command_service import (
     ListingKind,
     TaskListing,
@@ -19,6 +20,7 @@ from task_scheduler.domain import (
     upcoming_interval_occurrences,
     upcoming_occurrences,
 )
+from task_scheduler.gui.presenters.diagnostics_presenter import format_diagnostic_block
 from task_scheduler.platform.macos import (
     LaunchAgentStatus,
     ParseSupport,
@@ -37,6 +39,7 @@ __all__ = [
     "format_command",
     "format_enabled",
     "format_environment",
+    "format_inspection_diagnostics",
     "format_label",
     "format_name",
     "format_raw_plist",
@@ -253,6 +256,21 @@ def format_warnings(listing: TaskListing) -> str:
     if parsed.unsupported_keys:
         lines.append("unsupported keys: " + ", ".join(parsed.unsupported_keys))
     return "\n".join(lines) if lines else "none"
+
+
+def format_inspection_diagnostics(diagnostics: tuple[Diagnostic, ...]) -> str:
+    """A self-contained plist diagnostics block (with evidence suffixes).
+
+    Returns "" when there are no findings; the caller appends the block to
+    the Warnings section only when it is non-empty.
+    """
+    if not diagnostics:
+        return ""
+    lines = ["plist diagnostics:"]
+    for diagnostic in diagnostics:
+        lines.append(format_diagnostic_block(diagnostic))
+        lines.append("")
+    return "\n".join(lines).rstrip()
 
 
 def format_raw_plist(listing: TaskListing) -> str:

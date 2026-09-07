@@ -20,7 +20,7 @@ from task_scheduler.gui.controllers.lifecycle_controller import (
     LifecycleController,
     RequestVerdict,
 )
-from task_scheduler.platform.macos import LaunchctlResult
+from task_scheduler.platform.macos import LaunchctlResult, ProcessResult
 from tests.fakes import FakeTaskWorld
 
 EXTERNAL_ID = UUID("87654321-4321-4321-4321-432143214321")
@@ -215,5 +215,35 @@ class TestExecute:
         outcome = controller.execute()
         assert outcome.error == "boom"
         assert outcome.result is None
+        assert outcome.diagnostics == ()
         controller.finish()
         assert not controller.busy
+
+    def test_failed_install_carries_lifecycle_diagnostics(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(
+            tmp_path, launch=ProcessResult(exit_code=1, stderr="denied")
+        )
+        world.jobs.import_job(
+            make_job(id=EXTERNAL_ID, label=SAVED_LABEL, name="Saved Job")
+        )
+        listing = world.services.list_agents()[0]
+        controller = LifecycleController(world.services)
+        controller.request(LifecycleAction.INSTALL, listing)
+        outcome = controller.execute()
+        assert not outcome.is_success
+        assert [d.code for d in outcome.diagnostics] == ["bootstrap_failure"]
+
+    def test_successful_install_has_no_lifecycle_diagnostics(self, tmp_path: Path) -> None:
+        world, listing = _saved_world(tmp_path)
+        controller = LifecycleController(world.services)
+        controller.request(LifecycleAction.INSTALL, listing)
+        outcome = controller.execute()
+        assert outcome.is_success
+        assert outcome.diagnostics == ()
+
+    def test_launchctl_action_has_no_lifecycle_diagnostics(self, tmp_path: Path) -> None:
+        world, listing = _managed_world(tmp_path)
+        controller = LifecycleController(world.services)
+        controller.request(LifecycleAction.ENABLE, listing)
+        outcome = controller.execute()
+        assert outcome.diagnostics == ()

@@ -251,7 +251,7 @@ class MainWindow(QMainWindow):
             self._update_lifecycle_actions()
             return
         assert result.report is not None
-        self.inspector.show_agent(listing, result.report)
+        self.inspector.show_agent(listing, result.report, diagnostics=result.diagnostics)
         self._update_lifecycle_actions()
 
     # -- lifecycle -----------------------------------------------------------

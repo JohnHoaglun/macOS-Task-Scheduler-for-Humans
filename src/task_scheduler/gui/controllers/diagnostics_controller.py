@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from task_scheduler.application import TaskCommandService
+from task_scheduler.application.diagnostic_models import Diagnostic
 from task_scheduler.application.log_service import JobLogs
 from task_scheduler.application.test_service import DirectTestResult
 from task_scheduler.domain import JobDefinition, PythonCommand
@@ -63,11 +64,16 @@ class TestOutcome:
 
 @dataclass(frozen=True, slots=True)
 class LogsOutcome:
-    """Immutable result of a persisted-log read."""
+    """Immutable result of a persisted-log read.
+
+    ``diagnostics`` carries the LOGS-group findings from the read; it stays
+    empty on failure.
+    """
 
     label: str
     logs: JobLogs | None
     error: str | None
+    diagnostics: tuple[Diagnostic, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,9 +153,12 @@ class DiagnosticsController:
         """Read the job's configured persisted logs (synchronous, read-only)."""
         try:
             logs = self._services.read_logs_for(job)
+            diagnostics = self._services.log_diagnostics_for(job, logs)
         except Exception as exc:
             return LogsOutcome(label=job.label, logs=None, error=str(exc))
-        return LogsOutcome(label=job.label, logs=logs, error=None)
+        return LogsOutcome(
+            label=job.label, logs=logs, error=None, diagnostics=diagnostics
+        )
 
     def compare_environment(self, job: JobDefinition) -> EnvironmentOutcome:
         """Compare the GUI process environment with the job's scheduled

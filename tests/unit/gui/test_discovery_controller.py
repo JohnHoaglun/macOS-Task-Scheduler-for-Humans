@@ -6,9 +6,15 @@ from pathlib import Path
 from typing import NoReturn
 from uuid import UUID
 
+import pytest
+
 from conftest import make_job
-from task_scheduler.application.task_command_service import ListingKind
+from task_scheduler.application.task_command_service import (
+    DiscoveredInspectReport,
+    ListingKind,
+)
 from task_scheduler.gui.controllers.discovery_controller import DiscoveryController
+from task_scheduler.platform.macos import ParsedLaunchAgent, ParseSupport
 from tests.fakes import FakeTaskWorld
 
 EXTERNAL_ID = UUID("87654321-4321-4321-4321-432143214321")
@@ -110,3 +116,35 @@ class TestInspect:
         outcome = controller.inspect(listing)
         assert outcome.report is None
         assert outcome.error is None
+        assert outcome.diagnostics == ()
+
+    def test_inspect_carries_plist_diagnostics(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        world = FakeTaskWorld(tmp_path)
+        world.manage(make_job())
+        listing = next(
+            agent for agent in world.services.list_agents() if agent.managed
+        )
+        report = DiscoveredInspectReport(
+            path=listing.path or Path("/tmp/agent.plist"),
+            parsed=ParsedLaunchAgent(status=ParseSupport.INVALID, raw={}),
+            managed=True,
+            status=None,
+        )
+        monkeypatch.setattr(world.services, "inspect_discovered", lambda path: report)
+        controller = DiscoveryController(world.services)
+        outcome = controller.inspect(listing)
+        assert outcome.report is report
+        assert [d.code for d in outcome.diagnostics] == ["malformed_plist"]
+
+    def test_inspect_clean_plist_has_no_diagnostics(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        world.manage(make_job())
+        listing = next(
+            agent for agent in world.services.list_agents() if agent.managed
+        )
+        controller = DiscoveryController(world.services)
+        outcome = controller.inspect(listing)
+        assert outcome.report is not None
+        assert outcome.diagnostics == ()

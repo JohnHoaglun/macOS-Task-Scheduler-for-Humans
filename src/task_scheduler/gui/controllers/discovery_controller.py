@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from task_scheduler.application.diagnostic_models import Diagnostic
 from task_scheduler.application.task_command_service import (
     DiscoveredInspectReport,
     ListingKind,
@@ -24,10 +25,15 @@ class RefreshOutcome:
 
 @dataclass(frozen=True, slots=True)
 class InspectOutcome:
-    """Result of a discovered-agent inspect: the report, or an error message."""
+    """Result of a discovered-agent inspect: the report, or an error message.
+
+    ``diagnostics`` carries the PLIST-group findings for the parsed plist
+    (empty when there is no report or no findings).
+    """
 
     report: DiscoveredInspectReport | None
     error: str | None
+    diagnostics: tuple[Diagnostic, ...] = ()
 
 
 class DiscoveryController:
@@ -54,6 +60,9 @@ class DiscoveryController:
             return InspectOutcome(report=None, error=None)
         try:
             report = self._services.inspect_discovered(listing.path)
+            diagnostics = self._services.inspection_diagnostics(
+                report.path, report.parsed
+            )
         except (ValueError, OSError) as exc:
             return InspectOutcome(report=None, error=str(exc))
-        return InspectOutcome(report=report, error=None)
+        return InspectOutcome(report=report, error=None, diagnostics=diagnostics)
