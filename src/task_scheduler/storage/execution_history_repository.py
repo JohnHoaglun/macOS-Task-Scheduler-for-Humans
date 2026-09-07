@@ -2,6 +2,11 @@
 
 This module implements the append-only ``HistoryRepository`` port backed by
 a small, embedded SQLite database — no third-party dependencies.
+
+The store is a low-volume, append-only audit log, so each operation opens a
+fresh connection for the duration of the call instead of holding a persistent
+connection. This keeps the repository free of long-lived connection state
+(no cleanup hooks, no unclosed-connection warnings) at negligible cost.
 """
 
 from __future__ import annotations
@@ -21,85 +26,95 @@ from task_scheduler.application.history_models import (
     HistoryReadResult,
 )
 
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS execution_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    job_id TEXT NOT NULL,
+    label TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    exit_code INTEGER,
+    duration_seconds REAL,
+    loaded INTEGER,
+    diagnostic_codes TEXT NOT NULL
+)
+"""
+
+_INDEX = """
+CREATE INDEX IF NOT EXISTS idx_execution_history_job_id
+ON execution_history (job_id, id)
+"""
+
+
+def _connect(path: Path) -> sqlite3.Connection:
+    """Open a new connection to the database at *path*."""
+    return sqlite3.connect(str(path), check_same_thread=False)
+
 
 class ExecutionHistoryRepository:
     """Append-only execution-history store backed by SQLite.
 
-    Construction never raises — any open or schema failure marks the
-    repository unavailable, so later ``append`` calls are no-ops and
-    ``read`` returns ``HISTORY_UNAVAILABLE``.
+    Construction validates the path and creates the schema; it never raises
+    — any open or schema failure marks the repository unavailable, so later
+    ``append`` calls are no-ops and ``read`` returns ``HISTORY_UNAVAILABLE``.
+
+    Each operation opens a fresh connection, so the repository holds no
+    long-lived connection state.
     """
 
     def __init__(self, path: Path) -> None:
         self._path = path
         self._unavailable = False
-        self._db: sqlite3.Connection | None = None
-
+        db: sqlite3.Connection | None = None
         try:
-            self._db = sqlite3.connect(str(self._path), check_same_thread=False)
-            self._db.execute("PRAGMA journal_mode=WAL")
-            self._db.execute("""
-                CREATE TABLE IF NOT EXISTS execution_history (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    created_at TEXT NOT NULL,
-                    job_id TEXT NOT NULL,
-                    label TEXT NOT NULL,
-                    kind TEXT NOT NULL,
-                    outcome TEXT NOT NULL,
-                    exit_code INTEGER,
-                    duration_seconds REAL,
-                    loaded INTEGER,
-                    diagnostic_codes TEXT NOT NULL
-                )
-            """)
-            self._db.execute("""
-                CREATE INDEX IF NOT EXISTS idx_execution_history_job_id
-                ON execution_history (job_id, id)
-            """)
-            self._db.commit()
+            db = _connect(path)
+            db.execute("PRAGMA journal_mode=WAL")
+            db.execute(_SCHEMA)
+            db.execute(_INDEX)
+            db.commit()
         except Exception:
             self._unavailable = True
-            if hasattr(self, "_db") and self._db is not None:
+        finally:
+            if db is not None:
                 with contextlib.suppress(Exception):
-                    self._db.close()
-                self._db = None
+                    db.close()
 
     def append(self, event: HistoryEvent) -> None:
         """Record one event. Best-effort — never raises."""
         if self._unavailable:
             return
-        assert self._db is not None
 
         try:
-            created_at = (
-                event.created_at.astimezone(UTC).isoformat()
-            )
+            created_at = event.created_at.astimezone(UTC).isoformat()
             diagnostic_codes = json.dumps(list(event.diagnostic_codes))
-            job_id = str(event.job_id)
-            exit_code = event.exit_code
-            duration_seconds = event.duration_seconds
-            loaded = 1 if event.loaded is True else (0 if event.loaded is False else None)
-
-            self._db.execute(
-                """
-                INSERT INTO execution_history
-                    (created_at, job_id, label, kind, outcome, exit_code,
-                     duration_seconds, loaded, diagnostic_codes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    created_at,
-                    job_id,
-                    event.label,
-                    event.kind.value,
-                    event.outcome.value,
-                    exit_code,
-                    duration_seconds,
-                    loaded,
-                    diagnostic_codes,
-                ),
+            loaded = (
+                1 if event.loaded is True else (
+                    0 if event.loaded is False else None
+                )
             )
-            self._db.commit()
+
+            with contextlib.closing(_connect(self._path)) as db:
+                db.execute(
+                    """
+                    INSERT INTO execution_history
+                        (created_at, job_id, label, kind, outcome, exit_code,
+                         duration_seconds, loaded, diagnostic_codes)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        created_at,
+                        str(event.job_id),
+                        event.label,
+                        event.kind.value,
+                        event.outcome.value,
+                        event.exit_code,
+                        event.duration_seconds,
+                        loaded,
+                        diagnostic_codes,
+                    ),
+                )
+                db.commit()
         except (sqlite3.Error, OSError):
             pass
 
@@ -117,20 +132,20 @@ class ExecutionHistoryRepository:
         if self._unavailable:
             return HistoryReadResult(events=(), error=HISTORY_UNAVAILABLE)
 
-        assert self._db is not None
         try:
-            rows = self._db.execute(
-                """
-                SELECT created_at, job_id, label, kind, outcome,
-                       exit_code, duration_seconds, loaded,
-                       diagnostic_codes
-                FROM execution_history
-                WHERE job_id = ?
-                ORDER BY id DESC
-                LIMIT ?
-            """,
-                (str(job_id), limit),
-            ).fetchall()
+            with contextlib.closing(_connect(self._path)) as db:
+                rows = db.execute(
+                    """
+                    SELECT created_at, job_id, label, kind, outcome,
+                           exit_code, duration_seconds, loaded,
+                           diagnostic_codes
+                    FROM execution_history
+                    WHERE job_id = ?
+                    ORDER BY id DESC
+                    LIMIT ?
+                """,
+                    (str(job_id), limit),
+                ).fetchall()
         except (sqlite3.Error, OSError):
             return HistoryReadResult(events=(), error=HISTORY_UNAVAILABLE)
 

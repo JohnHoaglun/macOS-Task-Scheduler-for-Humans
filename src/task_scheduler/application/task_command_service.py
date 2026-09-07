@@ -64,7 +64,7 @@ from task_scheduler.platform.macos.diagnostic_probes import (
     DiagnosticProbes,
     LocalDiagnosticProbes,
 )
-from task_scheduler.storage import JsonJobRepository
+from task_scheduler.storage.json_repository import JsonJobRepository
 
 __all__ = [
     "DiscoveredInspectReport",

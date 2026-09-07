@@ -1,11 +1,14 @@
 """Tests for the SQLite execution-history repository."""
 
+import contextlib
+import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
 
+import task_scheduler.storage.execution_history_repository as ehr_module
 from task_scheduler.application.history_models import (
     HISTORY_UNAVAILABLE,
     HistoryEvent,
@@ -20,7 +23,7 @@ from task_scheduler.storage import (
 
 
 def _make_event(
-    job_id: uuid4 | None = None,
+    job_id: UUID | None = None,
     *,
     exit_code: int | None = None,
     duration_seconds: float | None = None,
@@ -266,41 +269,36 @@ def test_diagnostic_codes_round_trip(tmp_path: Path) -> None:
 
 # ── sqlite3 error in append ─────────────────────────────────────────────────
 
-def test_append_sqlite_error_is_noop(tmp_path: Path) -> None:
+def test_append_sqlite_error_is_noop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     repo = ExecutionHistoryRepository(tmp_path / "hist.db")
     jid = uuid4()
     repo.append(_make_event(job_id=jid))
     assert len(repo.read(jid, limit=10).events) == 1
 
-    class FailingConn:
-        def execute(self, *a, **k):
-            import sqlite3 as _sqlite3
-            raise _sqlite3.Error("simulated disk error")
-        def commit(self):
-            pass
+    def _failing_connect(path: Path) -> sqlite3.Connection:
+        raise sqlite3.OperationalError("simulated disk error")
 
-    real_conn = repo._db
-    repo._db = FailingConn()
-    repo.append(_make_event(job_id=jid))
-    repo._db = real_conn
+    monkeypatch.setattr(ehr_module, "_connect", _failing_connect)
+    repo.append(_make_event(job_id=jid))  # no-op on connection failure
+    monkeypatch.undo()
 
     assert len(repo.read(jid, limit=10).events) == 1
 
 
 # ── sqlite3 error in read ───────────────────────────────────────────────────
 
-def test_read_sqlite_error_returns_unavailable(tmp_path: Path) -> None:
+def test_read_sqlite_error_returns_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     repo = ExecutionHistoryRepository(tmp_path / "hist.db")
     repo.append(_make_event())
 
-    class FailingConn:
-        def execute(self, *a, **k):
-            import sqlite3 as _sqlite3
-            raise _sqlite3.Error("read error")
-        def commit(self):
-            pass
+    def _failing_connect(path: Path) -> sqlite3.Connection:
+        raise sqlite3.OperationalError("read error")
 
-    repo._db = FailingConn()
+    monkeypatch.setattr(ehr_module, "_connect", _failing_connect)
     result = repo.read(uuid4(), limit=10)
     assert result.events == ()
     assert result.error == HISTORY_UNAVAILABLE
@@ -309,16 +307,19 @@ def test_read_sqlite_error_returns_unavailable(tmp_path: Path) -> None:
 # ── malformed diagnostic_codes column (not a list) ──────────────────────────
 
 def test_diagnostic_codes_not_list_stored_raw(tmp_path: Path) -> None:
-    repo = ExecutionHistoryRepository(tmp_path / "hist.db")
+    db_path = tmp_path / "hist.db"
+    ExecutionHistoryRepository(db_path)
     cols = "created_at, job_id, label, kind, outcome, exit_code, " \
            "duration_seconds, loaded, diagnostic_codes"
-    repo._db.execute(
-        f"INSERT INTO execution_history ({cols}) "
-        'VALUES ("2025-01-01T00:00:00+00:00", '
-        '"deadbeef-dead-beef-dead-beefdeadbeef", '
-        '"x", "manual_run", "success", NULL, NULL, NULL, "42")'
-    )
-    repo._db.commit()
+    with contextlib.closing(sqlite3.connect(str(db_path))) as db:
+        db.execute(
+            f"INSERT INTO execution_history ({cols}) "
+            'VALUES ("2025-01-01T00:00:00+00:00", '
+            '"deadbeef-dead-beef-dead-beefdeadbeef", '
+            '"x", "manual_run", "success", NULL, NULL, NULL, "42")'
+        )
+        db.commit()
+    repo = ExecutionHistoryRepository(db_path)
     jid = UUID("deadbeef-dead-beef-dead-beefdeadbeef")
     result = repo.read(jid, limit=10)
     # json.loads("42") == 42, not a list, so diag_codes = [] → event created
@@ -330,21 +331,36 @@ def test_diagnostic_codes_not_list_stored_raw(tmp_path: Path) -> None:
 # ── malformed row (invalid kind string) is skipped ─────────────────────────
 
 def test_malformed_row_is_skipped(tmp_path: Path) -> None:
-    repo = ExecutionHistoryRepository(tmp_path / "hist.db")
+    db_path = tmp_path / "hist.db"
+    repo = ExecutionHistoryRepository(db_path)
     jid = uuid4()
     e = _make_event(job_id=jid)
     repo.append(e)
 
     cols = "created_at, job_id, label, kind, outcome, exit_code, " \
            "duration_seconds, loaded, diagnostic_codes"
-    repo._db.execute(
-        f"INSERT INTO execution_history ({cols}) "
-        'VALUES ("2025-01-01T00:00:00+00:00", ?, '
-        '"x", "bogus_kind", "bogus_outcome", NULL, NULL, NULL, "[]")',
-        (str(jid),),
-    )
-    repo._db.commit()
+    with contextlib.closing(sqlite3.connect(str(db_path))) as db:
+        db.execute(
+            f"INSERT INTO execution_history ({cols}) "
+            'VALUES ("2025-01-01T00:00:00+00:00", ?, '
+            '"x", "bogus_kind", "bogus_outcome", NULL, NULL, NULL, "[]")',
+            (str(jid),),
+        )
+        db.commit()
 
     result = repo.read(jid, limit=10)
     assert len(result.events) == 1
     assert result.events[0].kind == e.kind
+
+
+# ── per-operation connections ───────────────────────────────────────────────
+
+def test_new_instance_sees_existing_records(tmp_path: Path) -> None:
+    db_path = tmp_path / "hist.db"
+    jid = uuid4()
+    first = ExecutionHistoryRepository(db_path)
+    first.append(_make_event(job_id=jid))
+    second = ExecutionHistoryRepository(db_path)
+    result = second.read(jid, limit=10)
+    assert len(result.events) == 1
+    assert result.events[0].job_id == jid
