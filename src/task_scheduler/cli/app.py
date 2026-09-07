@@ -261,6 +261,26 @@ def create_app(services: TaskCommandService) -> typer.Typer:
         if all(stream.path is None for stream in streams):
             raise typer.Exit(EXIT_USAGE)
 
+    @app.command("history")
+    def history_command(
+        label: str = typer.Argument(..., help="Managed job label."),
+        limit: int = typer.Option(50, help="Maximum number of history events to return."),
+    ) -> None:
+        """Show execution history for a managed job."""
+        try:
+            result = services.history(label, limit=limit)
+        except JobNotFoundError as exc:
+            _fail(str(exc), EXIT_USAGE)
+        except ValueError as exc:
+            _fail(str(exc), EXIT_USAGE)
+        if result.error is not None:
+            typer.secho(result.error, err=True)
+            raise typer.Exit(EXIT_FAILURE)
+        if not result.events:
+            typer.echo("No history found.")
+            return
+        typer.echo(render.format_history(result, label))
+
     return app
 
 

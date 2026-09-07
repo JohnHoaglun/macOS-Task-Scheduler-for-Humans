@@ -8,9 +8,10 @@ testable through the CLI tests.
 from __future__ import annotations
 
 import shlex
-from datetime import timedelta
+from datetime import UTC, timedelta
 
 from task_scheduler.application.diagnostic_models import Diagnostic
+from task_scheduler.application.history_models import HistoryReadResult
 from task_scheduler.application.log_service import JobLogs, LogStream
 from task_scheduler.application.task_command_service import (
     InspectReport,
@@ -32,6 +33,7 @@ __all__ = [
     "format_argv",
     "format_diagnostics",
     "format_duration",
+    "format_history",
     "format_inspect",
     "format_job_summary",
     "format_label",
@@ -179,6 +181,28 @@ def format_stream(stream: LogStream) -> str:
         lines.append("(empty)")
     else:
         lines.extend(stream.content.splitlines())
+    return "\n".join(lines)
+
+
+def format_history(result: HistoryReadResult, label: str) -> str:
+    """Render execution-history events as lines (newest first)."""
+    if not result.events:
+        return ""
+    lines: list[str] = []
+    for event in result.events:
+        ts = event.created_at.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        parts = [ts, str(event.kind), str(event.outcome)]
+        if event.exit_code is not None:
+            parts.append(f"exit={event.exit_code}")
+        if event.duration_seconds is not None:
+            parts.append(f"duration={event.duration_seconds:.3f}s")
+        if event.kind == "status_observation" and event.loaded is not None:
+            parts.append(f"loaded={'yes' if event.loaded else 'no'}")
+        elif event.kind == "status_observation" and event.loaded is None:
+            parts.append("loaded=unknown")
+        if event.diagnostic_codes:
+            parts.append(f"codes={','.join(event.diagnostic_codes)}")
+        lines.append(" ".join(parts))
     return "\n".join(lines)
 
 
