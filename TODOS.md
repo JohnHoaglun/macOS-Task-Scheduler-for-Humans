@@ -1,4 +1,4 @@
-# TODOS.md (v0.0.18)
+# TODOS.md (v0.0.19)
 
 ## Walk Increment 15 — Next-Run Preview (§62) (DONE)
 
@@ -167,7 +167,7 @@
 - [x] Docs: README detection provenance + local-only semantics; architecture detector protocol/registry/notes; development synthetic-project test conventions
 - [x] Version 0.0.17 → 0.0.18, registry update, stale-reference grep, commit, push
 
-## Walk Increment 19 — Expanded Diagnostics (§60) (IN PROGRESS — v0.0.19)
+ ## Walk Increment 19 — Expanded Diagnostics (§60) (DONE — v0.0.19)
 
 ### Pinned decisions (approved 2026-09-06) — full text in PLAN.md
 - Legacy `evaluate_diagnostics` signature, seven codes, and order unchanged; `executable_not_found_runtime` inserted after `permission_denied` (suppressed when the static missing-executable rule fires)
@@ -182,36 +182,36 @@
 - Size gate: `diagnostic_service.py` < ~500 via `diagnostic_models.py` split; `diagnostic_probes.py` ~180
 
 ### Lane A — platform probes + diagnostic core
-- [ ] `platform/macos/diagnostic_probes.py` (findings, probes, protocol, local impl) + `platform/macos/__init__.py` exports
-- [ ] `application/diagnostic_models.py` (EvidenceState, DiagnosticSource, Diagnostic + evidence_state, DiagnosticGroup, DiagnosticReport, six contexts, union)
-- [ ] `application/diagnostic_service.py` rewrite: shared rule functions, legacy wrapper (inserted runtime rule), `evaluate_diagnostic_report`, re-exports
-- [ ] `application/test_service.py`: `DirectTestResult.report` (default factory), `DirectTestService` probes + report build
-- [ ] `application/task_command_service.py`: `probes` param + four façade methods
-- [ ] `tests/fakes.py`: `FakeDiagnosticProbes`
-- [ ] Tests: `test_diagnostic_probes.py` (new), `test_diagnostic_service.py` (legacy order regression + new rules + groups + dedupe + evidence), `test_test_service.py` (report/probes), `test_task_command_service.py` (façade methods)
+- [x] `platform/macos/diagnostic_probes.py` (findings, probes, protocol, local impl) + `platform/macos/__init__.py` exports
+- [x] `application/diagnostic_models.py` (EvidenceState, DiagnosticSource, Diagnostic + evidence_state, DiagnosticGroup, DiagnosticReport, six contexts, union)
+- [x] `application/diagnostic_service.py` rewrite: shared rule functions, legacy wrapper (inserted runtime rule), `evaluate_diagnostic_report`, re-exports
+- [x] `application/test_service.py`: `DirectTestResult.report` (default factory), `DirectTestService` probes + report build
+- [x] `application/task_command_service.py`: `probes` param + four façade methods
+- [x] `tests/fakes.py`: `FakeDiagnosticProbes`
+- [x] Tests: `test_diagnostic_probes.py` (new), `test_diagnostic_service.py` (legacy order regression + new rules + groups + dedupe + evidence), `test_test_service.py` (report/probes), `test_task_command_service.py` (façade methods)
 
 ### Lane B — GUI grouping and surfaces
-- [ ] `diagnostics_controller.py`: `LogsOutcome.diagnostics` + `read_logs` fill
-- [ ] `lifecycle_controller.py`: `LifecycleOutcome.diagnostics` + `execute` fill
-- [ ] `discovery_controller.py`: `InspectOutcome.diagnostics` + `inspect` fill
-- [ ] `diagnostics_presenter.py`: SOURCE_TITLES, format_evidence, format_diagnostic_block, format_report, format_log_diagnostics, format_lifecycle_diagnostics
-- [ ] `diagnostic_logs_panel.py`: report rendering, logs-group append, neutral initial text, failed-outcome resets
-- [ ] `lifecycle_result.py`: Diagnostics group (show only with findings)
-- [ ] `agent_presenter.py` + `agent_inspector.py`: `format_inspection_diagnostics` + `show_agent(*, diagnostics=())`
-- [ ] `main_window.py`: pass `result.diagnostics` to `show_agent`
-- [ ] Tests: controller/panel/dialog/inspector/main-window + presenter exact wording
+- [x] `diagnostics_controller.py`: `LogsOutcome.diagnostics` + `read_logs` fill
+- [x] `lifecycle_controller.py`: `LifecycleOutcome.diagnostics` + `execute` fill
+- [x] `discovery_controller.py`: `InspectOutcome.diagnostics` + `inspect` fill
+- [x] `diagnostics_presenter.py`: SOURCE_TITLES, format_evidence, format_diagnostic_block, format_report, format_log_diagnostics, format_lifecycle_diagnostics
+- [x] `diagnostic_logs_panel.py`: report rendering, logs-group append, neutral initial text, failed-outcome resets
+- [x] `lifecycle_result.py`: Diagnostics group (show only with findings)
+- [x] `agent_presenter.py` + `agent_inspector.py`: `format_inspection_diagnostics` + `show_agent(*, diagnostics=())`
+- [x] `main_window.py`: pass `result.diagnostics` to `show_agent`
+- [x] Tests: controller/panel/dialog/inspector/main-window + presenter exact wording
 
 ### Lane C — CLI + docs
-- [ ] `cli/render.py`: `format_inspect(report, diagnostics=())`, lifecycle diagnostics section
-- [ ] `cli/app.py`: inspect wiring (non-SUPPORTED parse), install failure diagnostics on stderr
-- [ ] `test_cli.py` / `test_render.py` extensions
-- [ ] README (expanded diagnostics, evidence states, grouped GUI, CLI sections), docs/architecture.md (engine/probes/façade), docs/development.md (fake probes, Mach-O fixtures)
+- [x] `cli/render.py`: `format_inspect(report, diagnostics=())`, lifecycle diagnostics section
+- [x] `cli/app.py`: inspect wiring (non-SUPPORTED parse), install failure diagnostics on stderr
+- [x] `test_cli.py` / `test_render.py` extensions
+- [x] README (expanded diagnostics, evidence states, grouped GUI, CLI sections), docs/architecture.md (engine/probes/façade), docs/development.md (fake probes, Mach-O fixtures)
 
 ### Closeout
-- [ ] `make check` green + 100% whole-package coverage
-- [ ] Test/code ratio ≤ 75% (measure; cut if over)
-- [ ] Source-size review (`diagnostic_service.py`, `diagnostic_probes.py`)
-- [ ] Version 0.0.18 → 0.0.19, registry update, stale-reference grep, commit, push
+- [x] `make check` green + 100% whole-package coverage
+- [x] Test/code ratio ≤ 75% (measure; cut if over)
+- [x] Source-size review (`diagnostic_service.py`, `diagnostic_probes.py`)
+- [x] Version 0.0.18 → 0.0.19, registry update, stale-reference grep, commit, push
 
 ## Walk Increment 20 — Application-Observed Execution History (§59) (PLANNED)
 - stdlib `sqlite3` append-only repository beside the JSON catalog; metadata-only event schema

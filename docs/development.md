@@ -173,6 +173,30 @@ The diagnostics and log tests follow the GUI setup above and add:
   `PythonDetectionResult` values directly with explicit `detectors` and
   `notes`.
 
+## Expanded Diagnostics Test Conventions (Increment 19)
+
+* `FakeTaskWorld` takes a `probes=FakeDiagnosticProbes()` keyword (forwarded
+  to `TaskCommandService`); the fake records every
+  `probe_protected_paths` / `probe_executable_architecture` call and
+  returns the findings constructed by the test, so rule wiring is asserted
+  alongside the exact probe-call arguments (the path tuple, the `machine`
+  string).
+* The preflight path tuple derives from the job (executable, script,
+  working directory); the default `make_job()` fixture yields exactly two
+  paths because its working directory is `None`.
+* Mach-O fixtures are struct-packed byte buffers written to `tmp_path`
+  files: the four magic bytes are always packed big-endian (a
+  little-endian fat holds 0xBEBAFECA as the bytes BE BA FE CA), while the
+  `nfat` count and entry fields follow the file's own endianness. The
+  probe's 32-byte read bound is exercised by fixture length: only the
+  first `fat_arch` entry of a multi-arch fat reaches the parser, and a
+  file shorter than one full entry after the magic and count is silent.
+* Report assertions build `DiagnosticReport` / `DiagnosticGroup` values
+  directly (or monkeypatch a façade method) and pin the pinned group
+  order, empty-group omission, and the evidence-suffixed rendering wording
+  verbatim; GUI tests assert the exact pane/dialog text, including the
+  `== <title> ==` headings and the "No diagnostics." states.
+
 ## Opt-in System Integration Tests
 
 The `tests/integration/` tests exercise the real

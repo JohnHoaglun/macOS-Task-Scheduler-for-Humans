@@ -364,6 +364,70 @@ helper `project_environment_candidate(detection)`, used by both
 `diagnostic_service._rule_interpreter_mismatch` and the diagnostics
 presenter; nothing is applied automatically.
 
+## Expanded Diagnostics Engine (Increment 19)
+
+The flat Increment-12 list is retained verbatim (`evaluate_diagnostics`,
+its seven legacy codes and order — plus `executable_not_found_runtime`,
+inserted after `permission_denied` and suppressed when the static
+missing-executable rule fires) and extended with a source-grouped report
+engine.
+
+**Model (`application/diagnostic_models.py`).** `Diagnostic` gains
+`evidence_state: EvidenceState | None` (`CONFIRMED`, `NOT_PROVABLE`,
+`UNAVAILABLE` — `UNAVAILABLE` means the rule was silent, not that
+evidence was checked). `DiagnosticSource` names a finding's origin
+(preflight / direct test / python environment / lifecycle / logs / plist),
+and the frozen `DiagnosticGroup` / `DiagnosticReport` (`.all` flattens in
+group order) carry the findings. The six frozen typed contexts —
+`PreflightContext`, `DirectTestContext`, `PythonEnvironmentContext`,
+`LifecycleContext`, `LogContext`, `InspectionContext` (union
+`DiagnosticContext`) — are the engine's only inputs.
+
+**Engine (`application/diagnostic_service.py`).**
+`evaluate_diagnostic_report(*contexts)` is pure, accepts contexts in any
+order, and emits groups in a pinned order (preflight, direct test,
+lifecycle, logs, python environment, plist) with empty groups omitted.
+New rules: `executable_not_found_runtime` (ERROR, direct test), broadened
+`module_not_found` patterns (code unchanged), `log_path_unreadable`
+(WARNING, logs), `bootstrap_failure` (ERROR, lifecycle — the
+`InstallResult` bootstrap phase only), `malformed_plist` and
+`invalid_plist_label` (ERROR, plist), `protected_path` (WARNING,
+preflight, `NOT_PROVABLE`), and `architecture_mismatch` (WARNING,
+preflight, `CONFIRMED`).
+
+**Platform probes (`platform/macos/diagnostic_probes.py`).**
+`probe_protected_paths(paths, *, home=None)` is pure path arithmetic over
+roots (home's Desktop/Documents/Downloads/Movies/Music/Pictures,
+home/Library/Mobile Documents, and /Users/Shared);
+`probe_executable_architecture(executable, *, machine=None)` performs a
+bounded Mach-O header read of at most 32 bytes — the magic is read
+big-endian, so the little-endian `FAT_CIGAM` (0xBEBAFECA) dispatches to a
+little-endian entry read, and only the first `fat_arch` entry is
+parseable within the 32-byte window — and compares cputypes against
+`platform.machine()`. The `DiagnosticProbes` protocol with its
+`LocalDiagnosticProbes` implementation is injectable; probes never raise.
+
+**Façade and surfacing.** `TaskCommandService` takes an optional `probes`
+parameter and exposes `diagnostic_report_for(job, *, detection=None,
+logs=None)`, `log_diagnostics_for(job, logs)`,
+`lifecycle_diagnostics(label, action, result)`, and
+`inspection_diagnostics(path, parsed)` — each returns the single group's
+findings (empty tuple = silent). `DirectTestResult` gains
+`report: DiagnosticReport` (default empty report; the legacy `diagnostics`
+list is retained). GUI presentation: the presenter's `SOURCE_TITLES`
+(human group titles), `format_evidence`, `format_diagnostic_block`
+(parenthesized evidence suffix when set), `format_report`
+(`== <title> ==` headings; "No diagnostics." when empty), and
+`format_log_diagnostics` / `format_lifecycle_diagnostics` (a single
+section, or `""` when empty); the diagnostics panel renders the grouped
+report and appends the logs group; the lifecycle result dialog carries a
+Diagnostics group hidden when there are no findings; the inspector's
+`show_agent(*, diagnostics=())` appends a `plist diagnostics:` block to
+the warnings. CLI: `inspect` appends a `diagnostics:` section when the
+plist parse is not fully supported, and a failed `install` bootstrap
+appends the lifecycle diagnostics to stderr; `test` rendering is
+unchanged.
+
 ## Packaging Boundary (Increment 13)
 
 The application runtime has no packaging logic. The `.app` bundle is built

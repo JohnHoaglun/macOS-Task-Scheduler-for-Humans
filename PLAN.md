@@ -18,7 +18,7 @@ Crawl Increments 0–12 complete and pushed to `sched_dev_opencode` (version 0.0
 - **Increment 12:** GUI diagnostics/logs: job-based façade contracts (`test_job(job, *, detection=None)`, `test(label)` delegating, `compare_environment(job, terminal_environment)`, `read_logs_for(job)` with `read_logs(label)` delegating, `gui_environment()` in the composition layer), Qt-free `DiagnosticsController` + `QThread` `DiagnosticsWorker`, shared `DiagnosticLogsPanel` (test summary, diagnostics, direct/persisted stdout/stderr with Refresh, name-only environment comparison, Python recommendations), main-window Test action with selection/stale-result guard, `DirectTestDialog` for the editor's Test Draft (persists nothing); 766 tests
 - Verification at v0.0.12: 766 tests, 100% coverage, ruff + mypy strict clean
 
-Current focus: **Walk Increment 19 — Expanded Diagnostics** (Walk plan approved 2026-09-04; increments 14–18 complete at v0.0.18).
+Current focus: **Walk Increment 20 — Application-Observed Execution History** (Walk plan approved 2026-09-04; increments 14–19 complete at v0.0.19 — Increment 19, Expanded Diagnostics, shipped 2026-09-07 across `0a2274f` core / `b065ea7` GUI / `21bcfd9` CLI, with this closeout commit).
 
 ---
 

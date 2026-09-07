@@ -407,7 +407,10 @@ Exit codes:
   job, missing log configuration, or unknown job
 
 Reports and generated plist XML go to stdout; errors and diagnostics go to
-stderr.
+stderr. `inspect` appends a `diagnostics:` section when the plist is not
+fully supported (unparseable, or a missing/invalid `Label`), and a failed
+`install` bootstrap appends its `bootstrap_failure` diagnostic to stderr
+after launchctl's own output.
 
 ## Graphical Interface
 
@@ -638,7 +641,9 @@ arguments, working directory, and environment. It shows:
 * structured diagnostics (severity, title, description, suggested action)
   for the common failure causes — wrong or missing interpreter, missing
   script, missing shell executable, missing executable, interpreter mismatch
-  with a detected candidate,
+  with a detected candidate — grouped by source (configuration checks,
+  direct test, python environment, lifecycle, logs, plist) with an evidence
+  qualifier where one applies (confirmed / not provable / unavailable),
 * the direct test's stdout and stderr in separate tabs,
 * the job's persisted stdout/stderr logs (read-only) with a **Refresh**
   button that re-reads the configured files,
@@ -658,6 +663,16 @@ this release.
 Log streams render their state distinctly: configured with content (the
 content), configured and empty, missing or unreadable
 (`Log unavailable: <reason>`), and unconfigured (no capture path set).
+
+Lifecycle and plist findings surface in their own places: the lifecycle
+result dialog shows a Diagnostics group for a failed bootstrap, and the
+discovered-agent inspector appends a `plist diagnostics:` block to the
+warnings when an external or managed plist does not fully parse. The
+configuration checks include protected-location warnings (a task under a
+home Documents/Desktop/Downloads-style folder, iCloud Mobile Documents, or
+/Users/Shared) and an architecture mismatch warning when the executable
+declares no cputype matching the host (read from the bounded Mach-O header;
+fat binaries are checked via their first entry).
 
 **Test Draft.** The job editor's **Test Draft** button runs the same direct
 test for the currently edited draft after validating it (invalid drafts show

@@ -177,6 +177,12 @@ class TestProbeExecutableArchitecture:
         executable = _write(tmp_path, _fat([ARM64], little_endian=True))
         assert probe_executable_architecture(executable, machine="arm64") is None
 
+    def test_fat_truncated_before_any_entry_silent(self, tmp_path: Path) -> None:
+        # A valid fat magic and nfat count, but the file ends before a
+        # complete first fat_arch entry fits the 32-byte read.
+        executable = _write(tmp_path, _fat([X86_64], little_endian=False)[:12])
+        assert probe_executable_architecture(executable, machine="arm64") is None
+
     def test_unknown_machine_silent(self, tmp_path: Path) -> None:
         executable = _write(tmp_path, _thin(X86_64))
         assert probe_executable_architecture(executable, machine="riscv64") is None
