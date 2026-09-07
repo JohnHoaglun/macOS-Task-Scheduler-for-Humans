@@ -39,6 +39,9 @@ from task_scheduler.gui.controllers.diagnostics_controller import (
 from task_scheduler.gui.controllers.diagnostics_worker import DiagnosticsWorker
 from task_scheduler.gui.controllers.discovery_controller import DiscoveryController
 from task_scheduler.gui.controllers.editor_controller import EditorController
+from task_scheduler.gui.controllers.history_controller import (
+    HistoryController,
+)
 from task_scheduler.gui.controllers.lifecycle_controller import (
     LifecycleAction,
     LifecycleController,
@@ -106,6 +109,7 @@ def _window(
         editor or EditorController(controller._services),
         LifecycleController(controller._services),
         DiagnosticsController(controller._services, {}),
+        HistoryController(controller._services),
     )
     qtbot.addWidget(window)
     window.show()
@@ -197,6 +201,7 @@ class TestRefreshPopulates:
             EditorController(controller._services),
             LifecycleController(controller._services),
             DiagnosticsController(controller._services, {}),
+            HistoryController(controller._services),
         )
         qtbot.addWidget(window)
         assert window.refresh_action is not None
@@ -1201,4 +1206,60 @@ class TestDiagnosticsTrigger:
         )
         assert _panel_text(window, "diagnostics-summary") == (
             "Passed (exit code 0) in 0.00s"
+        )
+
+
+class TestHistoryPanelWiring:
+    def test_managed_row_queries_history(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world, managed, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        _select_managed(world, window, managed)
+        history_panel = window.history_panel
+        state = history_panel.findChild(object, "history-state-text")
+        # History repo has no records, so the panel shows the empty state
+        assert "No execution history recorded" in state.text()
+        assert history_panel.findChild(object, "history-table") is not None
+
+    def test_unmanaged_row_shows_not_applicable(
+        self, qtbot: QtBot, tmp_path: Path
+    ) -> None:
+        world, _, external_a, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        _select_managed(world, window, external_a)
+        history_panel = window.history_panel
+        state = history_panel.findChild(object, "history-state-text")
+        assert state.text() == (
+            "Execution history is only recorded for managed tasks."
+        )
+        assert history_panel.findChild(object, "history-table") is not None
+
+    def test_empty_selection_shows_empty_state(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        window.table.clearSelection()
+        history_panel = window.history_panel
+        state = history_panel.findChild(object, "history-state-text")
+        # Empty selection shows HISTORY_EMPTY (via empty events tuple)
+        assert "No execution history recorded" in state.text()
+
+    def test_history_refresh_with_selection(
+        self, qtbot: QtBot, tmp_path: Path
+    ) -> None:
+        world, managed, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        _select_managed(world, window, managed)
+        window._on_history_refresh()
+        state = window.history_panel.findChild(object, "history-state-text")
+        assert "No execution history recorded" in state.text()
+
+    def test_history_refresh_without_selection(
+        self, qtbot: QtBot, tmp_path: Path
+    ) -> None:
+        world, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        window.table.setCurrentIndex(QModelIndex())
+        window._on_history_refresh()
+        assert (
+            window.statusBar().currentMessage()
+            == "Select a task to refresh its history."
         )

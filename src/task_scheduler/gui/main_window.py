@@ -27,6 +27,10 @@ from task_scheduler.gui.controllers.diagnostics_controller import (
 from task_scheduler.gui.controllers.diagnostics_worker import DiagnosticsWorker
 from task_scheduler.gui.controllers.discovery_controller import DiscoveryController
 from task_scheduler.gui.controllers.editor_controller import EditorController
+from task_scheduler.gui.controllers.history_controller import (
+    HistoryController,
+    HistoryOutcome,
+)
 from task_scheduler.gui.controllers.lifecycle_controller import (
     LifecycleAction,
     LifecycleController,
@@ -35,8 +39,10 @@ from task_scheduler.gui.controllers.lifecycle_controller import (
 )
 from task_scheduler.gui.controllers.lifecycle_worker import LifecycleWorker
 from task_scheduler.gui.models.agent_table_model import AgentTableModel
+from task_scheduler.gui.presenters.history_presenter import HISTORY_NOT_APPLICABLE
 from task_scheduler.gui.widgets.agent_inspector import AgentInspector
 from task_scheduler.gui.widgets.diagnostic_logs_panel import DiagnosticLogsPanel
+from task_scheduler.gui.widgets.history_panel import HistoryPanel
 from task_scheduler.gui.widgets.job_editor import JobEditor
 from task_scheduler.gui.widgets.lifecycle_result import LifecycleResultDialog
 
@@ -52,6 +58,7 @@ class MainWindow(QMainWindow):
         editor: EditorController,
         lifecycle: LifecycleController,
         diagnostics: DiagnosticsController,
+        history: HistoryController,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -63,6 +70,7 @@ class MainWindow(QMainWindow):
         self._diagnostics_controller = diagnostics
         self._diagnostics_busy = False
         self._active_test_worker: DiagnosticsWorker | None = None
+        self._history_controller = history
         self._editor = JobEditor(editor, diagnostics=diagnostics)
         self._model = AgentTableModel()
         self.table = QTreeView()
@@ -80,6 +88,8 @@ class MainWindow(QMainWindow):
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.addWidget(self.inspector)
         right_layout.addWidget(self.panel)
+        self.history_panel = HistoryPanel()
+        right_layout.addWidget(self.history_panel)
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self.table)
         splitter.addWidget(right_pane)
@@ -103,6 +113,7 @@ class MainWindow(QMainWindow):
         diagnostics_menu = self.menuBar().addMenu("Diagnostics")
         diagnostics_menu.addAction(self.test_action)
         self.panel.refresh_button.clicked.connect(self._on_diagnostics_refresh)
+        self.history_panel.refresh_requested.connect(self._on_history_refresh)
         self.install_action = QAction("Install", self)
         self.reinstall_action = QAction("Reinstall...", self)
         self.uninstall_action = QAction("Uninstall...", self)
@@ -235,6 +246,7 @@ class MainWindow(QMainWindow):
         rows = sorted({index.row() for index in selected.indexes()})
         if not rows:
             self.inspector.show_placeholder("Select a task to inspect its details.")
+            self.history_panel.show_history(HistoryOutcome(label="", events=()))
             self._update_lifecycle_actions()
             return
         listing = self._model.listing_at(rows[0])
@@ -243,6 +255,10 @@ class MainWindow(QMainWindow):
             return
         if listing.kind is ListingKind.SAVED:
             self.inspector.show_saved(listing)
+            if listing.job is not None:
+                self.history_panel.show_history(
+                    self._history_controller.history_for(listing.job.label)
+                )
             self._update_lifecycle_actions()
             return
         result = self._controller.inspect(listing)
@@ -253,6 +269,14 @@ class MainWindow(QMainWindow):
         assert result.report is not None
         self.inspector.show_agent(listing, result.report, diagnostics=result.diagnostics)
         self._update_lifecycle_actions()
+        if listing.managed and listing.job is not None:
+            self.history_panel.show_history(
+                self._history_controller.history_for(listing.job.label)
+            )
+        else:
+            self.history_panel.show_history(
+                HistoryOutcome(label="", events=(), error=HISTORY_NOT_APPLICABLE)
+            )
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -312,6 +336,12 @@ class MainWindow(QMainWindow):
         self._update_lifecycle_actions()
         if outcome.is_success:
             self.refresh()
+            if outcome.action is LifecycleAction.RUN_NOW:
+                listing = self._selected_listing()
+                if listing is not None and listing.job is not None:
+                    self.history_panel.show_history(
+                        self._history_controller.history_for(listing.job.label)
+                    )
         dialog = LifecycleResultDialog(outcome, self)
         dialog.exec()
 
@@ -367,6 +397,19 @@ class MainWindow(QMainWindow):
             return
         self.panel.show_test_outcome(listing.job, outcome)
         self._render_diagnostics(listing.job)
+        self.history_panel.show_history(
+            self._history_controller.history_for(outcome.label)
+        )
+
+    def _on_history_refresh(self) -> None:
+        """Re-query execution history for the selected task."""
+        listing = self._selected_listing()
+        if listing is None or listing.job is None:
+            self.statusBar().showMessage("Select a task to refresh its history.")
+            return
+        self.history_panel.show_history(
+            self._history_controller.history_for(listing.job.label)
+        )
 
     def _on_diagnostics_refresh(self) -> None:
         """Re-read the selected job's persisted logs and environment diff."""
