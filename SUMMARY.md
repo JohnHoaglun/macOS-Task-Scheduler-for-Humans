@@ -2,6 +2,12 @@
 
 ## Changelog
 
+### v0.0.20
+- Walk Increment 20 — Application-Observed Execution History (§59): stdlib `sqlite3` append-only execution history (`storage/execution_history_repository.py`) recording only what the application observed — direct tests, manual runs, explicit status observations, and one aggregate diagnostic-result event per direct test (metadata only, decision 8); writes are best-effort and non-blocking (user decision, 2026-09-07)
+- Shared models and port in `application/history_models.py` (`HistoryEventKind` / `HistoryOutcome` / `HistoryEvent` / `HistoryReadResult` / `HistoryRepository` / `HISTORY_UNAVAILABLE`); `TaskCommandService` records at its boundaries and exposes `history(label, *, limit=50)`; `bootstrap.build_services()` wires the real repository
+- Read paths: `mactask history <label> --limit N` (CLI) and a read-only GUI history panel with the observation-only disclosure wording; corrupt/unavailable database reported safely without affecting scheduler operations
+- Entry finalized at closeout with test/coverage counts and disclosures.
+
 ### v0.0.19
 - Walk Increment 19 — Expanded Diagnostics (§60): the flat Increment-12 diagnostic list is retained verbatim (legacy `evaluate_diagnostics`, its seven codes and order) and extended with a source-grouped report engine — `evaluate_diagnostic_report(*contexts)` is pure, accepts the six typed frozen contexts (`PreflightContext` / `DirectTestContext` / `PythonEnvironmentContext` / `LifecycleContext` / `LogContext` / `InspectionContext`) in any order, and emits groups in a pinned order (preflight, direct test, lifecycle, logs, python environment, plist) with empty groups omitted
 - `Diagnostic` gains `evidence_state: EvidenceState | None` (`CONFIRMED` / `NOT_PROVABLE` / `UNAVAILABLE` — `UNAVAILABLE` means the rule was silent); `DiagnosticSource` names each finding's origin; the canonical model home is `application/diagnostic_models.py` (consumers import `Diagnostic` / `DiagnosticSeverity` from there; `diagnostic_service.py` no longer re-exports them)

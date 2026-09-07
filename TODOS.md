@@ -1,4 +1,4 @@
-# TODOS.md (v0.0.19)
+# TODOS.md (v0.0.20)
 
 ## Walk Increment 15 — Next-Run Preview (§62) (DONE)
 
@@ -213,11 +213,17 @@
 - [x] Source-size review (`diagnostic_service.py`, `diagnostic_probes.py`)
 - [x] Version 0.0.18 → 0.0.19, registry update, stale-reference grep, commit, push
 
-## Walk Increment 20 — Application-Observed Execution History (§59) (PLANNED)
-- stdlib `sqlite3` append-only repository beside the JSON catalog; metadata-only event schema
-- Events: `direct_test`, `manual_trigger`, `observed_state`, `diagnostic_result` at the service boundary
-- Read-only `mactask history` command + GUI history panel; corrupt/unavailable DB handled safely
-- Details in PLAN.md
+## Walk Increment 20 — Application-Observed Execution History (§59) (IN PROGRESS)
+- [x] Plan approved 2026-09-07 (event scope = direct tests, manual runs, explicit status, aggregate diagnostic result; writes best-effort non-blocking); parallel-lane plan pinned in PLAN.md
+- [ ] Stage 0: `application/history_models.py` (kinds, outcomes, `HistoryEvent`, `HistoryReadResult`, `HistoryRepository` port, `HISTORY_UNAVAILABLE`)
+- [ ] Lane 1A: `storage/execution_history_repository.py` + `default_history_path` + `storage/__init__.py` export + storage tests
+- [ ] Lane 1B: service recording at `test_job`/`run_now`/`status` boundaries + `history(label, *, limit)` façade + `bootstrap.py` wiring + `FakeTaskWorld` real temp repository + service tests
+- [ ] Lane 1C: `mactask history <label> --limit N` + `format_history` in `cli/render.py` + CLI tests
+- [ ] Lane 1D: `HistoryController` (synchronous) + `history_presenter` + `HistoryTableModel` + `HistoryPanel` + `MainWindow`/`gui/app.py` wiring + GUI tests
+- [ ] Lane 1E: README + `docs/architecture.md` + `docs/development.md`
+- [ ] Integration: review all lane diffs, commit per lane, `make check` + 100% coverage
+- [ ] Closeout: size review, ratio report, SUMMARY v0.0.20, version grep, push
+- Details in PLAN.md (pinned contract)
 
 ## Walk Increment 21 — External Plist Import (§61) (PLANNED)
 - Read-only import preview with warning/unsupported-key disclosure; explicit acknowledgement required for partial plists
