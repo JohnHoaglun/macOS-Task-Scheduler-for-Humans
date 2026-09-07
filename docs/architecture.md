@@ -428,6 +428,53 @@ plist parse is not fully supported, and a failed `install` bootstrap
 appends the lifecycle diagnostics to stderr; `test` rendering is
 unchanged.
 
+## Application-Observed Execution History (Increment 20)
+
+The execution-history system is a metadata-only, append-only audit of what
+the application itself observed.  It deliberately records nothing beyond the
+metadata captured at application-service boundaries and never infers
+scheduled executions from launchd state.
+
+**Port/adapter split.** `application/history_models.py` owns the models:
+`HistoryEventKind` (`direct_test`, `manual_run`, `status_observation`,
+`diagnostic_result`), `HistoryOutcome` (`success`, `failure`, `observed`),
+the frozen `HistoryEvent` dataclass (`created_at`, `job_id`, `label`,
+`kind`, `outcome`, `exit_code`, `duration_seconds`, `loaded`,
+`diagnostic_codes`), and the `HistoryRepository` Protocol port (`append` is
+best-effort and never raises; `read` converts storage failures into a safe
+`HistoryReadResult`, never exceptions).  The storage adapter
+`storage/execution_history_repository.py` (`ExecutionHistoryRepository`)
+implements the port with stdlib `sqlite3`.
+
+**Table schema.** The append-only table `execution_history` has columns:
+`id INTEGER PRIMARY KEY AUTOINCREMENT`, `created_at TEXT` (UTC ISO-8601),
+`job_id TEXT` (UUID), `label TEXT`, `kind TEXT`, `outcome TEXT`,
+`exit_code INTEGER` (NULL), `duration_seconds REAL` (NULL), `loaded
+INTEGER` (NULL/0/1), `diagnostic_codes TEXT` (JSON array).  An index on
+`(job_id, id)` supports efficient per-job reads.  The repository exposes no
+UPDATE or DELETE — once appended, an event is immutable.
+`default_history_path()` returns the database path beside the job catalog
+(sibling of `jobs/`, in Application Support).
+
+**Service-boundary recording rule.** `TaskCommandService` records at the
+boundaries of `test_job`, `run_now`, and successful `status` façade calls:
+two events per direct test (a `DIRECT_TEST` event then a
+`DIAGNOSTIC_RESULT` event), one `MANUAL_RUN` per Run Now, one
+`STATUS_OBSERVATION` per status check.  Unsaved drafts and lifecycle
+operations record nothing.  Recording happens after the normal result is
+produced and never modifies results.
+
+**Best-effort writes.** A failed append never changes the operation's
+result; the failure is discoverable only via history queries, which report
+the safe unavailable state.
+
+**Read path.** Both `mactask history` (CLI) and the GUI History panel go
+through the same service façade `history(label, *, limit=50)` (default 50,
+maximum 100), so CLI and GUI behave identically.
+
+**Metadata-only stance (decision 8).** Events carry structured metadata
+only — never raw output, environment values, or free text.
+
 ## Packaging Boundary (Increment 13)
 
 The application runtime has no packaging logic. The `.app` bundle is built

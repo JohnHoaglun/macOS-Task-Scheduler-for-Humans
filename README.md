@@ -412,6 +412,34 @@ fully supported (unparseable, or a missing/invalid `Label`), and a failed
 `install` bootstrap appends its `bootstrap_failure` diagnostic to stderr
 after launchctl's own output.
 
+## Execution History
+
+Records what the application itself observed — direct tests, manual runs
+(Run Now), explicit status checks, and the diagnostic outcome of each
+direct test. Metadata only: never raw output, environment values, or free
+text. Scheduled (launchd-driven) executions are **not** recorded; the history
+cannot — and does not — prove launchd ran the task on schedule.
+
+CLI:
+
+```bash
+mactask history <label> --limit N
+```
+
+Default limit is 50, maximum is 100; one line per event, newest first.
+
+GUI: a read-only History panel beside the diagnostics/logs area with a
+Refresh button; applies to managed tasks only.
+
+Storage: a local append-only SQLite database stored beside the job catalog
+in Application Support. If the database is corrupt or unavailable the app
+still works — history queries report "execution history unavailable".
+
+Disclosure:
+
+> Records only what this application observed (tests, manual runs, status
+> checks). It does not prove launchd ran the task on schedule.
+
 ## Graphical Interface
 
 A discovery GUI with a job editor, lifecycle controls, and diagnostics/logs

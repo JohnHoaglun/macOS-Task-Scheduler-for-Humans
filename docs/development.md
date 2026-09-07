@@ -197,6 +197,18 @@ The diagnostics and log tests follow the GUI setup above and add:
   verbatim; GUI tests assert the exact pane/dialog text, including the
   `== <title> ==` headings and the "No diagnostics." states.
 
+## Execution-History Test Conventions (Increment 20)
+
+Service tests use the real temp-rooted repository wired into
+`FakeTaskWorld` (`tmp_path / "history.sqlite3"`) — there is no fake
+repository for history at the service layer.  Storage tests use `tmp_path`
+directly.  Event fixtures pass explicit `created_at` values (tz-aware UTC);
+tests never assert wall-clock values, only UTC-ness of service-stamped
+events.  The corrupt-database fixture writes garbage bytes to a `.sqlite3`
+path before construction to exercise the unavailable-error path.  Unit
+tests never touch the host database (the real
+`~/Library/Application Support` location).
+
 ## Opt-in System Integration Tests
 
 The `tests/integration/` tests exercise the real
