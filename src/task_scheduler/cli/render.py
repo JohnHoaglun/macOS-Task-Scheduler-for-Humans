@@ -182,8 +182,15 @@ def format_stream(stream: LogStream) -> str:
     return "\n".join(lines)
 
 
-def format_inspect(report: InspectReport) -> str:
-    """Render an inspect report: job, plist detail, launchd status."""
+def format_inspect(
+    report: InspectReport,
+    diagnostics: tuple[Diagnostic, ...] = (),
+) -> str:
+    """Render an inspect report: job, plist detail, launchd status.
+
+    A trailing ``diagnostics:`` section is appended when the plist parse
+    produced findings (i.e. the plist is not fully supported).
+    """
     lines = [format_job_summary(report.job)]
     lines.append("")
     lines.append(f"plist: {report.plist_path} [{report.plist.status.value}]")
@@ -193,4 +200,8 @@ def format_inspect(report: InspectReport) -> str:
         lines.append(f"  warning: {warning}")
     lines.append("")
     lines.append(f"launchd: {format_status(report.status)}")
+    if diagnostics:
+        lines.append("")
+        lines.append("diagnostics:")
+        lines.extend(_block(format_diagnostics(list(diagnostics))))
     return "\n".join(lines)

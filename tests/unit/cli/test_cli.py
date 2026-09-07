@@ -129,6 +129,34 @@ def test_inspect_shows_unsupported_keys_and_warnings(tmp_path: Path) -> None:
     assert "plist:" in result.stdout
     assert "unsupported key: KeepAlive" in result.stdout
     assert "warning: no schedule found" in result.stdout
+    assert "diagnostics:" not in result.stdout
+
+
+def test_inspect_shows_diagnostics_for_malformed_plist(tmp_path: Path) -> None:
+    world = FakeTaskWorld(tmp_path)
+    job = make_job()
+    world.jobs.import_job(job)
+    world.la_root.mkdir()
+    (world.la_root / f"{job.label}.plist").write_bytes(b"not a plist")
+    result = invoke(world, "inspect", job.label)
+    assert result.exit_code == 0
+    assert "diagnostics:" in result.stdout
+    assert "[error] malformed_plist: Plist could not be parsed" in result.stdout
+    assert "suggested: Fix the plist syntax or recreate the agent." in result.stdout
+
+
+def test_inspect_shows_diagnostics_for_invalid_label(tmp_path: Path) -> None:
+    world = FakeTaskWorld(tmp_path)
+    job = make_job()
+    world.jobs.import_job(job)
+    world.la_root.mkdir()
+    payload = plistlib.dumps({"ProgramArguments": ["/bin/echo", "hi"]})
+    (world.la_root / f"{job.label}.plist").write_bytes(payload)
+    result = invoke(world, "inspect", job.label)
+    assert result.exit_code == 0
+    assert "diagnostics:" in result.stdout
+    assert "[error] invalid_plist_label: Plist label missing or empty" in result.stdout
+    assert "suggested: Add a valid Label key to the plist." in result.stdout
 
 
 def test_inspect_unknown_label_exits_usage(tmp_path: Path) -> None:
@@ -240,6 +268,8 @@ def test_install_failed_bootstrap_exits_failure(tmp_path: Path) -> None:
     assert result.exit_code == 1
     assert "install failed for" in result.stderr
     assert "bootstrap failed" in result.stderr
+    assert "[error] bootstrap_failure: launchctl bootstrap failed" in result.stderr
+    assert "during install exited with code 1" in result.stderr
 
 
 def test_uninstall_success(tmp_path: Path) -> None:

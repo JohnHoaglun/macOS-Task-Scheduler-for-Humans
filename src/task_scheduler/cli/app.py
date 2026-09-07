@@ -83,7 +83,10 @@ def create_app(services: TaskCommandService) -> typer.Typer:
             report = services.inspect(label)
         except JobNotFoundError as exc:
             _fail(str(exc), EXIT_USAGE)
-        typer.echo(render.format_inspect(report))
+        diagnostics = services.inspection_diagnostics(
+            report.plist_path, report.plist
+        )
+        typer.echo(render.format_inspect(report, diagnostics))
 
     @app.command("validate")
     def validate_command(
@@ -136,6 +139,14 @@ def create_app(services: TaskCommandService) -> typer.Typer:
             )
             if result.process.stderr:
                 typer.secho(result.process.stderr.rstrip("\n"), err=True)
+            diagnostics = services.lifecycle_diagnostics(
+                result.job.label, "install", result
+            )
+            if diagnostics:
+                typer.secho(
+                    "\n" + render.format_diagnostics(list(diagnostics)),
+                    err=True,
+                )
             raise typer.Exit(EXIT_FAILURE)
         typer.echo(f"installed {result.job.label} -> {result.plist_path}")
 
