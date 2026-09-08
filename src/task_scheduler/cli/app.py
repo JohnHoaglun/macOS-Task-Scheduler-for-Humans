@@ -17,6 +17,7 @@ from pydantic import ValidationError
 from task_scheduler.application import (
     JobConflictError,
     JobNotFoundError,
+    StrictJsonDecodeError,
     TaskCommandService,
 )
 from task_scheduler.bootstrap import build_services
@@ -313,6 +314,46 @@ def create_app(services: TaskCommandService) -> typer.Typer:
         except JobConflictError as exc:
             _fail(str(exc), EXIT_USAGE)
         typer.echo(render.format_import_success(preview.candidate.label))
+
+    @app.command("export-json")
+    def export_json_command(
+        label: str = typer.Argument(..., help="Managed job label."),
+        destination: Path = typer.Argument(..., help="Destination JSON file."),
+    ) -> None:
+        """Export a managed catalog job to a strict managed-JSON file."""
+        try:
+            path = services.export_managed_json(label, destination)
+        except (ValueError, FileExistsError, JobNotFoundError) as exc:
+            _fail(str(exc), EXIT_USAGE)
+        typer.echo(render.format_export_success(label, path))
+        return
+
+    @app.command("import-json")
+    def import_json_command(
+        source: Path = typer.Argument(..., help="Managed JSON file to import."),
+    ) -> None:
+        """Import a strict managed-JSON file into the catalog (create-only)."""
+        if not source.is_file():
+            _fail(f"file not found: {source}", EXIT_USAGE)
+        try:
+            preview = services.preview_managed_json_import(source)
+        except (StrictJsonDecodeError, ValueError, OSError) as exc:
+            _fail(str(exc), EXIT_USAGE)
+        if not preview.can_import:
+            typer.secho(
+                render.format_import_json_conflicts(preview), err=True
+            )
+            _fail("", EXIT_USAGE)
+        try:
+            services.import_managed_json(preview)
+        except JobConflictError as exc:
+            _fail(str(exc), EXIT_USAGE)
+        typer.echo(
+            render.format_import_json_success(
+                preview.candidate.label, preview.normalized_schema_version
+            )
+        )
+        return
 
     return app
 

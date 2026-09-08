@@ -9,11 +9,15 @@ from __future__ import annotations
 
 import shlex
 from datetime import UTC, timedelta
+from pathlib import Path
 
 from task_scheduler.application.diagnostic_models import Diagnostic
 from task_scheduler.application.external_import import ExternalPlistImportPreview
 from task_scheduler.application.history_models import HistoryReadResult
 from task_scheduler.application.log_service import JobLogs, LogStream
+from task_scheduler.application.managed_json_transfer import (
+    ManagedJsonImportPreview,
+)
 from task_scheduler.application.task_command_service import (
     InspectReport,
     ListingKind,
@@ -34,8 +38,11 @@ __all__ = [
     "format_argv",
     "format_diagnostics",
     "format_duration",
+    "format_export_success",
     "format_history",
     "format_import_disclosure",
+    "format_import_json_conflicts",
+    "format_import_json_success",
     "format_import_success",
     "format_inspect",
     "format_job_summary",
@@ -258,3 +265,23 @@ def format_import_disclosure(
             "Use --acknowledge-partial to import a partially supported plist."
         )
     return "\n".join(lines)
+
+
+def format_export_success(label: str, destination: Path) -> str:
+    """Render the post-export confirmation line."""
+    return f"exported {label} -> {destination}"
+
+
+def format_import_json_conflicts(preview: ManagedJsonImportPreview) -> str:
+    """Render the import-refused conflict block for managed JSON."""
+    lines = ["import refused (conflict):"]
+    if preview.id_conflict_path is not None:
+        lines.append(f"  id conflict: {preview.id_conflict_path}")
+    if preview.label_conflict_path is not None:
+        lines.append(f"  label conflict: {preview.label_conflict_path}")
+    return "\n".join(lines)
+
+
+def format_import_json_success(label: str, schema_version: int) -> str:
+    """Render the post-managed-json-import confirmation line."""
+    return f"imported {label} (schema v{schema_version}) (catalog only; no plist created)"

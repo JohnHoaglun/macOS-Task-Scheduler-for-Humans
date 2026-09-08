@@ -1,10 +1,8 @@
 """Unit tests for managed-JSON transfer (Increment 22, Stage 0).
 
-Covers the strict closed-schema decoder (v1→v2 migration, unknown-field
-rejection at every level, unsupported versions), the identity-preserving
-catalog export/import façades, the conflict preview, the create-only commit
-re-check, and the GUI-only Finder reveal. Every case proves the transfer is
-catalog-only: nothing is deployed.
+Covers the strict closed-schema decoder (v1→v2, unknown-field rejection,
+unsupported versions), the identity-preserving export/import façades,
+conflict preview, create-only commit re-check, and the GUI Finder reveal.
 """
 
 from __future__ import annotations
@@ -93,80 +91,52 @@ def test_decode_valid_v1_migrates_to_calendar() -> None:
     assert job.schedule.run_at_load is False
 
 
-def test_decode_malformed_json_raises() -> None:
-    with pytest.raises(StrictJsonDecodeError, match="malformed JSON"):
-        strict_decode_job_json("{not json")
+@pytest.mark.parametrize(
+    ("raw", "err"),
+    [
+        ("{not json", "malformed JSON"),
+        ("[1, 2, 3]", "object"),
+    ],
+)
+def test_decode_malformed_or_non_object_raises(raw: str, err: str) -> None:
+    with pytest.raises(StrictJsonDecodeError, match=err):
+        strict_decode_job_json(raw)
 
 
-def test_decode_non_object_raises() -> None:
-    with pytest.raises(StrictJsonDecodeError, match="object"):
-        strict_decode_job_json("[1, 2, 3]")
-
-
-def test_decode_unknown_top_level_field_raises() -> None:
-    payload = v2_payload()
-    payload["bogus"] = 1
+@pytest.mark.parametrize(
+    ("base", "patch"),
+    [
+        (lambda: v2_payload(), lambda p: p.update(bogus=1)),
+        (lambda: v2_payload(), lambda p: p["command"].update(bogus=True)),  # type: ignore[index]
+        (lambda: v2_payload(), lambda p: p["environment"].update(bogus=True)),  # type: ignore[index]
+        (lambda: v2_payload(), lambda p: p["logging"].update(bogus=True)),  # type: ignore[index]
+        (lambda: v2_payload(), lambda p: p["schedule"].update(bogus=True)),  # type: ignore[index]
+        (lambda: v1_payload(), lambda p: p["schedule"].update(bogus=True)),  # type: ignore[index]
+        (
+            lambda: v2_payload(),
+            lambda p: p.update(
+                schedule={"kind": "interval", "seconds": 300, "run_at_load": False, "bogus": 1}
+            ),
+        ),
+    ],
+)
+def test_decode_unknown_field_raises(base, patch) -> None:
+    payload = base()
+    patch(payload)
     with pytest.raises(StrictJsonDecodeError, match="bogus"):
         strict_decode_job_json(json.dumps(payload))
 
 
-def test_decode_unknown_command_field_raises() -> None:
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda p: p.update(schema_version=3),
+        lambda p: p.__delitem__("schema_version"),
+    ],
+)
+def test_decode_unsupported_version_raises(mutate) -> None:
     payload = v2_payload()
-    payload["command"]["bogus"] = True  # type: ignore[index]
-    with pytest.raises(StrictJsonDecodeError, match="bogus"):
-        strict_decode_job_json(json.dumps(payload))
-
-
-def test_decode_unknown_schedule_v1_field_raises() -> None:
-    payload = v1_payload()
-    payload["schedule"]["bogus"] = True  # type: ignore[index]
-    with pytest.raises(StrictJsonDecodeError, match="bogus"):
-        strict_decode_job_json(json.dumps(payload))
-
-
-def test_decode_unknown_schedule_v2_calendar_field_raises() -> None:
-    payload = v2_payload()
-    payload["schedule"]["bogus"] = True  # type: ignore[index]
-    with pytest.raises(StrictJsonDecodeError, match="bogus"):
-        strict_decode_job_json(json.dumps(payload))
-
-
-def test_decode_unknown_schedule_v2_interval_field_raises() -> None:
-    payload = v2_payload()
-    payload["schedule"] = {
-        "kind": "interval",
-        "seconds": 300,
-        "run_at_load": False,
-        "bogus": 1,
-    }
-    with pytest.raises(StrictJsonDecodeError, match="bogus"):
-        strict_decode_job_json(json.dumps(payload))
-
-
-def test_decode_unknown_environment_field_raises() -> None:
-    payload = v2_payload()
-    payload["environment"]["bogus"] = True  # type: ignore[index]
-    with pytest.raises(StrictJsonDecodeError, match="bogus"):
-        strict_decode_job_json(json.dumps(payload))
-
-
-def test_decode_unknown_logging_field_raises() -> None:
-    payload = v2_payload()
-    payload["logging"]["bogus"] = True  # type: ignore[index]
-    with pytest.raises(StrictJsonDecodeError, match="bogus"):
-        strict_decode_job_json(json.dumps(payload))
-
-
-def test_decode_unsupported_version_raises() -> None:
-    payload = v2_payload()
-    payload["schema_version"] = 3
-    with pytest.raises(StrictJsonDecodeError, match="unsupported schema version"):
-        strict_decode_job_json(json.dumps(payload))
-
-
-def test_decode_missing_version_raises() -> None:
-    payload = v2_payload()
-    del payload["schema_version"]
+    mutate(payload)
     with pytest.raises(StrictJsonDecodeError, match="unsupported schema version"):
         strict_decode_job_json(json.dumps(payload))
 
@@ -178,30 +148,18 @@ def test_decode_semantic_validation_error_raises() -> None:
         strict_decode_job_json(json.dumps(payload))
 
 
-def test_decode_command_not_dict_skips_key_check() -> None:
-    payload = v2_payload()
-    payload["command"] = "echo hi"
-    with pytest.raises(StrictJsonDecodeError, match="invalid job definition"):
-        strict_decode_job_json(json.dumps(payload))
-
-
-def test_decode_command_unknown_type_skips_key_check() -> None:
-    payload = v2_payload()
-    payload["command"] = {"type": "bogus", "whatever": 1}
-    with pytest.raises(StrictJsonDecodeError, match="invalid job definition"):
-        strict_decode_job_json(json.dumps(payload))
-
-
-def test_decode_schedule_unknown_kind_skips_key_check() -> None:
-    payload = v2_payload()
-    payload["schedule"] = {"kind": "bogus", "whatever": 1}
-    with pytest.raises(StrictJsonDecodeError, match="invalid job definition"):
-        strict_decode_job_json(json.dumps(payload))
-
-
-def test_decode_non_dict_schedule_v1_skips_key_check() -> None:
-    payload = v1_payload()
-    payload["schedule"] = "07:30"
+@pytest.mark.parametrize(
+    ("base", "patch"),
+    [
+        (lambda: v2_payload(), lambda p: p.update(command="echo hi")),
+        (lambda: v2_payload(), lambda p: p.update(command={"type": "bogus", "whatever": 1})),
+        (lambda: v2_payload(), lambda p: p.update(schedule={"kind": "bogus", "whatever": 1})),
+        (lambda: v1_payload(), lambda p: p.update(schedule="07:30")),
+    ],
+)
+def test_decode_skips_key_check_when_shape_unknown(base, patch) -> None:
+    payload = base()
+    patch(payload)
     with pytest.raises(StrictJsonDecodeError, match="invalid job definition"):
         strict_decode_job_json(json.dumps(payload))
 
@@ -397,12 +355,8 @@ def test_list_agents_eager_loaded_for_discovered_and_saved(tmp_path: Path) -> No
     assert by_label["com.example.saved"].loaded is None
 
 
-def test_loaded_status_none_for_invalid_label_or_absent(tmp_path: Path) -> None:
-    world = FakeTaskWorld(tmp_path)
+def test_loaded_status(tmp_path: Path) -> None:
+    world = FakeTaskWorld(tmp_path)  # sticky exit 0 -> loaded True
     assert world.services._loaded_status(None) is None
     assert world.services._loaded_status("com.example/bad") is None
-
-
-def test_loaded_status_reads_backend(tmp_path: Path) -> None:
-    world = FakeTaskWorld(tmp_path)  # sticky exit 0 -> loaded True
     assert world.services._loaded_status("com.example.ok") is True
