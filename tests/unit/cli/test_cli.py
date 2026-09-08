@@ -16,8 +16,10 @@ from tests.conftest import make_job
 from tests.fakes import FakeTaskWorld
 from typer.testing import CliRunner
 
+from task_scheduler.application import ExternalPlistImportPreview
 from task_scheduler.cli import app as cli_app
 from task_scheduler.cli.app import main
+from task_scheduler.cli.render import format_import_disclosure
 from task_scheduler.domain import (
     EnvironmentConfig,
     ExecutableCommand,
@@ -421,3 +423,124 @@ def test_main_entrypoint_shows_help(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(SystemExit) as exc:
         main()
     assert exc.value.code == 2
+
+
+# ---- import command tests ----
+
+
+def _write_external_plist(tmp_path: Path, payload: dict) -> Path:
+    path = tmp_path / "external.plist"
+    path.write_bytes(plistlib.dumps(payload))
+    return path
+
+
+def test_import_supported_exits_0(tmp_path: Path) -> None:
+    world = FakeTaskWorld(tmp_path)
+    plist_path = _write_external_plist(
+        tmp_path,
+        {
+            "Label": "com.example.imported",
+            "ProgramArguments": ["/bin/echo", "hello"],
+            "StartCalendarInterval": [{"Hour": 7, "Minute": 30, "Weekday": 1}],
+        },
+    )
+    original_bytes = plist_path.read_bytes()
+    result = invoke(world, "import", str(plist_path))
+    assert result.exit_code == 0
+    assert (
+        "Imported com.example.imported as a managed task (catalog only; source plist unchanged)."
+        in result.stdout
+    )
+    assert result.stderr == ""
+    catalog_files = list(world.catalog_root.glob("*.json"))
+    assert len(catalog_files) == 1
+    assert plist_path.read_bytes() == original_bytes
+    assert world.launch_runner.specs == []
+
+
+def test_import_partial_acknowledge_exits_0(tmp_path: Path) -> None:
+    world = FakeTaskWorld(tmp_path)
+    plist_path = _write_external_plist(
+        tmp_path,
+        {
+            "Label": "com.example.partial",
+            "ProgramArguments": ["/bin/echo", "hi"],
+            "KeepAlive": True,
+            "StartCalendarInterval": [{"Hour": 9, "Minute": 0, "Weekday": 1}],
+        },
+    )
+    result = invoke(world, "import", str(plist_path), "--acknowledge-partial")
+    assert result.exit_code == 0
+    assert "unsupported key: KeepAlive" in result.stdout
+    catalog_files = list(world.catalog_root.glob("*.json"))
+    assert len(catalog_files) == 1
+
+
+def test_import_partial_no_flag_exits_2(tmp_path: Path) -> None:
+    world = FakeTaskWorld(tmp_path)
+    plist_path = _write_external_plist(
+        tmp_path,
+        {
+            "Label": "com.example.partial",
+            "ProgramArguments": ["/bin/echo", "hi"],
+            "KeepAlive": True,
+            "StartCalendarInterval": [{"Hour": 9, "Minute": 0, "Weekday": 1}],
+        },
+    )
+    result = invoke(world, "import", str(plist_path))
+    assert result.exit_code == 2
+    assert "unsupported key: KeepAlive" in result.stderr
+    assert "Use --acknowledge-partial to import a partially supported plist." in result.stderr
+    catalog_files = list(world.catalog_root.glob("*.json"))
+    assert len(catalog_files) == 0
+
+
+def test_import_invalid_plist_exits_2(tmp_path: Path) -> None:
+    world = FakeTaskWorld(tmp_path)
+    plist_path = tmp_path / "bad.plist"
+    plist_path.write_bytes(b"not a plist")
+    result = invoke(world, "import", str(plist_path))
+    assert result.exit_code == 2
+    assert "cannot import" in result.stderr
+
+
+def test_import_duplicate_label_exits_2(tmp_path: Path) -> None:
+    world = FakeTaskWorld(tmp_path)
+    world.manage(make_job(label="com.example.dup"))
+    plist_path = _write_external_plist(
+        tmp_path,
+        {
+            "Label": "com.example.dup",
+            "ProgramArguments": ["/bin/echo"],
+            "StartCalendarInterval": [{"Hour": 12, "Minute": 0, "Weekday": 1}],
+        },
+    )
+    result = invoke(world, "import", str(plist_path))
+    assert result.exit_code == 2
+    assert "a managed job already exists for label" in result.stderr
+
+
+def test_import_nonexistent_path_exits_2(tmp_path: Path) -> None:
+    world = FakeTaskWorld(tmp_path)
+    result = invoke(world, "import", "/no/such/file.plist")
+    assert result.exit_code == 2
+    assert "file not found" in result.stderr
+
+
+def test_import_disclosure_renders_warnings_and_keys() -> None:
+    preview = ExternalPlistImportPreview(
+        source_path=Path("/tmp/warn.plist"),
+        candidate=make_job(label="com.example.warn"),
+        warnings=("derived warning text",),
+        unsupported_keys=("SomeKey",),
+        requires_acknowledgement=True,
+    )
+    assert "warning: derived warning text" in format_import_disclosure(preview)
+    assert "unsupported key: SomeKey" in format_import_disclosure(preview)
+    assert (
+        "Use --acknowledge-partial to import a partially supported plist."
+        in format_import_disclosure(preview)
+    )
+    assert "Use --acknowledge-partial" not in format_import_disclosure(
+        preview, include_prompt=False
+    )

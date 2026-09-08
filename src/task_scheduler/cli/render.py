@@ -11,6 +11,7 @@ import shlex
 from datetime import UTC, timedelta
 
 from task_scheduler.application.diagnostic_models import Diagnostic
+from task_scheduler.application.external_import import ExternalPlistImportPreview
 from task_scheduler.application.history_models import HistoryReadResult
 from task_scheduler.application.log_service import JobLogs, LogStream
 from task_scheduler.application.task_command_service import (
@@ -34,6 +35,8 @@ __all__ = [
     "format_diagnostics",
     "format_duration",
     "format_history",
+    "format_import_disclosure",
+    "format_import_success",
     "format_inspect",
     "format_job_summary",
     "format_label",
@@ -228,4 +231,30 @@ def format_inspect(
         lines.append("")
         lines.append("diagnostics:")
         lines.extend(_block(format_diagnostics(list(diagnostics))))
+    return "\n".join(lines)
+
+
+def format_import_success(label: str) -> str:
+    """Render the post-import confirmation line."""
+    return f"Imported {label} as a managed task (catalog only; source plist unchanged)."
+
+
+def format_import_disclosure(
+    preview: ExternalPlistImportPreview, *, include_prompt: bool = True
+) -> str:
+    """Render the warning/unsupported-key disclosure block.
+
+    When *include_prompt* is True (stderr path), appends the
+    ``--acknowledge-partial`` prompt.  When False (stdout, already
+    acknowledged), only warnings and unsupported keys are emitted.
+    """
+    lines: list[str] = []
+    for warning in preview.warnings:
+        lines.append(f"warning: {warning}")
+    for key in preview.unsupported_keys:
+        lines.append(f"unsupported key: {key}")
+    if include_prompt and (preview.warnings or preview.unsupported_keys):
+        lines.append(
+            "Use --acknowledge-partial to import a partially supported plist."
+        )
     return "\n".join(lines)

@@ -15,6 +15,7 @@ import typer
 from pydantic import ValidationError
 
 from task_scheduler.application import (
+    JobConflictError,
     JobNotFoundError,
     TaskCommandService,
 )
@@ -280,6 +281,38 @@ def create_app(services: TaskCommandService) -> typer.Typer:
             typer.echo("No history found.")
             return
         typer.echo(render.format_history(result, label))
+
+    @app.command("import")
+    def import_command(
+        path: Path = typer.Argument(..., help="External LaunchAgent plist to import."),
+        acknowledge_partial: bool = typer.Option(
+            False,
+            "--acknowledge-partial",
+            help="Acknowledge warnings and unsupported keys to import anyway.",
+        ),
+    ) -> None:
+        """Import an external plist as a managed task (catalog only)."""
+        if not path.is_file():
+            _fail(f"file not found: {path}", EXIT_USAGE)
+        try:
+            preview = services.preview_external_plist(path)
+        except (ValueError, OSError) as exc:
+            _fail(str(exc), EXIT_USAGE)
+        if preview.requires_acknowledgement and not acknowledge_partial:
+            typer.secho(
+                render.format_import_disclosure(preview),
+                err=True,
+            )
+            _fail("", EXIT_USAGE)
+        if acknowledge_partial:
+            typer.echo(render.format_import_disclosure(preview, include_prompt=False))
+        try:
+            services.import_external_plist(
+                preview, acknowledge_partial=acknowledge_partial
+            )
+        except JobConflictError as exc:
+            _fail(str(exc), EXIT_USAGE)
+        typer.echo(render.format_import_success(preview.candidate.label))
 
     return app
 
