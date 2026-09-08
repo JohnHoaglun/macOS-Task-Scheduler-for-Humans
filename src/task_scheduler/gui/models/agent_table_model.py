@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shlex
 from collections.abc import Sequence
 
 from PySide6.QtCore import (
@@ -13,19 +14,55 @@ from PySide6.QtCore import (
 )
 
 from task_scheduler.application.task_command_service import TaskListing
+from task_scheduler.domain import command_argv
+from task_scheduler.gui.presenters.agent_badge_presenter import dimensions
 from task_scheduler.gui.presenters.agent_presenter import (
     classify,
     format_command,
+    format_label,
     format_name,
     format_schedule,
     format_state,
 )
 
-__all__ = ["AgentTableModel", "COLUMNS"]
+ROLE_STATE: int = Qt.ItemDataRole.UserRole + 0
+ROLE_INSTALLED: int = Qt.ItemDataRole.UserRole + 1
+ROLE_ENABLED: int = Qt.ItemDataRole.UserRole + 2
+ROLE_LOADED: int = Qt.ItemDataRole.UserRole + 3
+ROLE_COMMAND: int = Qt.ItemDataRole.UserRole + 4
+ROLE_SEARCH_TEXT: int = Qt.ItemDataRole.UserRole + 5
+
+__all__ = [
+    "ROLE_COMMAND",
+    "ROLE_ENABLED",
+    "ROLE_INSTALLED",
+    "ROLE_LOADED",
+    "ROLE_SEARCH_TEXT",
+    "ROLE_STATE",
+    "AgentTableModel",
+    "COLUMNS",
+]
 
 COLUMNS: tuple[str, ...] = ("Name", "Command", "Schedule", "Classification", "State")
 
 _DEFAULT_INDEX: QModelIndex = QModelIndex()
+
+
+def _format_search_text(listing: TaskListing) -> str:
+    """Produce the haystack string for ROLE_SEARCH_TEXT."""
+    parsed = listing.parsed
+    if parsed is not None and parsed.job is not None:
+        cmd = parsed.job.command
+    elif listing.job is not None:
+        cmd = listing.job.command
+    else:
+        cmd = None
+    quoted = (
+        "unknown"
+        if cmd is None
+        else " ".join(shlex.quote(arg) for arg in command_argv(cmd))
+    )
+    return f"{format_name(listing)} {format_label(listing)} {quoted}"
 
 
 class AgentTableModel(QAbstractTableModel):
@@ -64,12 +101,29 @@ class AgentTableModel(QAbstractTableModel):
         index: QModelIndex | QPersistentModelIndex,
         role: int = Qt.ItemDataRole.DisplayRole,
     ) -> object:
-        if not index.isValid() or role != Qt.ItemDataRole.DisplayRole:
+        if not index.isValid():
             return None
         listing = self.listing_at(index.row())
         if listing is None:
             return None
-        column = index.column()
+        if role == Qt.ItemDataRole.DisplayRole:
+            return self._display(listing, index.column())
+        dims = dimensions(listing)
+        if role == ROLE_STATE:
+            return dims.state
+        if role == ROLE_INSTALLED:
+            return dims.installed
+        if role == ROLE_ENABLED:
+            return dims.enabled
+        if role == ROLE_LOADED:
+            return dims.loaded
+        if role == ROLE_COMMAND:
+            return dims.command
+        if role == ROLE_SEARCH_TEXT:
+            return _format_search_text(listing)
+        return None
+
+    def _display(self, listing: TaskListing, column: int) -> object:
         if column == 0:
             return format_name(listing)
         if column == 1:
@@ -81,3 +135,5 @@ class AgentTableModel(QAbstractTableModel):
         if column == 4:
             return format_state(listing)
         return None
+
+
