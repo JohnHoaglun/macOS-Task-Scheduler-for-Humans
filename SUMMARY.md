@@ -2,6 +2,10 @@
 
 ## Changelog
 
+### v0.0.22
+- Walk Increment 22 — Walk UX and Managed JSON Transfer (§63): filterable, badged, empty-state-aware task list (`QSortFilterProxyModel` search over name/label/shell-quoted command + classification / saved-installed / configured-enabled / loaded / parse-validation filters; visual status + validation badges with text fallbacks; context-aware empty states); catalog-only managed-JSON transfer (`mactask export-json LABEL DEST` / `mactask import-json SOURCE` + GUI preview-then-confirm dialog) that is identity-preserving (immutable UUID + label), create-only (export refuses an existing destination), rejects both ID and label conflicts, normalizes legacy v1→v2, and uses a strict closed schema (unknown fields rejected at every accepted level) — distinct from increment 21's regenerate-UUID external-plist import; platform-isolated `/usr/bin/open -R` Finder reveal (GUI-only) plus copy command (parsed jobs) / copy generated plist (managed jobs) via Qt clipboard.
+- Entry finalized at closeout with test/coverage counts and disclosures.
+
 ### v0.0.21
 - Walk Increment 21 — External Plist Import (§61): read-only import of an external LaunchAgent plist into the managed JSON catalog — parse/normalize to a candidate `JobDefinition`, disclose every warning/unsupported key, require explicit acknowledgement for partial plists, regenerate the durable UUID at commit, and write managed JSON only (label-conflict rejection; the source plist is never touched and imported jobs stay catalog-only until deployed). GUI external-row-only "Import as Managed Job" action with a modal preview + acknowledgement gate; `mactask import <plist-path> [--acknowledge-partial]`.
 - 370 tests (full suite), 100% package line coverage (4661 statements), `make check` clean (`ruff` / `mypy` strict / pytest; 7 pre-existing PytestCollection/Pydantic-serializer warnings)
