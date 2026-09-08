@@ -475,6 +475,53 @@ maximum 100), so CLI and GUI behave identically.
 **Metadata-only stance (decision 8).** Events carry structured metadata
 only — never raw output, environment values, or free text.
 
+## External Plist Import (Increment 21)
+
+The import pipeline bridges external, unmanaged LaunchAgent plists into the
+application's managed job catalog without touching the source file or deploying
+a plist to launchd.
+
+**Reader → preview → commit flow.**
+`TaskCommandService.preview_external_plist(path)` parses the plist read-only
+via `PlistCodec.parse_path` and returns a frozen
+`ExternalPlistImportPreview` DTO: the source path, a `JobDefinition` candidate (with
+the parser's transient UUID carried but **not** used as the durable identity),
+verbatim warnings, verbatim unsupported keys, and a
+`requires_acknowledgement` flag.  The candidate is never persisted directly;
+the commit path builds a fresh copy.
+
+`TaskCommandService.import_external_plist(preview, *, acknowledge_partial)`
+regenerates the durable identity (`uuid4()`), re-stamps the schema version on
+a copy of the candidate, and delegates to `JobService.import_job`.  The
+`requires_acknowledgement` flag gates the call — raising `ValueError` when
+set and the caller did not pass `acknowledge_partial=True`.
+
+**Fresh-ID commit.** The parser's transient UUID is never the durable identity.
+`import_job` always generates a new `uuid4()` for the committed `JobDefinition`'s
+`id` field.  The original label from the source plist is preserved verbatim.
+
+**Catalog-only boundary.** The import commit writes **only** the managed JSON
+catalog record.  No LaunchAgent plist is written, no log directories are
+created, and `launchctl` is never invoked.  An imported job appears as
+**Saved, not installed** until the user explicitly deploys it via the install
+lifecycle path.
+
+**Create-only semantics.** `JobService.import_job` is strictly create: it
+raises `FileExistsError` when the destination catalog JSON already exists for
+the new job id, and raises `JobConflictError` when a **different** managed
+record already claims the same label.  Existing catalog records are never
+overwritten by import.
+
+**Label-conflict guard.** A duplicate label — i.e. another managed job that
+already owns the label the import candidate would use — is rejected with
+`JobConflictError` before any write occurs.
+
+**Acknowledgement gate.** A partially supported plist (one that yields
+warnings or unsupported keys) requires explicit acknowledgement before the
+import can commit: a checkbox in the GUI dialog (`import-acknowledge`), or
+the `--acknowledge-partial` CLI flag.  Without acknowledgement, the service
+raises and no write occurs.
+
 ## Packaging Boundary (Increment 13)
 
 The application runtime has no packaging logic. The `.app` bundle is built

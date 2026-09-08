@@ -209,6 +209,34 @@ path before construction to exercise the unavailable-error path.  Unit
 tests never touch the host database (the real
 `~/Library/Application Support` location).
 
+## Import Test Conventions (Increment 21)
+
+* External plist fixtures live under a temporary `~/Library/LaunchAgents`
+  root (e.g. `tmp_path / "Library" / "LaunchAgents"`) so discovery resolves
+  them through the normal `LaunchAgentStore` path without touching the live
+  system directory.
+* A source-byte-preservation assertion reads the fixture file's bytes before
+  the import commit and re-reads them after, asserting exact equality —
+  confirming the source plist is never modified.
+* The no-launchctl-call-log gate uses `FakeTaskWorld.launch_runner.specs`
+  to assert the import path issued zero `launchctl` invocations;
+  `world.launch_runner.specs` is empty after `import_external_plist` or the
+  CLI import command, regardless of outcome.
+* The catalogue-only boundary is verified by asserting that the LaunchAgents
+  root contains no new files after a successful import commit, and that the
+  only new filesystem artifact is the single expected catalog JSON file
+  (named by the regenerated job id).
+* Acknowledgement-gate tests cover: (a) a fully supported plist imports
+  directly without a flag/checkbox; (b) a partially supported plist with
+  the acknowledgement flag/checkbox commits successfully; (c) a partially
+  supported plist without acknowledgement raises `ValueError` (CLI exits
+  2, GUI dialog stays open with Import disabled); (d) an `INVALID` or
+  no-job parse raises `ValueError` with no write; (e) a duplicate label
+  raises `JobConflictError` with no write.
+* Composition gates assert: source plist bytes unchanged, the catalog change
+  is exactly one new `.json` file, the LaunchAgents root is absent/new, and
+  all call logs (launchctl + direct-test) are empty.
+
 ## Opt-in System Integration Tests
 
 The `tests/integration/` tests exercise the real

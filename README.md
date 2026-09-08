@@ -412,6 +412,37 @@ fully supported (unparseable, or a missing/invalid `Label`), and a failed
 `install` bootstrap appends its `bootstrap_failure` diagnostic to stderr
 after launchctl's own output.
 
+## Import an Existing LaunchAgent
+
+You can import an external LaunchAgent plist as a managed job in the task
+catalog without modifying the source file.
+
+CLI:
+
+```bash
+mactask import /path/to/com.example.myagent.plist
+```
+
+GUI:
+
+On an eligible external row in the discovery browser, select
+**Import as Managed Job**.  A modal preview shows the normalized command,
+schedule, environment, and every warning or unsupported key.
+
+Key guarantees:
+
+* The source plist is **never modified** — the import reads it only.
+* Import writes the managed JSON catalog entry **only** — no plist file is
+  written, no `launchctl` is invoked, no LaunchAgent is deployed.
+* A new durable job UUID is generated at commit; the original label from
+  the plist is preserved in the catalog record.
+* If the plist is only partially supported, every warning and unsupported
+  key is shown and must be explicitly acknowledged (CLI flag
+  `--acknowledge-partial` / GUI checkbox) before the import can proceed.
+* An imported job appears as **Saved, not installed** — it stays catalog-only
+  until you explicitly deploy it with **Install** (GUI) or `mactask install`
+  (CLI).
+
 ## Execution History
 
 Records what the application itself observed — direct tests, manual runs
