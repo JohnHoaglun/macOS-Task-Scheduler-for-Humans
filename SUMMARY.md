@@ -2,6 +2,10 @@
 
 ## Changelog
 
+### v0.0.21
+- Walk Increment 21 — External Plist Import (§61): read-only import of an external LaunchAgent plist into the managed JSON catalog — parse/normalize to a candidate `JobDefinition`, disclose every warning/unsupported key, require explicit acknowledgement for partial plists, regenerate the durable UUID at commit, and write managed JSON only (label-conflict rejection; the source plist is never touched and imported jobs stay catalog-only until deployed). GUI external-row-only "Import as Managed Job" action with a modal preview + acknowledgement gate; `mactask import <plist-path> [--acknowledge-partial]`.
+- Entry finalized at closeout with test/coverage counts and disclosures.
+
 ### v0.0.20
 - Walk Increment 20 — Application-Observed Execution History (§59): stdlib `sqlite3` append-only execution history (`storage/execution_history_repository.py`) recording only what the application observed — direct tests, manual runs, explicit status observations, and one aggregate diagnostic-result event per direct test (metadata only, decision 8); writes are best-effort and non-blocking (user decision, 2026-09-07)
 - Shared models and port in `application/history_models.py` (`HistoryEventKind` / `HistoryOutcome` / `HistoryEvent` / `HistoryReadResult` / `HistoryRepository` / `HISTORY_UNAVAILABLE`); `TaskCommandService` records at its boundaries and exposes `history(label, *, limit=50)`; `bootstrap.build_services()` wires the real repository

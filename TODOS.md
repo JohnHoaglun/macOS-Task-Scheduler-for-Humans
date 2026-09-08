@@ -1,4 +1,4 @@
-# TODOS.md (v0.0.20)
+# TODOS.md (v0.0.21)
 
 ## Walk Increment 15 — Next-Run Preview (§62) (DONE)
 
@@ -225,11 +225,16 @@
 - [x] Closeout: size review, test/code ratio enforcement (15,004 → 5,444 lines, 62.4% ≤ 75% cap; 100% coverage held), SUMMARY v0.0.20, version grep, push
 - Details in PLAN.md (pinned contract)
 
-## Walk Increment 21 — External Plist Import (§61) (PLANNED)
-- Read-only import preview with warning/unsupported-key disclosure; explicit acknowledgement required for partial plists
-- Catalog-only write (managed JSON only, new UUID, label-conflict rejection); never touches the source plist
-- GUI external-row action + CLI `mactask import <plist-path>`; imported jobs stay catalog-only
-- Details in PLAN.md
+## Walk Increment 21 — External Plist Import (§61) (IN PROGRESS — v0.0.21)
+- [x] Plan approved 2026-09-07 (GUI modal preview + acknowledgement gate; CLI `--acknowledge-partial`); pinned contract, lane map, and shared-surface inventory in PLAN.md
+- [ ] Stage 0: `application/external_import.py` (`ExternalPlistImportPreview` DTO); façade signatures (`preview_external_plist`, `import_external_plist`) + error/acknowledgement semantics; `JobService.import_job` create-only invariants (no existing UUID path AND no other record owning the label); interface tests
+- [ ] Lane 1A: service preview/commit + catalog hardening (`task_command_service.py`, `job_service.py`, `fakes.py`) + service tests (source-untouched, no deployment side effects)
+- [ ] Lane 1B: `mactask import <plist-path> [--acknowledge-partial]` (`cli/app.py`, `cli/render.py`) + CLI tests (exit 0/2, full disclosure)
+- [ ] Lane 1C: `ImportController` (synchronous) + `ImportPreviewDialog` + `MainWindow` external-row action/wiring + GUI tests (external-row-only enablement, acknowledgement gate, cancellation)
+- [ ] Lane 1D: README + `docs/architecture.md` + `docs/development.md`
+- [ ] Integration: review all lane diffs vs. contract, composition gates (source bytes unchanged, exactly one catalog file, no launchctl), `make check` + 100% coverage + test/code ratio
+- [ ] Closeout: size review, SUMMARY v0.0.21, version grep, commit, push
+- Details in PLAN.md (pinned contract, lane map, shared-surface inventory)
 
 ## Walk Increment 22 — Walk UX and Managed JSON Transfer (§63) (PLANNED)
 - Search/filters via `QSortFilterProxyModel`; status + validation badges; context-aware empty states
