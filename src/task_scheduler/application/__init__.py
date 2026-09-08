@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from task_scheduler.application.external_import import ExternalPlistImportPreview
 from task_scheduler.application.job_service import (
     JobConflictError,
     JobNotFoundError,
@@ -23,6 +24,7 @@ from task_scheduler.application.test_service import DirectTestResult, DirectTest
 __all__ = [
     "DirectTestResult",
     "DirectTestService",
+    "ExternalPlistImportPreview",
     "InspectReport",
     "InstallPhase",
     "InstallResult",

@@ -227,13 +227,12 @@
 
 ## Walk Increment 21 — External Plist Import (§61) (IN PROGRESS — v0.0.21)
 - [x] Plan approved 2026-09-07 (GUI modal preview + acknowledgement gate; CLI `--acknowledge-partial`); pinned contract, lane map, and shared-surface inventory in PLAN.md
-- [ ] Stage 0: `application/external_import.py` (`ExternalPlistImportPreview` DTO); façade signatures (`preview_external_plist`, `import_external_plist`) + error/acknowledgement semantics; `JobService.import_job` create-only invariants (no existing UUID path AND no other record owning the label); interface tests
-- [ ] Lane 1A: service preview/commit + catalog hardening (`task_command_service.py`, `job_service.py`, `fakes.py`) + service tests (source-untouched, no deployment side effects)
-- [ ] Lane 1B: `mactask import <plist-path> [--acknowledge-partial]` (`cli/app.py`, `cli/render.py`) + CLI tests (exit 0/2, full disclosure)
-- [ ] Lane 1C: `ImportController` (synchronous) + `ImportPreviewDialog` + `MainWindow` external-row action/wiring + GUI tests (external-row-only enablement, acknowledgement gate, cancellation)
-- [ ] Lane 1D: README + `docs/architecture.md` + `docs/development.md`
-- [ ] Integration: review all lane diffs vs. contract, composition gates (source bytes unchanged, exactly one catalog file, no launchctl), `make check` + 100% coverage + test/code ratio
-- [ ] Closeout: size review, SUMMARY v0.0.21, version grep, commit, push
+- [x] Stage 0 (serial, `build`): the shared surface both CLI and GUI consume — `application/external_import.py` (`ExternalPlistImportPreview` DTO); `TaskCommandService.preview_external_plist` / `import_external_plist` façades (fresh `uuid4` at commit, acknowledgement gate, never touches source/deploy); `JobService.import_job` create-only hardening (no existing UUID path AND no other record owning the label); service tests. Verified: `make check` green (332 passed), ruff + mypy clean.
+- [ ] Lane 1A (parallel, `faster`): `mactask import <plist-path> [--acknowledge-partial]` (`cli/app.py`, `cli/render.py`) + CLI tests (exit 0/2, full disclosure). Depends on complete Stage 0.
+- [ ] Lane 1B (parallel, `faster`): `ImportController` (synchronous) + `ImportPreviewDialog` + `MainWindow` external-row action/wiring + GUI tests (external-row-only enablement, acknowledgement gate, cancellation). Depends on complete Stage 0.
+- [ ] Lane 1C (parallel, `faster`): README + `docs/architecture.md` + `docs/development.md`. Depends on complete Stage 0.
+- [ ] Integration (`build`, serial): review all lane diffs vs. contract, composition gates (source bytes unchanged, exactly one catalog file, no launchctl), `make check` + 100% coverage + test/code ratio
+- [ ] Closeout (`build`, serial): size review, SUMMARY v0.0.21, version grep, commit, push
 - Details in PLAN.md (pinned contract, lane map, shared-surface inventory)
 
 ## Walk Increment 22 — Walk UX and Managed JSON Transfer (§63) (PLANNED)

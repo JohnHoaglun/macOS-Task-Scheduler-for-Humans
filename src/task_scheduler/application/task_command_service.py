@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from task_scheduler.application.diagnostic_models import (
     Diagnostic,
@@ -31,6 +31,7 @@ from task_scheduler.application.diagnostic_service import (
     collect_preflight_paths,
     evaluate_diagnostic_report,
 )
+from task_scheduler.application.external_import import ExternalPlistImportPreview
 from task_scheduler.application.history_models import (
     HISTORY_UNAVAILABLE,
     HistoryEvent,
@@ -50,6 +51,7 @@ from task_scheduler.platform.macos import (
     LaunchAgentStore,
     LaunchctlResult,
     ParsedLaunchAgent,
+    ParseSupport,
     PlistCodec,
     ProcessResult,
     PythonDetectionResult,
@@ -392,6 +394,51 @@ class TaskCommandService:
             completed_phases=tuple(completed),
             retained_artifacts=tuple(retained),
         )
+
+    # -- external plist import ------------------------------------------------
+
+    def preview_external_plist(self, path: Path) -> ExternalPlistImportPreview:
+        """Preview importing the external plist at *path* as a managed job.
+
+        Read-only: parses the source without mutating it and returns the
+        normalized candidate plus every warning and unsupported key. Raises
+        ``ValueError`` when the plist is invalid or has no representable job.
+        """
+        parsed = parse_path(path)
+        if parsed.status is ParseSupport.INVALID or parsed.job is None:
+            detail = "; ".join(parsed.warnings) if parsed.warnings else "not representable"
+            raise ValueError(f"cannot import {path}: {detail}")
+        return ExternalPlistImportPreview(
+            source_path=path,
+            candidate=parsed.job,
+            warnings=tuple(parsed.warnings),
+            unsupported_keys=tuple(parsed.unsupported_keys),
+            requires_acknowledgement=parsed.status is ParseSupport.PARTIALLY_SUPPORTED,
+        )
+
+    def import_external_plist(
+        self,
+        preview: ExternalPlistImportPreview,
+        *,
+        acknowledge_partial: bool,
+    ) -> JobDefinition:
+        """Commit a previewed external plist into the managed catalog (catalog only).
+
+        Raises ``ValueError`` when a partial preview is not acknowledged.
+        Regenerates the durable UUID (never reusing the parser's transient id),
+        keeps the external label, and writes managed JSON only — the source
+        plist is never touched and nothing is deployed. Raises
+        ``JobConflictError`` when the label is already managed.
+        """
+        if preview.requires_acknowledgement and not acknowledge_partial:
+            raise ValueError(
+                "this plist is only partially supported; every warning and "
+                "unsupported key must be acknowledged before import"
+            )
+        committed = preview.candidate.model_copy(update={"id": uuid4()})
+        committed = self.validate_job(committed)
+        self._jobs.import_job(committed)
+        return committed
 
     # -- editor (in-memory, non-deploying) ---
 

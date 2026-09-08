@@ -159,7 +159,15 @@ class JobService:
         )
 
     def import_job(self, job: JobDefinition) -> Path:
-        """Persist ``job`` into the catalog; create-only, never overwrite."""
+        """Persist ``job`` into the catalog; create-only, never overwrite.
+
+        Raises :class:`JobConflictError` when the job id is already managed
+        (the destination file exists) or when a different managed job already
+        claims ``job.label``.
+        """
+        owner = self.find(job.label)
+        if owner is not None and owner.id != job.id:
+            raise JobConflictError(label=job.label, path=self._path_for(owner.id))
         path = self._path_for(job.id)
         if path.exists():
             raise JobConflictError(label=job.label, path=path)
