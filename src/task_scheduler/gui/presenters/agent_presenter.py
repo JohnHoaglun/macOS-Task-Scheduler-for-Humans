@@ -15,6 +15,7 @@ from task_scheduler.domain import (
     CalendarSchedule,
     IntervalSchedule,
     JobDefinition,
+    Schedule,
     command_argv,
     human_interval,
     upcoming_interval_occurrences,
@@ -44,6 +45,7 @@ __all__ = [
     "format_name",
     "format_raw_plist",
     "format_schedule",
+    "format_schedule_value",
     "format_upcoming_heading",
     "format_upcoming_interval_occurrences",
     "format_upcoming_occurrences",
@@ -132,12 +134,8 @@ def format_command(listing: TaskListing) -> str:
     return "—"
 
 
-def format_schedule(listing: TaskListing) -> str:
-    """The schedule as 'at HH:MM:SS on Weekday, ...', or a dash when unparseable."""
-    job = _job_of(listing)
-    if job is None:
-        return "—"
-    schedule = job.schedule
+def format_schedule_value(schedule: Schedule) -> str:
+    """The schedule text from a bare ``Schedule`` (shared by the import preview)."""
     if isinstance(schedule, IntervalSchedule):
         text = human_interval(schedule.seconds)
     else:
@@ -148,6 +146,14 @@ def format_schedule(listing: TaskListing) -> str:
     if schedule.run_at_load:
         text += " + at login"
     return text
+
+
+def format_schedule(listing: TaskListing) -> str:
+    """The schedule as 'at HH:MM:SS on Weekday, ...', or a dash when unparseable."""
+    job = _job_of(listing)
+    if job is None:
+        return "—"
+    return format_schedule_value(job.schedule)
 
 
 def format_upcoming_heading(listing: TaskListing) -> str:

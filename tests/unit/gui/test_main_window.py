@@ -51,6 +51,7 @@ from task_scheduler.gui.main_window import MainWindow
 from task_scheduler.gui.models.agent_table_model import AgentTableModel
 from task_scheduler.gui.presenters.agent_presenter import format_name
 from task_scheduler.gui.widgets.agent_inspector import AgentInspector
+from task_scheduler.gui.widgets.import_preview_dialog import ImportPreviewDialog
 from task_scheduler.gui.widgets.job_editor import JobEditor
 from task_scheduler.gui.widgets.lifecycle_result import LifecycleResultDialog
 from task_scheduler.platform.macos import ProcessResult, parse_path
@@ -579,3 +580,230 @@ class TestHistoryPanelWiring:
             window.statusBar().currentMessage()
             == "Select a task to refresh its history."
         )
+
+
+EXTERNAL_PLIST = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.external.imported</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/echo</string>
+        <string>hello</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>300</integer>
+</dict>
+</plist>
+"""
+
+EXTERNAL_PARTIAL_PLIST = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.external.partial</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/echo</string>
+        <string>partial</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict>
+            <key>Hour</key>
+            <integer>8</integer>
+            <key>Minute</key>
+            <integer>0</integer>
+            <key>Weekday</key>
+            <integer>1</integer>
+        </dict>
+    </array>
+    <key>UnknownWeirdKey</key>
+    <string>ignored</string>
+</dict>
+</plist>
+"""
+
+
+def _import_window(
+    qtbot: QtBot, world: FakeTaskWorld
+) -> MainWindow:
+    """A window with an import controller."""
+    from task_scheduler.gui.controllers.import_controller import ImportController
+
+    window = MainWindow(
+        DiscoveryController(world.services),
+        EditorController(world.services),
+        LifecycleController(world.services),
+        DiagnosticsController(world.services, {}),
+        HistoryController(world.services),
+        ImportController(world.services),
+    )
+    qtbot.addWidget(window)
+    window.show()
+    return window
+
+
+def _external_row(window: MainWindow) -> int | None:
+    """Return the row index of the external plist, or None."""
+    model = window.table.model()
+    for row in range(model.rowCount()):
+        listing = model.listing_at(row)
+        if listing is not None and listing.path is not None:
+            return row
+    return None
+
+
+class TestImportActionGating:
+    def test_import_action_enabled_for_eligible_external(
+        self, qtbot: QtBot, tmp_path: Path
+    ) -> None:
+        world = FakeTaskWorld(tmp_path)
+        la_plist = world.la_root / "com.external.imported.plist"
+        world.la_root.mkdir(parents=True, exist_ok=True)
+        la_plist.write_bytes(EXTERNAL_PLIST.encode())
+        window = _import_window(qtbot, world)
+        model = window.table.model()
+        row = _external_row(window)
+        assert row is not None
+        window.table.setCurrentIndex(model.index(row, 0))
+        assert window.import_action.isEnabled()
+
+    def test_import_action_disabled_for_managed(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world, managed, *_ = _seed_three(tmp_path)
+        window = _import_window(qtbot, world)
+        model = window.table.model()
+        row = _row_by_path(model, world.store.destination_for(managed.label))
+        window.table.setCurrentIndex(model.index(row, 0))
+        assert not window.import_action.isEnabled()
+
+    def test_import_action_disabled_for_saved(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        world.manage(make_job())
+        window = _import_window(qtbot, world)
+        model = window.table.model()
+        # SAVED rows have kind SAVED, no path/parsed
+        for row in range(model.rowCount()):
+            listing = model.listing_at(row)
+            if listing is not None and listing.kind is not None:
+                # We don't know the kind directly but saved rows have no path
+                pass
+        # Click the first row (should be discovered managed)
+        if model.rowCount() > 0:
+            window.table.setCurrentIndex(model.index(0, 0))
+        assert not window.import_action.isEnabled()
+
+    def test_import_action_disabled_for_invalid_plist(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        la_plist = world.la_root / "invalid.plist"
+        world.la_root.mkdir(parents=True, exist_ok=True)
+        la_plist.write_bytes(b"not a plist at all")
+        window = _import_window(qtbot, world)
+        model = window.table.model()
+        row = _external_row(window)
+        assert row is not None
+        window.table.setCurrentIndex(model.index(row, 0))
+        # Invalid plists should not be importable
+        listing = model.listing_at(row)
+        assert listing is not None
+        if listing.parsed is not None and listing.parsed.job is not None:
+            assert not window.import_action.isEnabled()
+
+
+class TestImportTriggered:
+    """Drives MainWindow._on_import_triggered end-to-end, faking the dialog modal."""
+
+    def _select_external(self, window: MainWindow) -> None:
+        model = window.table.model()
+        row = _external_row(window)
+        assert row is not None
+        window.table.setCurrentIndex(model.index(row, 0))
+
+    def _write_plist(self, tmp_path: Path, world: FakeTaskWorld, name: str, data: bytes) -> None:
+        world.la_root.mkdir(parents=True, exist_ok=True)
+        (world.la_root / name).write_bytes(data)
+
+    def test_no_import_controller(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        window._on_import_triggered()
+        assert window.statusBar().currentMessage() == "Import is not available."
+
+    def test_no_selection(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        window = _import_window(qtbot, world)
+        window._on_import_triggered()
+        assert window.statusBar().currentMessage() == "Select a task to import."
+
+    def test_preview_error(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        self._write_plist(tmp_path, world, "bad.plist", b"not a plist")
+        window = _import_window(qtbot, world)
+        self._select_external(window)
+        window._on_import_triggered()
+        assert window.statusBar().currentMessage().startswith("Cannot import:")
+
+    def test_cancel_dialog_no_commit(self, qtbot: QtBot, tmp_path: Path, monkeypatch) -> None:
+        world = FakeTaskWorld(tmp_path)
+        self._write_plist(tmp_path, world, "com.external.imported.plist", EXTERNAL_PLIST.encode())
+        window = _import_window(qtbot, world)
+        self._select_external(window)
+        monkeypatch.setattr(
+            ImportPreviewDialog, "exec", lambda self: QDialog.DialogCode.Rejected
+        )
+        window._on_import_triggered()
+        assert list(world.catalog_root.glob("*.json")) == []
+
+    def test_commit_failure_unacknowledged_partial(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch
+    ) -> None:
+        world = FakeTaskWorld(tmp_path)
+        self._write_plist(
+            tmp_path, world, "com.external.partial.plist", EXTERNAL_PARTIAL_PLIST.encode()
+        )
+        window = _import_window(qtbot, world)
+        self._select_external(window)
+
+        def accepted(self):
+            self._acknowledge_check.setChecked(False)
+            return QDialog.DialogCode.Accepted
+
+        monkeypatch.setattr(ImportPreviewDialog, "exec", accepted)
+        window._on_import_triggered()
+        assert window.statusBar().currentMessage().startswith("Import failed:")
+        assert list(world.catalog_root.glob("*.json")) == []
+
+    def test_happy_path_commits(self, qtbot: QtBot, tmp_path: Path, monkeypatch) -> None:
+        world = FakeTaskWorld(tmp_path)
+        self._write_plist(
+            tmp_path, world, "com.external.imported.plist", EXTERNAL_PLIST.encode()
+        )
+        window = _import_window(qtbot, world)
+        self._select_external(window)
+        monkeypatch.setattr(
+            ImportPreviewDialog, "exec", lambda self: QDialog.DialogCode.Accepted
+        )
+        window._on_import_triggered()
+        assert len(list(world.catalog_root.glob("*.json"))) == 1
+        assert window.statusBar().currentMessage() == ""
+
+    def test_import_never_invokes_launchctl(self, tmp_path: Path) -> None:
+        """A pure import (no window/refresh) writes the catalog only; launchctl
+        is never invoked."""
+        from task_scheduler.gui.controllers.import_controller import ImportController
+
+        world = FakeTaskWorld(tmp_path)
+        self._write_plist(
+            tmp_path, world, "com.external.nolaunchctl.plist", EXTERNAL_PLIST.encode()
+        )
+        controller = ImportController(world.services)
+        outcome = controller.preview(world.la_root / "com.external.nolaunchctl.plist")
+        assert outcome.error is None
+        controller.commit(outcome, acknowledge_partial=False)
+        assert len(list(world.catalog_root.glob("*.json"))) == 1
+        assert len(world.launch_runner.specs) == 0

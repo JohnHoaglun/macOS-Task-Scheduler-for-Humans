@@ -31,6 +31,9 @@ from task_scheduler.gui.controllers.history_controller import (
     HistoryController,
     HistoryOutcome,
 )
+from task_scheduler.gui.controllers.import_controller import (
+    ImportController,
+)
 from task_scheduler.gui.controllers.lifecycle_controller import (
     LifecycleAction,
     LifecycleController,
@@ -43,6 +46,7 @@ from task_scheduler.gui.presenters.history_presenter import HISTORY_NOT_APPLICAB
 from task_scheduler.gui.widgets.agent_inspector import AgentInspector
 from task_scheduler.gui.widgets.diagnostic_logs_panel import DiagnosticLogsPanel
 from task_scheduler.gui.widgets.history_panel import HistoryPanel
+from task_scheduler.gui.widgets.import_preview_dialog import ImportPreviewDialog
 from task_scheduler.gui.widgets.job_editor import JobEditor
 from task_scheduler.gui.widgets.lifecycle_result import LifecycleResultDialog
 
@@ -59,6 +63,7 @@ class MainWindow(QMainWindow):
         lifecycle: LifecycleController,
         diagnostics: DiagnosticsController,
         history: HistoryController,
+        import_ctrl: ImportController | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -71,6 +76,7 @@ class MainWindow(QMainWindow):
         self._diagnostics_busy = False
         self._active_test_worker: DiagnosticsWorker | None = None
         self._history_controller = history
+        self._import_controller = import_ctrl
         self._editor = JobEditor(editor, diagnostics=diagnostics)
         self._model = AgentTableModel()
         self.table = QTreeView()
@@ -103,9 +109,13 @@ class MainWindow(QMainWindow):
         self.new_task_action.triggered.connect(self.new_task)
         self.edit_task_action = QAction("Edit Managed Task...", self)
         self.edit_task_action.triggered.connect(self.edit_managed_task)
+        self.import_action = QAction("Import as Managed Job...", self)
+        self.import_action.setEnabled(False)
+        self.import_action.triggered.connect(self._on_import_triggered)
         file_menu = self.menuBar().addMenu("File")
         file_menu.addAction(self.new_task_action)
         file_menu.addAction(self.edit_task_action)
+        file_menu.addAction(self.import_action)
         file_menu.addAction(self.refresh_action)
         self.test_action = QAction("Test Task", self)
         self.test_action.setEnabled(False)
@@ -240,6 +250,7 @@ class MainWindow(QMainWindow):
             and listing.job is not None
             and not self._diagnostics_busy
         )
+        self._update_import_action(listing)
 
     def _on_selection_changed(self, selected: QItemSelection, _deselected: QItemSelection) -> None:
         """Inspect the selected agent, or show a placeholder when the selection is empty."""
@@ -279,6 +290,41 @@ class MainWindow(QMainWindow):
             )
 
     # -- lifecycle -----------------------------------------------------------
+
+    def _update_import_action(self, listing: TaskListing | None) -> None:
+        """Enable the import action only for an eligible external representable row."""
+        eligible = (
+            listing is not None
+            and listing.kind is ListingKind.DISCOVERED
+            and listing.managed is False
+            and listing.parsed is not None
+            and listing.parsed.job is not None
+        )
+        self.import_action.setEnabled(eligible)
+
+    def _on_import_triggered(self) -> None:
+        """Preview and optionally commit an external-plist import."""
+        if self._import_controller is None:
+            self.statusBar().showMessage("Import is not available.")
+            return
+        listing = self._selected_listing()
+        if listing is None or listing.path is None:
+            self.statusBar().showMessage("Select a task to import.")
+            return
+        outcome = self._import_controller.preview(listing.path)
+        if outcome.error is not None:
+            self.statusBar().showMessage(f"Cannot import: {outcome.error}")
+            return
+        dialog = ImportPreviewDialog(outcome, self)
+        if not dialog.exec():
+            return
+        result = self._import_controller.commit(
+            outcome, acknowledge_partial=dialog._acknowledge_check.isChecked()
+        )
+        if result.error is not None:
+            self.statusBar().showMessage(f"Import failed: {result.error}")
+            return
+        self.refresh()
 
     def _on_lifecycle_triggered(self, action: LifecycleAction) -> None:
         """Confirm when required, request through the controller, dispatch a worker."""

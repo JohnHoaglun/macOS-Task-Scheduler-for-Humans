@@ -12,6 +12,7 @@ from task_scheduler.gui.controllers.diagnostics_controller import DiagnosticsCon
 from task_scheduler.gui.controllers.discovery_controller import DiscoveryController
 from task_scheduler.gui.controllers.editor_controller import EditorController
 from task_scheduler.gui.controllers.history_controller import HistoryController
+from task_scheduler.gui.controllers.import_controller import ImportController
 from task_scheduler.gui.controllers.lifecycle_controller import LifecycleController
 from task_scheduler.gui.main_window import MainWindow
 
@@ -26,6 +27,7 @@ def create_main_window(services: TaskCommandService) -> MainWindow:
         LifecycleController(services),
         DiagnosticsController(services, gui_environment()),
         HistoryController(services),
+        ImportController(services),
     )
 
 
