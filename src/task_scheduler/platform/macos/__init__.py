@@ -14,6 +14,11 @@ from task_scheduler.platform.macos.filesystem import (
     LaunchAgentFilesystem,
     LocalFilesystem,
 )
+from task_scheduler.platform.macos.finder import (
+    FINDER_OPEN_PATH,
+    FinderRevealer,
+    LocalFinderRevealer,
+)
 from task_scheduler.platform.macos.launch_agent_store import (
     DiscoveredLaunchAgent,
     LaunchAgentStore,
@@ -86,6 +91,7 @@ __all__ = [
     "DiscoveredLaunchAgent",
     "EnvironmentDifference",
     "InterpreterCandidate",
+    "FINDER_OPEN_PATH",
     "LAUNCHCTL_PATH",
     "LaunchAgentBackend",
     "LaunchAgentFilesystem",
@@ -95,6 +101,7 @@ __all__ = [
     "LaunchctlResult",
     "LaunchFailureKind",
     "LocalFilesystem",
+    "LocalFinderRevealer",
     "LocalLogReader",
     "LocalPythonDetectorFilesystem",
     "LogReadResult",
@@ -102,6 +109,7 @@ __all__ = [
     "PlistCodec",
     "ProcessLaunchFailure",
     "ProcessResult",
+    "FinderRevealer",
     "ProcessRunner",
     "ParsedLaunchAgent",
     "ParseSupport",

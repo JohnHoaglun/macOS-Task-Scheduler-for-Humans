@@ -17,6 +17,7 @@ from task_scheduler.application.test_service import DirectTestService
 from task_scheduler.platform.macos import (
     LaunchAgentBackend,
     LaunchAgentStore,
+    LocalFinderRevealer,
     PlistCodec,
     SubprocessRunner,
 )
@@ -41,6 +42,7 @@ def build_services() -> TaskCommandService:
         test=DirectTestService(SubprocessRunner()),
         logs=LogService(),
         history=ExecutionHistoryRepository(default_history_path()),
+        finder=LocalFinderRevealer(SubprocessRunner()),
     )
 
 

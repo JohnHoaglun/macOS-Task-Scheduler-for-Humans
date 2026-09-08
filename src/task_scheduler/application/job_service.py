@@ -126,6 +126,26 @@ class JobService:
             raise JobNotFoundError(label)
         return job
 
+    def transfer_conflicts(
+        self, job: JobDefinition
+    ) -> tuple[Path | None, Path | None]:
+        """Report import conflicts for ``job`` without writing.
+
+        Returns ``(id_conflict_path, label_conflict_path)``. ``id_conflict_path``
+        is the catalog file that already holds ``job.id`` (when it exists);
+        ``label_conflict_path`` is the file of a different managed job that
+        already claims ``job.label`` (when present). Either may be ``None``.
+        """
+        owner = self.find(job.label)
+        label_conflict = (
+            self._path_for(owner.id)
+            if owner is not None and owner.id != job.id
+            else None
+        )
+        id_path = self._path_for(job.id)
+        id_conflict = id_path if id_path.exists() else None
+        return id_conflict, label_conflict
+
     def new_managed_job(
         self,
         name: str,

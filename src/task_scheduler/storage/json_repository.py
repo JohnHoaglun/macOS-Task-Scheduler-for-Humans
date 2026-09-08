@@ -39,7 +39,10 @@ class JsonJobRepository:
 
     def load(self, path: Path) -> JobDefinition:
         """Load and validate a job definition from *path*, migrating v1 files."""
-        text = path.read_text(encoding="utf-8")
+        return self.load_text(path.read_text(encoding="utf-8"))
+
+    def load_text(self, text: str) -> JobDefinition:
+        """Parse and validate job JSON *text*, migrating v1 payloads to v2."""
         migrated = _migrate_if_v1(text)
         if migrated is not None:
             return JobDefinition.model_validate(migrated)

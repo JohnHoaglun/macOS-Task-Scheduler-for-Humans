@@ -236,10 +236,10 @@
 - Details in PLAN.md (pinned contract, lane map, shared-surface inventory)
 
 ## Walk Increment 22 — Walk UX and Managed JSON Transfer (§63) (IN PROGRESS — v0.0.22)
-- [ ] Stage 0 (serial, `build`): `application/managed_json_transfer.py` (strict decoder + `ManagedJsonImportPreview` DTO); `TaskCommandService.export_managed_json`/`preview_managed_json_import`/`import_managed_json`/`reveal_path`; `platform/macos/finder.py` port + `bootstrap` wiring + `FakeTaskWorld` recording fake; `TaskListing` status fields; service/storage/platform tests. Stop: strict decode, v1→v2 migration, distinct conflict reporting, create-only + no-deploy, Finder fake all gated; `make check` green.
+- [x] Stage 0 (serial, `build`): `application/managed_json_transfer.py` (strict decoder + `ManagedJsonImportPreview` DTO); `TaskCommandService.export_managed_json`/`preview_managed_json_import`/`import_managed_json`/`reveal_path`; `platform/macos/finder.py` port + `bootstrap` wiring + `FakeTaskWorld` recording fake; `TaskListing` status fields; service/storage/platform tests. Stop: strict decode, v1→v2 migration, distinct conflict reporting, create-only + no-deploy, Finder fake all gated; `make check` green.
 - [ ] Lane 1A (parallel, `faster`): `AgentTableModel` typed filter roles; `AgentFilterProxyModel` (search + 5 filter groups); pure badge presenter/descriptor; isolated tests. No `MainWindow` edits.
 - [ ] Lane 1B (parallel, `faster`): `mactask export-json LABEL DEST` / `mactask import-json SOURCE` (`cli/app.py`, `cli/render.py`) + CLI tests (exit 0/2, catalog-only).
-- [ ] Lane 1C (parallel, `faster`): Finder adapter implementation/tests + fake wiring (to the extent beyond Stage 0).
+- [x] Lane 1C (parallel, `faster`): Finder adapter implementation/tests + fake wiring — completed within Stage 0 (port + `LocalFinderRevealer`, `tests/unit/platform/test_finder.py`, `FakeFinderRevealer` wired into `FakeTaskWorld`); nothing remains beyond Stage 0.
 - [ ] Lane 1D (parallel, `faster`): README + `docs/architecture.md` + `docs/development.md` (filtering/status, Finder safety, clipboard scope, strict JSON transfer, v1 migration, conflict rules, no-deploy).
 - [ ] Lane 2A (parallel, `faster`): `gui/controllers/json_transfer_controller.py` + `gui/widgets/json_transfer_dialog.py` + isolated tests. No `MainWindow` edits.
 - [ ] Lane 2B (parallel, `faster`): standalone filter-control, empty-state, and badge widgets + isolated tests. No `MainWindow` edits.

@@ -140,6 +140,22 @@ class FakeFilesystem:
 OK_PROCESS = ProcessResult(exit_code=0)
 
 
+class FakeFinderRevealer:
+    """Recording FinderRevealer: records revealed paths, returns a canned result.
+
+    ``result`` is ``None`` (success) by default; set a string to simulate a
+    Finder reveal failure.
+    """
+
+    def __init__(self, result: str | None = None) -> None:
+        self.result = result
+        self.revealed: list[Path] = []
+
+    def reveal(self, path: Path) -> str | None:
+        self.revealed.append(path)
+        return self.result
+
+
 class FakeTaskWorld:
     """A fully faked TaskCommandService environment rooted at temp paths.
 
@@ -172,6 +188,7 @@ class FakeTaskWorld:
         self.history_repo = ExecutionHistoryRepository(
             self.history_root / "history.sqlite3"
         )
+        self.finder_revealer = FakeFinderRevealer()
         self.services = TaskCommandService(
             repository=JsonJobRepository(),
             jobs=self.jobs,
@@ -182,6 +199,7 @@ class FakeTaskWorld:
             logs=LogService(),
             probes=probes,
             history=self.history_repo,
+            finder=self.finder_revealer,
         )
 
     def manage(self, job: JobDefinition) -> None:

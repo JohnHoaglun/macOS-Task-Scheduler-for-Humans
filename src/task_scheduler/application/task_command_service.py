@@ -42,10 +42,15 @@ from task_scheduler.application.history_models import (
 )
 from task_scheduler.application.job_service import JobService
 from task_scheduler.application.log_service import JobLogs, LogService
+from task_scheduler.application.managed_json_transfer import (
+    ManagedJsonImportPreview,
+    strict_decode_job_json,
+)
 from task_scheduler.application.test_service import DirectTestResult, DirectTestService
 from task_scheduler.domain import Command, JobDefinition, PythonCommand, Schedule
 from task_scheduler.platform.macos import (
     EnvironmentDifference,
+    FinderRevealer,
     LaunchAgentBackend,
     LaunchAgentStatus,
     LaunchAgentStore,
@@ -101,6 +106,7 @@ class TaskListing:
     parsed: ParsedLaunchAgent | None
     job: JobDefinition | None
     managed: bool
+    loaded: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,6 +180,7 @@ class TaskCommandService:
         logs: LogService,
         probes: DiagnosticProbes | None = None,
         history: HistoryRepository | None = None,
+        finder: FinderRevealer | None = None,
     ) -> None:
         self._repository = repository
         self._jobs = jobs
@@ -184,6 +191,7 @@ class TaskCommandService:
         self._logs = logs
         self._probes = probes or LocalDiagnosticProbes()
         self._history = history
+        self._finder = finder
         if test is not None:
             self._test._probes = self._probes
 
@@ -229,6 +237,19 @@ class TaskCommandService:
 
     # -- discovery ---------------------------------------------------------
 
+    def _loaded_status(self, label: str | None) -> bool | None:
+        """Read-only launchd loaded flag for *label*; ``None`` when unknown.
+
+        A direct, unrecorded read through the platform adapter (no history
+        event). An invalid label yields ``None`` (unavailable), not an error.
+        """
+        if label is None:
+            return None
+        try:
+            return self._backend.status(label).loaded
+        except ValueError:
+            return None
+
     def list_agents(self) -> list[TaskListing]:
         """List user LaunchAgents plus catalog-only saved jobs, in that order.
 
@@ -253,18 +274,20 @@ class TaskCommandService:
                     parsed=parsed,
                     job=job,
                     managed=job is not None,
+                    loaded=self._loaded_status(label),
                 )
             )
         for job in sorted(catalog.values(), key=lambda job: job.label):
             if job.label not in discovered_labels:
                 listings.append(
-                    TaskListing(
-                        kind=ListingKind.SAVED,
-                        path=None,
-                        parsed=None,
-                        job=job,
-                        managed=True,
-                    )
+                        TaskListing(
+                            kind=ListingKind.SAVED,
+                            path=None,
+                            parsed=None,
+                            job=job,
+                            managed=True,
+                            loaded=None,
+                        )
                 )
         return listings
 
@@ -439,6 +462,64 @@ class TaskCommandService:
         committed = self.validate_job(committed)
         self._jobs.import_job(committed)
         return committed
+
+    # -- managed JSON transfer (increment 22, spec §63) --------------------
+
+    def export_managed_json(self, label: str, destination: Path) -> Path:
+        """Write the managed job for *label* to *destination* (create-only).
+
+        Catalog-only: the source catalog record and any deployed plist are
+        never touched. Raises ``JobNotFoundError`` when the label is not
+        managed and ``FileExistsError`` when *destination* already exists.
+        """
+        job = self._jobs.resolve(label)
+        if destination.exists():
+            raise FileExistsError(f"destination already exists: {destination}")
+        self._repository.save(job, destination, create_parent=True)
+        return destination
+
+    def preview_managed_json_import(self, source: Path) -> ManagedJsonImportPreview:
+        """Preview importing the managed JSON file at *source* (read-only).
+
+        Strictly decodes *source* (closed schema, identity-preserving,
+        v1→v2 migration) and reports id/label conflicts without writing.
+        Raises ``StrictJsonDecodeError`` when the payload is not a valid
+        managed job.
+        """
+        text = source.read_text(encoding="utf-8")
+        candidate = strict_decode_job_json(text)
+        id_conflict, label_conflict = self._jobs.transfer_conflicts(candidate)
+        return ManagedJsonImportPreview(
+            source_path=source,
+            candidate=candidate,
+            normalized_schema_version=candidate.schema_version,
+            id_conflict_path=id_conflict,
+            label_conflict_path=label_conflict,
+            can_import=id_conflict is None and label_conflict is None,
+        )
+
+    def import_managed_json(self, preview: ManagedJsonImportPreview) -> JobDefinition:
+        """Commit a previewed managed JSON import into the catalog (catalog only).
+
+        Preserves the candidate's immutable UUID and label. Re-checks conflicts
+        at commit time (``import_job`` is create-only), so a concurrent import
+        is rejected. Writes exactly one catalog file; nothing is deployed.
+        Raises ``JobConflictError`` on an id or label conflict.
+        """
+        self._jobs.import_job(preview.candidate)
+        return preview.candidate
+
+    def reveal_path(self, path: Path) -> str | None:
+        """Reveal an existing *path* in Finder; return ``None`` on success.
+
+        Returns a message when the path does not exist or no revealer is
+        configured. GUI-only capability — there is no CLI surface for it.
+        """
+        if not path.exists():
+            return f"path does not exist: {path}"
+        if self._finder is None:
+            return "reveal in Finder is not available"
+        return self._finder.reveal(path)
 
     # -- editor (in-memory, non-deploying) ---
 
