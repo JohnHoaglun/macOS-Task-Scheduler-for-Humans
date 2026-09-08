@@ -32,6 +32,16 @@ _FILTER_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Command", ("python", "shell", "executable", "unknown")),
 )
 
+_ANY = "(any)"
+
+_SETTERS: dict[str, str] = {
+    "State": "set_state",
+    "Installed": "set_installed",
+    "Enabled": "set_enabled",
+    "Loaded": "set_loaded",
+    "Command": "set_command",
+}
+
 
 class AgentFilterControls(QWidget):
     """Search box + five combo-box filters + clear button."""
@@ -47,7 +57,9 @@ class AgentFilterControls(QWidget):
         for label, options in _FILTER_GROUPS:
             combo = QComboBox(self)
             combo.setObjectName(f"filter-{label.lower()}")
+            combo.addItem(_ANY)
             combo.addItems(options)
+            combo.currentTextChanged.connect(lambda _t, label=label: self._on_combo_changed(label))
             self._combos[label] = combo
 
         self._clear_button = QPushButton("Clear filters", self)
@@ -78,8 +90,6 @@ class AgentFilterControls(QWidget):
 
         self._search.textChanged.connect(self._on_search_changed)
         self._clear_button.clicked.connect(self._on_clear_clicked)
-        for combo in self._combos.values():
-            combo.currentTextChanged.connect(self._on_filter_changed)
 
     # ------------------------------------------------------------------
     # Proxy wiring
@@ -97,14 +107,20 @@ class AgentFilterControls(QWidget):
         if hasattr(self, "_proxy"):
             self._proxy.set_search(text)
 
-    def _on_filter_changed(self, _value: str) -> None:
+    def _on_combo_changed(self, label: str) -> None:
         if hasattr(self, "_proxy"):
-            self._proxy.invalidateFilter()
+            value = self._combos[label].currentText()
+            chosen: frozenset[str] = frozenset() if value == _ANY else frozenset({value})
+            getattr(self._proxy, _SETTERS[label])(chosen)
 
-    def _on_clear_clicked(self) -> None:
+    def reset(self) -> None:
+        """Clear the search box, all combos, and the proxy filters."""
         if hasattr(self, "_proxy"):
             self._proxy.set_search("")
             self._proxy.clear_filters()
         self._search.clear()
         for combo in self._combos.values():
             combo.setCurrentIndex(0)
+
+    def _on_clear_clicked(self) -> None:
+        self.reset()

@@ -33,7 +33,10 @@ class TestAll:
         assert p.set_search_calls == ["foo"]
         w._clear_button.click()
         assert w._search.text() == "" and p.clear_filters_calls == [True]
-        w._on_filter_changed("x")
+        state_combo = w.findChild(QComboBox, "filter-state")
+        assert state_combo is not None
+        state_combo.setCurrentText("Managed")
+        assert p.set_state_calls == [frozenset({"Managed"})]
 
 
 class _Fake:
@@ -42,12 +45,13 @@ class _Fake:
     def __init__(self) -> None:
         self.set_search_calls: list[str] = []
         self.clear_filters_calls: list[bool] = []
+        self.set_state_calls: list[frozenset[str]] = []
 
     def set_search(self, t: str) -> None:
         self.set_search_calls.append(t)
 
     def set_state(self, v: frozenset[str]) -> None:
-        pass
+        self.set_state_calls.append(v)
 
     def set_installed(self, v: frozenset[str]) -> None:
         pass

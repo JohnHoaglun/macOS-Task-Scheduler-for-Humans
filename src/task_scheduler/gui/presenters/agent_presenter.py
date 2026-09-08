@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import plistlib
+import shlex
 from datetime import datetime
 from enum import StrEnum
 
@@ -55,6 +56,7 @@ __all__ = [
     "format_status",
     "format_warnings",
     "format_working_directory",
+    "shell_safe_command",
 ]
 
 PREVIEW_COUNT = 5
@@ -132,6 +134,14 @@ def format_command(listing: TaskListing) -> str:
         if isinstance(raw_args, list) and all(isinstance(item, str) for item in raw_args):
             return " ".join(map(str, raw_args))
     return "—"
+
+
+def shell_safe_command(listing: TaskListing) -> str:
+    """Shell-safe quoted argv for the row's job command; "" when none is available."""
+    job = _job_of(listing)
+    if job is None:
+        return ""
+    return " ".join(shlex.quote(arg) for arg in command_argv(job.command))
 
 
 def format_schedule_value(schedule: Schedule) -> str:

@@ -9,6 +9,7 @@ import pytest
 from PySide6.QtCore import QItemSelection, QModelIndex, QTimer
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QDialog,
     QLabel,
@@ -41,6 +42,12 @@ from task_scheduler.gui.controllers.editor_controller import EditorController
 from task_scheduler.gui.controllers.history_controller import (
     HistoryController,
 )
+from task_scheduler.gui.controllers.import_controller import ImportController
+from task_scheduler.gui.controllers.json_transfer_controller import (
+    JsonImportCommitOutcome,
+    JsonImportOutcome,
+    JsonTransferController,
+)
 from task_scheduler.gui.controllers.lifecycle_controller import (
     LifecycleAction,
     LifecycleController,
@@ -49,7 +56,10 @@ from task_scheduler.gui.controllers.lifecycle_controller import (
 from task_scheduler.gui.controllers.lifecycle_worker import LifecycleWorker
 from task_scheduler.gui.main_window import MainWindow
 from task_scheduler.gui.models.agent_table_model import AgentTableModel
-from task_scheduler.gui.presenters.agent_presenter import format_name
+from task_scheduler.gui.presenters.agent_presenter import (
+    format_name,
+    shell_safe_command,
+)
 from task_scheduler.gui.widgets.agent_inspector import AgentInspector
 from task_scheduler.gui.widgets.import_preview_dialog import ImportPreviewDialog
 from task_scheduler.gui.widgets.job_editor import JobEditor
@@ -61,11 +71,13 @@ EXTERNAL_B_ID = UUID("22222222-2222-4222-8222-222222222222")
 SECOND_JOB_ID = UUID("33333333-3333-4333-8333-333333333333")
 INVALID_LABEL = "com.example.invalid"
 
+
 def _value_label(inspector: AgentInspector, object_name: str) -> QLabel:
     """The named value QLabel, asserted present."""
     label = inspector.findChild(QLabel, object_name)
     assert label is not None
     return label
+
 
 def _message_label(inspector: AgentInspector) -> QLabel:
     """The top-level message QLabel.
@@ -81,10 +93,12 @@ def _message_label(inspector: AgentInspector) -> QLabel:
     assert len(direct) == 1
     return direct[0]
 
+
 def _scroll_area(inspector: AgentInspector) -> QScrollArea:
     scroll = inspector.findChild(QScrollArea)
     assert scroll is not None
     return scroll
+
 
 def _window(
     qtbot: QtBot,
@@ -103,6 +117,25 @@ def _window(
     window.show()
     return window
 
+
+def _window_full(qtbot: QtBot, controller: DiscoveryController) -> MainWindow:
+    """A window wired to real services plus the JSON transfer controller."""
+    services = controller._services
+    window = MainWindow(
+        controller,
+        EditorController(services),
+        LifecycleController(services),
+        DiagnosticsController(services, {}),
+        HistoryController(services),
+        ImportController(services),
+        services=services,
+        json_transfer=JsonTransferController(services),
+    )
+    qtbot.addWidget(window)
+    window.show()
+    return window
+
+
 def _row_by_path(model: AgentTableModel, path: Path) -> int:
     """The table row holding *path*, asserted present."""
     for row in range(model.rowCount()):
@@ -110,6 +143,7 @@ def _row_by_path(model: AgentTableModel, path: Path) -> int:
         if listing is not None and listing.path == path:
             return row
     raise AssertionError(f"no row for {path}")
+
 
 def _fill_valid_python(editor: JobEditor) -> None:
     """Fill a new python draft so it validates."""
@@ -119,6 +153,7 @@ def _fill_valid_python(editor: JobEditor) -> None:
     editor.findChild(QLineEdit, "editor-time").setText("01:00")
     editor.findChild(QCheckBox, "editor-weekday-monday").setChecked(True)
 
+
 def _seed_three(
     tmp_path: Path,
 ) -> tuple[FakeTaskWorld, JobDefinition, JobDefinition, JobDefinition]:
@@ -126,13 +161,12 @@ def _seed_three(
     world = FakeTaskWorld(tmp_path)
     managed = make_job()
     world.manage(managed)
-    external_a = make_job(
-        id=EXTERNAL_A_ID, label="com.example.external", name="External Job"
-    )
+    external_a = make_job(id=EXTERNAL_A_ID, label="com.example.external", name="External Job")
     world.store.write(external_a)
     external_b = make_job(id=EXTERNAL_B_ID, label="com.example.other", name="Other Job")
     world.store.write(external_b)
     return world, managed, external_a, external_b
+
 
 class _BoomServices:
     """Duck-typed TaskCommandService: discovery fails, inspect is unused."""
@@ -143,6 +177,7 @@ class _BoomServices:
     def inspect_discovered(self, path: Path) -> None:
         raise NotImplementedError
 
+
 class TestDiscoveryFailure:
     def test_discovery_failure_is_surfaced(self, qtbot: QtBot) -> None:
         window = _window(qtbot, DiscoveryController(_BoomServices()))
@@ -150,6 +185,7 @@ class TestDiscoveryFailure:
         assert _message_label(window.inspector).text() == "boom"
         assert window.statusBar().currentMessage() == "boom"
         assert _scroll_area(window.inspector).isHidden()
+
 
 class TestRefreshSelectionFallback:
     def test_refresh_falls_back_to_row_zero_when_selected_agent_vanishes(
@@ -177,18 +213,20 @@ class TestRefreshSelectionFallback:
         assert listing.path == top.path
         assert _value_label(window.inspector, "overview-name").text() == format_name(top)
 
+
 class TestSelectionOutOfRange:
     def test_out_of_range_selection_index_is_ignored(self, qtbot: QtBot, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
         world.manage(make_job())
         window = _window(qtbot, DiscoveryController(world.services))
-        model = window.table.model()
+        model = window._model
         before = _value_label(window.inspector, "overview-name").text()
         index = model.createIndex(999, 0)
         assert index.isValid()
         window._on_selection_changed(QItemSelection(index, index), QItemSelection())
         assert _value_label(window.inspector, "overview-name").text() == before
         assert _scroll_area(window.inspector).isVisible()
+
 
 class _InspectFailingServices:
     """Duck-typed TaskCommandService: discovery works, inspect always fails."""
@@ -201,6 +239,7 @@ class _InspectFailingServices:
 
     def inspect_discovered(self, path: Path) -> None:
         raise ValueError("plist is corrupted")
+
 
 class TestInspectFailure:
     def test_inspect_failure_is_surfaced_in_the_inspector(
@@ -215,8 +254,8 @@ class TestInspectFailure:
         assert _message_label(window.inspector).text() == "plist is corrupted"
         assert _scroll_area(window.inspector).isHidden()
 
-class TestTaskActions:
 
+class TestTaskActions:
     def test_new_task_save_writes_catalog(self, qtbot: QtBot, tmp_path: Path) -> None:
         """Saving from New Task writes a catalog file and accepts."""
         world = FakeTaskWorld(tmp_path)
@@ -261,8 +300,8 @@ class TestTaskActions:
         assert editor.saved_path is not None
         assert "Renamed Backup" in editor.saved_path.read_text()
 
-class TestEditEdgeCases:
 
+class TestEditEdgeCases:
     def test_edit_action_missing_catalog_entry(self, qtbot: QtBot, tmp_path: Path) -> None:
         """A parseable managed agent absent from the catalog shows a hint."""
         world = FakeTaskWorld(tmp_path)
@@ -276,6 +315,7 @@ class TestEditEdgeCases:
         window.edit_task_action.trigger()
         assert window.statusBar().currentMessage() == "This task is not in the task catalog."
         assert not window._editor.isVisible()
+
 
 def _capture_lifecycle(
     window: MainWindow, monkeypatch: pytest.MonkeyPatch
@@ -296,9 +336,8 @@ def _capture_lifecycle(
     monkeypatch.setattr(window, "_start_worker", _start)
     return outcomes
 
-def _run_tests_synchronously(
-    window: MainWindow, monkeypatch: pytest.MonkeyPatch
-) -> None:
+
+def _run_tests_synchronously(window: MainWindow, monkeypatch: pytest.MonkeyPatch) -> None:
     """Run test workers synchronously and deliver their finished signal."""
 
     def _start(worker: DiagnosticsWorker) -> None:
@@ -306,6 +345,7 @@ def _run_tests_synchronously(
         worker.run()
 
     monkeypatch.setattr(window, "_start_test_worker", _start)
+
 
 def _panel_text(window: MainWindow, object_name: str) -> str:
     """The panel's named text element (label or log tab), asserted present."""
@@ -315,6 +355,7 @@ def _panel_text(window: MainWindow, object_name: str) -> str:
         return found.toPlainText()
     assert isinstance(found, QLabel)
     return found.text()
+
 
 def _lifecycle_actions(window: MainWindow) -> list[QAction]:
     return [
@@ -326,13 +367,14 @@ def _lifecycle_actions(window: MainWindow) -> list[QAction]:
         window.run_now_action,
     ]
 
+
 def _select_managed(world: FakeTaskWorld, window: MainWindow, job: JobDefinition) -> None:
     model = window.table.model()
     row = _row_by_path(model, world.store.destination_for(job.label))
     window.table.setCurrentIndex(model.index(row, 0))
 
-class TestLifecycleTrigger:
 
+class TestLifecycleTrigger:
     def test_reinstall_declined_confirmation_runs_nothing(
         self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -377,6 +419,7 @@ class TestLifecycleTrigger:
         assert outcomes[0].action is LifecycleAction.RUN_NOW
         assert outcomes[0].is_success
 
+
 class TestLifecycleEdgeCases:
     def test_trigger_without_selection_shows_hint(self, qtbot: QtBot, tmp_path: Path) -> None:
         world, *_ = _seed_three(tmp_path)
@@ -407,7 +450,7 @@ class TestLifecycleEdgeCases:
         )
         assert window._confirm_lifecycle(LifecycleAction.UNINSTALL, listing) is False
 
-    def test_row_for_identity_skips_missing_rows(self, qtbot: QtBot, tmp_path: Path) -> None:
+    def test_row_for_identity_preserves_identity(self, qtbot: QtBot, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
         world.manage(make_job())
         job_b = make_job(id=SECOND_JOB_ID, name="Second Job", label="zz.example.second")
@@ -416,12 +459,6 @@ class TestLifecycleEdgeCases:
         model = window.table.model()
         previous = model.listing_at(1)
         assert previous is not None
-        real = model.listing_at
-
-        def flaky(row: int) -> TaskListing | None:
-            return None if row == 0 else real(row)
-
-        model.listing_at = flaky
         assert window._row_for_identity(previous) == 1
 
     def test_row_for_identity_falls_back_to_path(self, qtbot: QtBot, tmp_path: Path) -> None:
@@ -444,20 +481,16 @@ class TestLifecycleEdgeCases:
         assert window._lifecycle_busy is False
         assert window._active_worker is None
 
-class TestDiagnosticsTrigger:
 
-    def test_trigger_without_selection_shows_hint(
-        self, qtbot: QtBot, tmp_path: Path
-    ) -> None:
+class TestDiagnosticsTrigger:
+    def test_trigger_without_selection_shows_hint(self, qtbot: QtBot, tmp_path: Path) -> None:
         world, *_ = _seed_three(tmp_path)
         window = _window(qtbot, DiscoveryController(world.services))
         window.table.setCurrentIndex(QModelIndex())
         window._on_test_triggered()
         assert window.statusBar().currentMessage() == "Select a task first."
 
-    def test_trigger_on_external_row_shows_hint(
-        self, qtbot: QtBot, tmp_path: Path
-    ) -> None:
+    def test_trigger_on_external_row_shows_hint(self, qtbot: QtBot, tmp_path: Path) -> None:
         world, _, external_a, _ = _seed_three(tmp_path)
         window = _window(qtbot, DiscoveryController(world.services))
         _select_managed(world, window, external_a)
@@ -472,45 +505,32 @@ class TestDiagnosticsTrigger:
         _select_managed(world, window, managed)
         listing = window._model.listing_at(window.table.currentIndex().row())
         assert listing is not None
-        assert (
-            window._diagnostics_controller.request_test(listing.job)
-            is TestVerdict.ACCEPTED
-        )
+        assert window._diagnostics_controller.request_test(listing.job) is TestVerdict.ACCEPTED
         window._on_test_triggered()
         assert window.statusBar().currentMessage() == "Cannot test: busy."
 
-    def test_stale_outcome_is_not_rendered(
-        self, qtbot: QtBot, tmp_path: Path
-    ) -> None:
+    def test_stale_outcome_is_not_rendered(self, qtbot: QtBot, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
         job = make_job()
         world.manage(job)
-        job_b = make_job(
-            id=SECOND_JOB_ID, name="Second Job", label="zz.example.second"
-        )
+        job_b = make_job(id=SECOND_JOB_ID, name="Second Job", label="zz.example.second")
         world.manage(job_b)
         window = _window(qtbot, DiscoveryController(world.services))
         _select_managed(world, window, job)
-        window._on_test_finished(
-            TestOutcome(label=job_b.label, result=None, error="boom")
-        )
+        window._on_test_finished(TestOutcome(label=job_b.label, result=None, error="boom"))
         assert _panel_text(window, "diagnostics-summary") == (
             "Run Test to check this task directly."
         )
         assert not window._diagnostics_busy
 
-    def test_finished_ignores_foreign_payloads(
-        self, qtbot: QtBot, tmp_path: Path
-    ) -> None:
+    def test_finished_ignores_foreign_payloads(self, qtbot: QtBot, tmp_path: Path) -> None:
         world, *_ = _seed_three(tmp_path)
         window = _window(qtbot, DiscoveryController(world.services))
         window._on_test_finished("not an outcome")
         assert window._diagnostics_busy is False
         assert window._active_test_worker is None
 
-    def test_refresh_renders_logs_and_environment(
-        self, qtbot: QtBot, tmp_path: Path
-    ) -> None:
+    def test_refresh_renders_logs_and_environment(self, qtbot: QtBot, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
         out = tmp_path / "out.log"
         out.write_text("persisted out\n")
@@ -519,30 +539,18 @@ class TestDiagnosticsTrigger:
         window = _window(qtbot, DiscoveryController(world.services))
         _select_managed(world, window, job)
         window.panel.refresh_button.click()
-        assert _panel_text(window, "diagnostics-persisted-stdout") == (
-            "persisted out\n"
-        )
-        assert "GUI process only: none" in _panel_text(
-            window, "diagnostics-environment-text"
-        )
+        assert _panel_text(window, "diagnostics-persisted-stdout") == ("persisted out\n")
+        assert "GUI process only: none" in _panel_text(window, "diagnostics-environment-text")
 
-    def test_refresh_without_job_shows_hint(
-        self, qtbot: QtBot, tmp_path: Path
-    ) -> None:
+    def test_refresh_without_job_shows_hint(self, qtbot: QtBot, tmp_path: Path) -> None:
         world, *_ = _seed_three(tmp_path)
         window = _window(qtbot, DiscoveryController(world.services))
         window.table.setCurrentIndex(QModelIndex())
         window._on_diagnostics_refresh()
-        assert (
-            window.statusBar().currentMessage() == "Select a task to refresh its logs."
-        )
+        assert window.statusBar().currentMessage() == "Select a task to refresh its logs."
 
-    def test_production_thread_dispatch(
-        self, qtbot: QtBot, tmp_path: Path
-    ) -> None:
-        world = FakeTaskWorld(
-            tmp_path, test=ProcessResult(exit_code=0, stdout="direct out")
-        )
+    def test_production_thread_dispatch(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path, test=ProcessResult(exit_code=0, stdout="direct out"))
         job = make_job()
         world.manage(job)
         window = _window(qtbot, DiscoveryController(world.services))
@@ -553,15 +561,11 @@ class TestDiagnosticsTrigger:
             lambda: window._diagnostics_busy is False,
             timeout=5000,
         )
-        assert _panel_text(window, "diagnostics-summary") == (
-            "Passed (exit code 0) in 0.00s"
-        )
+        assert _panel_text(window, "diagnostics-summary") == ("Passed (exit code 0) in 0.00s")
+
 
 class TestHistoryPanelWiring:
-
-    def test_history_refresh_with_selection(
-        self, qtbot: QtBot, tmp_path: Path
-    ) -> None:
+    def test_history_refresh_with_selection(self, qtbot: QtBot, tmp_path: Path) -> None:
         world, managed, *_ = _seed_three(tmp_path)
         window = _window(qtbot, DiscoveryController(world.services))
         _select_managed(world, window, managed)
@@ -569,17 +573,12 @@ class TestHistoryPanelWiring:
         state = window.history_panel.findChild(object, "history-state-text")
         assert "No execution history recorded" in state.text()
 
-    def test_history_refresh_without_selection(
-        self, qtbot: QtBot, tmp_path: Path
-    ) -> None:
+    def test_history_refresh_without_selection(self, qtbot: QtBot, tmp_path: Path) -> None:
         world, *_ = _seed_three(tmp_path)
         window = _window(qtbot, DiscoveryController(world.services))
         window.table.setCurrentIndex(QModelIndex())
         window._on_history_refresh()
-        assert (
-            window.statusBar().currentMessage()
-            == "Select a task to refresh its history."
-        )
+        assert window.statusBar().currentMessage() == "Select a task to refresh its history."
 
 
 EXTERNAL_PLIST = """\
@@ -630,9 +629,7 @@ EXTERNAL_PARTIAL_PLIST = """\
 """
 
 
-def _import_window(
-    qtbot: QtBot, world: FakeTaskWorld
-) -> MainWindow:
+def _import_window(qtbot: QtBot, world: FakeTaskWorld) -> MainWindow:
     """A window with an import controller."""
     from task_scheduler.gui.controllers.import_controller import ImportController
 
@@ -753,9 +750,7 @@ class TestImportTriggered:
         self._write_plist(tmp_path, world, "com.external.imported.plist", EXTERNAL_PLIST.encode())
         window = _import_window(qtbot, world)
         self._select_external(window)
-        monkeypatch.setattr(
-            ImportPreviewDialog, "exec", lambda self: QDialog.DialogCode.Rejected
-        )
+        monkeypatch.setattr(ImportPreviewDialog, "exec", lambda self: QDialog.DialogCode.Rejected)
         window._on_import_triggered()
         assert list(world.catalog_root.glob("*.json")) == []
 
@@ -780,14 +775,10 @@ class TestImportTriggered:
 
     def test_happy_path_commits(self, qtbot: QtBot, tmp_path: Path, monkeypatch) -> None:
         world = FakeTaskWorld(tmp_path)
-        self._write_plist(
-            tmp_path, world, "com.external.imported.plist", EXTERNAL_PLIST.encode()
-        )
+        self._write_plist(tmp_path, world, "com.external.imported.plist", EXTERNAL_PLIST.encode())
         window = _import_window(qtbot, world)
         self._select_external(window)
-        monkeypatch.setattr(
-            ImportPreviewDialog, "exec", lambda self: QDialog.DialogCode.Accepted
-        )
+        monkeypatch.setattr(ImportPreviewDialog, "exec", lambda self: QDialog.DialogCode.Accepted)
         window._on_import_triggered()
         assert len(list(world.catalog_root.glob("*.json"))) == 1
         assert window.statusBar().currentMessage() == ""
@@ -807,3 +798,203 @@ class TestImportTriggered:
         controller.commit(outcome, acknowledge_partial=False)
         assert len(list(world.catalog_root.glob("*.json"))) == 1
         assert len(world.launch_runner.specs) == 0
+
+
+class TestWave3Composition:
+    """3A: proxy mapping, empty-state sync, badges, and transfer/reveal/copy actions."""
+
+    def test_actions_noop_without_context(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))  # no services
+        window.table.setCurrentIndex(QModelIndex())
+        window._on_reveal_plist()
+        window._on_reveal_log("stderr")
+        window._on_copy_command()
+        window._on_copy_plist()
+        window._on_export_json()
+        window._on_import_json()
+        assert "not available" in window.statusBar().currentMessage()
+
+    def test_filter_hides_rows_and_maps_selection(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world, managed, external_a, _ = _seed_three(tmp_path)
+        window = _window_full(qtbot, DiscoveryController(world.services))
+        assert window._proxy.rowCount() == 3
+        assert not window._badge_strip.isHidden()  # row 0 auto-selected
+        assert len(window._badges) == 5
+        window.table.setCurrentIndex(QModelIndex())  # clear the selection
+        assert window._badge_strip.isHidden()
+        _select_managed(world, window, external_a)
+        assert not window._badge_strip.isHidden()
+        window._proxy.set_state(frozenset({"Managed"}))
+        assert window._proxy.rowCount() == 1
+        assert window._source_row(-1) is None and window._source_row(999) is None
+        listing = window._listing_at_table_row(0)
+        assert listing is not None and listing.job is not None
+        assert listing.job.label == managed.label
+        assert window._listing_at_table_row(999) is None
+        window._filter_controls.reset()
+        assert window._proxy.rowCount() == 3
+
+    def test_no_agents_shows_empty_state(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        window = _window_full(qtbot, DiscoveryController(world.services))
+        assert window.table.isHidden()
+        assert not window._empty_state.isHidden()
+        message = window._empty_state.findChild(QLabel, "empty-message")
+        assert message is not None and message.text() == "No tasks found."
+
+    def test_copy_command_and_generated_plist(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        world, managed, *_ = _seed_three(tmp_path)
+        window = _window_full(qtbot, DiscoveryController(world.services))
+        _select_managed(world, window, managed)
+        window.copy_command_action.trigger()
+        assert QApplication.clipboard().text() == shell_safe_command(window._selected_listing())
+        monkeypatch.setattr(
+            window._services, "generate_plist_for", lambda _job: "<plist>XML</plist>"
+        )
+        window.copy_plist_action.trigger()
+        assert QApplication.clipboard().text() == "<plist>XML</plist>"
+
+    def test_reveal_plist_and_logs(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        out = tmp_path / "out.log"
+        out.write_text("log\n")
+        job = make_job(logging=LoggingConfig(stdout_path=out, stderr_path=out))
+        world = FakeTaskWorld(tmp_path)
+        world.manage(job)
+        window = _window_full(qtbot, DiscoveryController(world.services))
+        _select_managed(world, window, job)
+        revealed: list[Path] = []
+        monkeypatch.setattr(window._services, "reveal_path", lambda p: revealed.append(p) or None)
+        window.reveal_plist_action.trigger()
+        assert len(revealed) == 1
+        window.reveal_stdout_action.trigger()
+        assert revealed[1] == out
+        # A reveal failure surfaces as a status message, not an exception.
+        monkeypatch.setattr(window._services, "reveal_path", lambda _p: "cannot reveal")
+        window._on_reveal_plist()
+        assert "cannot reveal" in window.statusBar().currentMessage()
+        window._on_reveal_log("stderr")
+        assert "cannot reveal" in window.statusBar().currentMessage()
+        # Saved-only listing resolves its plist through plist_path_for.
+        saved = TaskListing(kind=ListingKind.SAVED, path=None, parsed=None, job=job, managed=True)
+        window._model.set_agents([saved])
+        assert window._plist_path(window._model.listing_at(0)) == world.store.destination_for(
+            job.label
+        )
+        # A listing with neither path nor job has nothing to reveal.
+        bare = TaskListing(kind=ListingKind.SAVED, path=None, parsed=None, job=None, managed=False)
+        window._model.set_agents([bare])
+        window.table.setCurrentIndex(window._proxy.index(0, 0))
+        window._on_reveal_plist()
+        assert "No plist path" in window.statusBar().currentMessage()
+        # A job without a log path is reported, not raised.
+        nologs = TaskListing(
+            kind=ListingKind.SAVED,
+            path=None,
+            parsed=None,
+            job=make_job(id=SECOND_JOB_ID, name="NoLogs", label="zz.example.nologs"),
+            managed=True,
+        )
+        window._model.set_agents([nologs])
+        window.table.setCurrentIndex(window._proxy.index(0, 0))
+        window._on_reveal_log("stdout")
+        assert "No log path" in window.statusBar().currentMessage()
+
+    def test_export_json_roundtrip(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        world, managed, *_ = _seed_three(tmp_path)
+        window = _window_full(qtbot, DiscoveryController(world.services))
+        _select_managed(world, window, managed)
+        import task_scheduler.gui.main_window as mw
+
+        monkeypatch.setattr(
+            mw.QFileDialog,
+            "getSaveFileName",
+            staticmethod(lambda *_a: ("/tmp/x.json", "")),
+        )
+        dest: list[Path] = []
+        monkeypatch.setattr(
+            window._services, "export_managed_json", lambda _label, p: dest.append(p)
+        )
+        window.export_json_action.trigger()
+        assert dest == [Path("/tmp/x.json")]
+        assert "Exported to" in window.statusBar().currentMessage()
+
+        def _raise(_label, _p):
+            raise FileExistsError("exists")
+
+        monkeypatch.setattr(window._services, "export_managed_json", _raise)
+        window.export_json_action.trigger()
+        assert "Export failed" in window.statusBar().currentMessage()
+        # A cancelled save dialog is a no-op (status unchanged).
+        dest2: list[Path] = []
+        monkeypatch.setattr(window._services, "export_managed_json", lambda _l, p: dest2.append(p))
+        monkeypatch.setattr(mw.QFileDialog, "getSaveFileName", staticmethod(lambda *_a: ("", "")))
+        window.export_json_action.trigger()
+        assert dest2 == [] and "Export failed" in window.statusBar().currentMessage()
+
+    def test_import_json_roundtrip(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        world, *_ = _seed_three(tmp_path)
+        window = _window_full(qtbot, DiscoveryController(world.services))
+        import task_scheduler.gui.main_window as mw
+        from task_scheduler.gui.widgets.json_transfer_dialog import JsonTransferDialog
+
+        refreshed: list[int] = []
+        monkeypatch.setattr(window, "refresh", lambda: refreshed.append(1))
+        # Cancelled dialog open: no-op.
+        monkeypatch.setattr(mw.QFileDialog, "getOpenFileName", staticmethod(lambda *_a: ("", "")))
+        window.import_json_action.trigger()
+        assert refreshed == []
+        monkeypatch.setattr(
+            mw.QFileDialog,
+            "getOpenFileName",
+            staticmethod(lambda *_a: ("/tmp/in.json", "")),
+        )
+        # Preview error: reported, no commit.
+        bad = JsonImportOutcome(source_path=Path("/tmp/in.json"), error="bad")
+        monkeypatch.setattr(window._json_transfer, "preview_import", lambda _p: bad)
+        window.import_json_action.trigger()
+        assert "Cannot import" in window.statusBar().currentMessage()
+        # Rejected dialog: no commit.
+        good = JsonImportOutcome(source_path=Path("/tmp/in.json"))
+        monkeypatch.setattr(window._json_transfer, "preview_import", lambda _p: good)
+        monkeypatch.setattr(JsonTransferDialog, "exec", lambda self: QDialog.DialogCode.Rejected)
+        window.import_json_action.trigger()
+        assert refreshed == []
+        # Commit error: reported, no refresh.
+        monkeypatch.setattr(JsonTransferDialog, "exec", lambda self: QDialog.DialogCode.Accepted)
+        monkeypatch.setattr(
+            window._json_transfer,
+            "commit",
+            lambda _o: JsonImportCommitOutcome(error="boom"),
+        )
+        window.import_json_action.trigger()
+        assert "Import failed" in window.statusBar().currentMessage()
+        # Success: refresh is invoked.
+        monkeypatch.setattr(
+            window._json_transfer, "commit", lambda _o: JsonImportCommitOutcome(error=None)
+        )
+        window.import_json_action.trigger()
+        assert refreshed == [1]
+
+    def test_defensive_branches(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        world, *_ = _seed_three(tmp_path)
+        window = _window_full(qtbot, DiscoveryController(world.services))
+        # _row_for_identity skips proxy rows that map to no source row.
+        previous = window._model.listing_at(0)
+        monkeypatch.setattr(window, "_listing_at_table_row", lambda _row: None)
+        assert window._row_for_identity(previous) == 0
+        # Copy command reports when no command text is available.
+        bare = TaskListing(kind=ListingKind.SAVED, path=None, parsed=None, job=None, managed=False)
+        monkeypatch.setattr(window, "_selected_listing", lambda: bare)
+        window._on_copy_command()
+        assert "No command available" in window.statusBar().currentMessage()

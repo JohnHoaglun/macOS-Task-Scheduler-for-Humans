@@ -280,14 +280,14 @@ class TaskCommandService:
         for job in sorted(catalog.values(), key=lambda job: job.label):
             if job.label not in discovered_labels:
                 listings.append(
-                        TaskListing(
-                            kind=ListingKind.SAVED,
-                            path=None,
-                            parsed=None,
-                            job=job,
-                            managed=True,
-                            loaded=None,
-                        )
+                    TaskListing(
+                        kind=ListingKind.SAVED,
+                        path=None,
+                        parsed=None,
+                        job=job,
+                        managed=True,
+                        loaded=None,
+                    )
                 )
         return listings
 
@@ -317,9 +317,7 @@ class TaskCommandService:
         if job is not None:
             managed = self._jobs.find(job.label) is not None
             status = self._backend.status(job.label)
-        return DiscoveredInspectReport(
-            path=path, parsed=parsed, managed=managed, status=status
-        )
+        return DiscoveredInspectReport(path=path, parsed=parsed, managed=managed, status=status)
 
     # -- JSON file commands --------------------------------------------------
 
@@ -379,9 +377,7 @@ class TaskCommandService:
         bootout = self._backend.bootout(label)
         phases.append(InstallPhase("bootout", bootout.process))
         if bootout.process.exit_code != 0:
-            return self._install_result(
-                job, bootout.process, phases, completed, retained
-            )
+            return self._install_result(job, bootout.process, phases, completed, retained)
         completed.append("bootout")
 
         backup = self._store.backup_plist(label)
@@ -393,9 +389,7 @@ class TaskCommandService:
         bootstrap = self._backend.bootstrap(label)
         phases.append(InstallPhase("bootstrap", bootstrap.process))
         if bootstrap.process.exit_code != 0:
-            return self._install_result(
-                job, bootstrap.process, phases, completed, retained
-            )
+            return self._install_result(job, bootstrap.process, phases, completed, retained)
         completed.append("bootstrap")
         if backup is not None:
             self._store.remove_sibling(backup)
@@ -566,6 +560,10 @@ class TaskCommandService:
         """Returns the managed job for label; raises JobNotFoundError when absent."""
         return self._jobs.resolve(label)
 
+    def plist_path_for(self, label: str) -> Path:
+        """The deployed-plist path for a managed *label* (no existence check)."""
+        return self._store.destination_for(label)
+
     # -- lifecycle -----------------------------------------------------------
 
     def _require_managed(self, label: str) -> JobDefinition:
@@ -580,9 +578,7 @@ class TaskCommandService:
         catalog_removed = False
         if result.process.exit_code == 0:
             catalog_removed = self._jobs.remove(job.id)
-        return UninstallResult(
-            label=label, process=result.process, catalog_removed=catalog_removed
-        )
+        return UninstallResult(label=label, process=result.process, catalog_removed=catalog_removed)
 
     def enable(self, label: str) -> LaunchctlResult:
         """Re-enable a managed job (launchctl enable)."""
@@ -669,9 +665,7 @@ class TaskCommandService:
                 job_id=saved.id,
                 label=validated.label,
                 kind=HistoryEventKind.DIAGNOSTIC_RESULT,
-                outcome=HistoryOutcome.SUCCESS
-                if not result.report.all
-                else HistoryOutcome.FAILURE,
+                outcome=HistoryOutcome.SUCCESS if not result.report.all else HistoryOutcome.FAILURE,
                 exit_code=None,
                 duration_seconds=None,
                 loaded=None,
@@ -688,9 +682,7 @@ class TaskCommandService:
         environment variables. Read-only; the platform comparison stays pure.
         """
         validated = self.validate_job(job)
-        return compare_environments(
-            terminal_environment, validated.environment.variables
-        )
+        return compare_environments(terminal_environment, validated.environment.variables)
 
     def read_logs(self, label: str) -> JobLogs:
         """Read the managed job's configured stdout/stderr files."""
@@ -733,9 +725,7 @@ class TaskCommandService:
             contexts.append(LogContext(validated, logs))
         return evaluate_diagnostic_report(*contexts)
 
-    def log_diagnostics_for(
-        self, job: JobDefinition, logs: JobLogs
-    ) -> tuple[Diagnostic, ...]:
+    def log_diagnostics_for(self, job: JobDefinition, logs: JobLogs) -> tuple[Diagnostic, ...]:
         """Return the LOGS-group diagnostics for a job's log read.
 
         Returns an empty tuple when no log diagnostics fire.
@@ -757,9 +747,7 @@ class TaskCommandService:
 
         Returns an empty tuple when no lifecycle diagnostics fire.
         """
-        report = evaluate_diagnostic_report(
-            LifecycleContext(label, action, result)
-        )
+        report = evaluate_diagnostic_report(LifecycleContext(label, action, result))
         for group in report.groups:
             if group.source == DiagnosticSource.LIFECYCLE:
                 return group.diagnostics

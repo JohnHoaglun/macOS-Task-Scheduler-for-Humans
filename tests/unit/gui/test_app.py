@@ -45,7 +45,7 @@ def test_create_main_window_returns_main_window(qtbot: QtBot) -> None:
 class _FakeWindow:
     """Stands in for MainWindow: records show, creates no C++ widget."""
 
-    def __init__(self, *controllers: object) -> None:
+    def __init__(self, *controllers: object, **options: object) -> None:
         self.shown = False
 
     def show(self) -> None:

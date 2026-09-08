@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import QItemSelection, QMetaObject, Qt, QThread
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
+    QFileDialog,
+    QHBoxLayout,
     QMainWindow,
     QMessageBox,
     QSplitter,
@@ -15,7 +20,11 @@ from PySide6.QtWidgets import (
 )
 
 from task_scheduler.application.job_service import JobNotFoundError
-from task_scheduler.application.task_command_service import ListingKind, TaskListing
+from task_scheduler.application.task_command_service import (
+    ListingKind,
+    TaskCommandService,
+    TaskListing,
+)
 from task_scheduler.domain import JobDefinition
 from task_scheduler.gui.controllers.diagnostics_controller import (
     DiagnosticsController,
@@ -34,6 +43,9 @@ from task_scheduler.gui.controllers.history_controller import (
 from task_scheduler.gui.controllers.import_controller import (
     ImportController,
 )
+from task_scheduler.gui.controllers.json_transfer_controller import (
+    JsonTransferController,
+)
 from task_scheduler.gui.controllers.lifecycle_controller import (
     LifecycleAction,
     LifecycleController,
@@ -41,13 +53,20 @@ from task_scheduler.gui.controllers.lifecycle_controller import (
     RequestVerdict,
 )
 from task_scheduler.gui.controllers.lifecycle_worker import LifecycleWorker
+from task_scheduler.gui.models.agent_filter_proxy_model import AgentFilterProxyModel
 from task_scheduler.gui.models.agent_table_model import AgentTableModel
+from task_scheduler.gui.presenters.agent_badge_presenter import agent_badges
+from task_scheduler.gui.presenters.agent_presenter import shell_safe_command
 from task_scheduler.gui.presenters.history_presenter import HISTORY_NOT_APPLICABLE
+from task_scheduler.gui.widgets.agent_badge import AgentBadge
+from task_scheduler.gui.widgets.agent_empty_state import AgentEmptyState
+from task_scheduler.gui.widgets.agent_filter_controls import AgentFilterControls
 from task_scheduler.gui.widgets.agent_inspector import AgentInspector
 from task_scheduler.gui.widgets.diagnostic_logs_panel import DiagnosticLogsPanel
 from task_scheduler.gui.widgets.history_panel import HistoryPanel
 from task_scheduler.gui.widgets.import_preview_dialog import ImportPreviewDialog
 from task_scheduler.gui.widgets.job_editor import JobEditor
+from task_scheduler.gui.widgets.json_transfer_dialog import JsonTransferDialog
 from task_scheduler.gui.widgets.lifecycle_result import LifecycleResultDialog
 
 __all__ = ["MainWindow"]
@@ -64,6 +83,8 @@ class MainWindow(QMainWindow):
         diagnostics: DiagnosticsController,
         history: HistoryController,
         import_ctrl: ImportController | None = None,
+        services: TaskCommandService | None = None,
+        json_transfer: JsonTransferController | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -77,21 +98,37 @@ class MainWindow(QMainWindow):
         self._active_test_worker: DiagnosticsWorker | None = None
         self._history_controller = history
         self._import_controller = import_ctrl
+        self._services = services
+        self._json_transfer = json_transfer
         self._editor = JobEditor(editor, diagnostics=diagnostics)
         self._model = AgentTableModel()
+        self._proxy = AgentFilterProxyModel(self)
+        self._proxy.setSourceModel(self._model)
         self.table = QTreeView()
-        self.table.setModel(self._model)
+        self.table.setModel(self._proxy)
         self.table.setRootIsDecorated(False)
         self.table.setUniformRowHeights(True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.header().setStretchLastSection(True)
+        self._filter_controls = AgentFilterControls(self)
+        self._filter_controls.attach(self._proxy)
+        self._empty_state = AgentEmptyState(self)
+        self._badge_strip = QWidget()
+        self._badge_strip.setObjectName("agent-badge-strip")
+        self._badge_layout = QHBoxLayout(self._badge_strip)
+        self._badge_layout.setContentsMargins(0, 0, 0, 0)
+        self._badges = [AgentBadge() for _ in range(5)]
+        for badge in self._badges:
+            self._badge_layout.addWidget(badge)
+        self._badge_strip.hide()
         self.inspector = AgentInspector()
         self.panel = DiagnosticLogsPanel()
         right_pane = QWidget()
         right_layout = QVBoxLayout(right_pane)
         right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.addWidget(self._badge_strip)
         right_layout.addWidget(self.inspector)
         right_layout.addWidget(self.panel)
         self.history_panel = HistoryPanel()
@@ -100,7 +137,13 @@ class MainWindow(QMainWindow):
         splitter.addWidget(self.table)
         splitter.addWidget(right_pane)
         splitter.setSizes([600, 400])
-        self.setCentralWidget(splitter)
+        central = QWidget()
+        central_layout = QVBoxLayout(central)
+        central_layout.setContentsMargins(0, 0, 0, 0)
+        central_layout.addWidget(self._filter_controls)
+        central_layout.addWidget(self._empty_state)
+        central_layout.addWidget(splitter, 1)
+        self.setCentralWidget(central)
         self.refresh_action = QAction("Refresh", self)
         self.refresh_action.setShortcut(QKeySequence.StandardKey.Refresh)
         self.refresh_action.triggered.connect(self.refresh)
@@ -112,11 +155,46 @@ class MainWindow(QMainWindow):
         self.import_action = QAction("Import as Managed Job...", self)
         self.import_action.setEnabled(False)
         self.import_action.triggered.connect(self._on_import_triggered)
+        self.export_json_action = QAction("Export JSON...", self)
+        self.export_json_action.setEnabled(False)
+        self.export_json_action.triggered.connect(self._on_export_json)
+        self.import_json_action = QAction("Import JSON...", self)
+        self.import_json_action.triggered.connect(self._on_import_json)
         file_menu = self.menuBar().addMenu("File")
         file_menu.addAction(self.new_task_action)
         file_menu.addAction(self.edit_task_action)
         file_menu.addAction(self.import_action)
+        file_menu.addAction(self.export_json_action)
+        file_menu.addAction(self.import_json_action)
         file_menu.addAction(self.refresh_action)
+        self.reveal_plist_action = QAction("Reveal Plist", self)
+        self.reveal_plist_action.setEnabled(False)
+        self.reveal_plist_action.triggered.connect(self._on_reveal_plist)
+        self.reveal_stdout_action = QAction("Reveal Stdout Log", self)
+        self.reveal_stdout_action.setEnabled(False)
+        self.reveal_stdout_action.triggered.connect(
+            lambda _checked=False: self._on_reveal_log("stdout")
+        )
+        self.reveal_stderr_action = QAction("Reveal Stderr Log", self)
+        self.reveal_stderr_action.setEnabled(False)
+        self.reveal_stderr_action.triggered.connect(
+            lambda _checked=False: self._on_reveal_log("stderr")
+        )
+        self.copy_command_action = QAction("Copy Command", self)
+        self.copy_command_action.setEnabled(False)
+        self.copy_command_action.triggered.connect(self._on_copy_command)
+        self.copy_plist_action = QAction("Copy Generated Plist", self)
+        self.copy_plist_action.setEnabled(False)
+        self.copy_plist_action.triggered.connect(self._on_copy_plist)
+        actions_menu = self.menuBar().addMenu("Actions")
+        for action in (
+            self.reveal_plist_action,
+            self.reveal_stdout_action,
+            self.reveal_stderr_action,
+            self.copy_command_action,
+            self.copy_plist_action,
+        ):
+            actions_menu.addAction(action)
         self.test_action = QAction("Test Task", self)
         self.test_action.setEnabled(False)
         self.test_action.triggered.connect(self._on_test_triggered)
@@ -142,11 +220,14 @@ class MainWindow(QMainWindow):
         for action, lifecycle_action in lifecycle_actions:
             action.setEnabled(False)
             action.triggered.connect(
-                lambda _checked=False, lifecycle_action=lifecycle_action:
+                lambda _checked=False, lifecycle_action=lifecycle_action: (
                     self._on_lifecycle_triggered(lifecycle_action)
+                )
             )
             lifecycle_menu.addAction(action)
         self.table.selectionModel().selectionChanged.connect(self._on_selection_changed)
+        self._empty_state.cleared.connect(self._filter_controls.reset)
+        self._proxy.layoutChanged.connect(self._update_empty_state)
         self.refresh()
 
     def refresh(self) -> None:
@@ -156,18 +237,25 @@ class MainWindow(QMainWindow):
             self._model.set_agents([])
             self.inspector.show_error(outcome.error)
             self.statusBar().showMessage(outcome.error)
+            self._update_empty_state()
+            self._populate_badges(None)
             self._update_lifecycle_actions()
             return
         if not outcome.agents:
             self._model.set_agents([])
             self.inspector.show_placeholder("No tasks found.")
             self.statusBar().clearMessage()
+            self._update_empty_state()
+            self._populate_badges(None)
             self._update_lifecycle_actions()
             return
         previous = self._selected_listing()
         self._model.set_agents(outcome.agents)
+        self._update_empty_state()
         row = self._row_for_identity(previous)
-        self.table.setCurrentIndex(self.table.model().index(row, 0))
+        if row < self._proxy.rowCount():
+            self.table.setCurrentIndex(self._proxy.index(row, 0))
+        self._populate_badges(self._selected_listing())
         self.statusBar().clearMessage()
         self._update_lifecycle_actions()
 
@@ -180,8 +268,7 @@ class MainWindow(QMainWindow):
 
     def edit_managed_task(self) -> None:
         """Open the editor for the selected managed task and refresh on save."""
-        row = self.table.currentIndex().row()
-        listing = self._model.listing_at(row) if row >= 0 else None
+        listing = self._listing_at_table_row(self.table.currentIndex().row())
         if listing is None or not listing.managed or listing.job is None:
             self.statusBar().showMessage("Select a managed task to edit it.")
             return
@@ -197,8 +284,28 @@ class MainWindow(QMainWindow):
 
     def _selected_listing(self) -> TaskListing | None:
         """The currently selected row, or None when nothing is selected."""
-        row = self.table.currentIndex().row()
-        return self._model.listing_at(row) if row >= 0 else None
+        return self._listing_at_table_row(self.table.currentIndex().row())
+
+    def _source_row(self, table_row: int) -> int | None:
+        """Map a table (proxy) row to its source row, or None when invalid."""
+        if table_row < 0:
+            return None
+        source_index = self._proxy.mapToSource(self._proxy.index(table_row, 0))
+        if not source_index.isValid():
+            return None
+        return source_index.row()
+
+    def _listing_at_table_row(self, table_row: int) -> TaskListing | None:
+        """The source listing behind a table (proxy) row, or None when absent."""
+        row = self._source_row(table_row)
+        if row is None:
+            return None
+        return self._model.listing_at(row)
+
+    def _update_empty_state(self) -> None:
+        """Sync the empty-state banner and table visibility with the filters."""
+        self._empty_state.set_counts(self._model.rowCount(), self._proxy.rowCount())
+        self.table.setVisible(self._proxy.rowCount() > 0)
 
     def _label_of(self, listing: TaskListing) -> str | None:
         """Stable task identity: the job label, catalog or deployed parse."""
@@ -214,26 +321,27 @@ class MainWindow(QMainWindow):
         if previous is None:
             return 0
         label = self._label_of(previous)
-        for row in range(self._model.rowCount()):
-            listing = self._model.listing_at(row)
+        for table_row in range(self._proxy.rowCount()):
+            listing = self._listing_at_table_row(table_row)
             if listing is None:
                 continue
             if label is not None and self._label_of(listing) == label:
-                return row
+                return table_row
             if (
                 label is None
                 and previous.path is not None
                 and listing.path is not None
                 and listing.path == previous.path
             ):
-                return row
+                return table_row
         return 0
 
     def _update_lifecycle_actions(self) -> None:
         """Enable only the actions the selection allows, unless one is in flight."""
         listing = self._selected_listing()
         allowed = (
-            frozenset() if self._lifecycle_busy
+            frozenset()
+            if self._lifecycle_busy
             else self._lifecycle_controller.enabled_actions(listing)
         )
         self.install_action.setEnabled(LifecycleAction.INSTALL in allowed)
@@ -251,6 +359,29 @@ class MainWindow(QMainWindow):
             and not self._diagnostics_busy
         )
         self._update_import_action(listing)
+        self._update_action_menu(listing)
+
+    def _update_action_menu(self, listing: TaskListing | None) -> None:
+        """Enable reveal/copy/export actions based on the selection."""
+        has_service = self._services is not None
+        job = listing.job if listing is not None else None
+        self.export_json_action.setEnabled(has_service and job is not None)
+        command = shell_safe_command(listing) if listing is not None else ""
+        self.copy_command_action.setEnabled(bool(command))
+        self.copy_plist_action.setEnabled(has_service and job is not None)
+        if listing is None or not has_service:
+            self.reveal_plist_action.setEnabled(False)
+            self.reveal_stdout_action.setEnabled(False)
+            self.reveal_stderr_action.setEnabled(False)
+            return
+        self.reveal_plist_action.setEnabled(self._plist_path(listing) is not None)
+        logs = job.logging if job is not None else None
+        self.reveal_stdout_action.setEnabled(
+            bool(logs and logs.stdout_path and logs.stdout_path.exists())
+        )
+        self.reveal_stderr_action.setEnabled(
+            bool(logs and logs.stderr_path and logs.stderr_path.exists())
+        )
 
     def _on_selection_changed(self, selected: QItemSelection, _deselected: QItemSelection) -> None:
         """Inspect the selected agent, or show a placeholder when the selection is empty."""
@@ -258,10 +389,12 @@ class MainWindow(QMainWindow):
         if not rows:
             self.inspector.show_placeholder("Select a task to inspect its details.")
             self.history_panel.show_history(HistoryOutcome(label="", events=()))
+            self._populate_badges(None)
             self._update_lifecycle_actions()
             return
-        listing = self._model.listing_at(rows[0])
+        listing = self._listing_at_table_row(rows[0])
         if listing is None:
+            self._populate_badges(None)
             self._update_lifecycle_actions()
             return
         if listing.kind is ListingKind.SAVED:
@@ -270,20 +403,21 @@ class MainWindow(QMainWindow):
                 self.history_panel.show_history(
                     self._history_controller.history_for(listing.job.label)
                 )
+            self._populate_badges(listing)
             self._update_lifecycle_actions()
             return
         result = self._controller.inspect(listing)
         if result.error is not None:
             self.inspector.show_error(result.error)
+            self._populate_badges(None)
             self._update_lifecycle_actions()
             return
         assert result.report is not None
         self.inspector.show_agent(listing, result.report, diagnostics=result.diagnostics)
+        self._populate_badges(listing)
         self._update_lifecycle_actions()
         if listing.managed and listing.job is not None:
-            self.history_panel.show_history(
-                self._history_controller.history_for(listing.job.label)
-            )
+            self.history_panel.show_history(self._history_controller.history_for(listing.job.label))
         else:
             self.history_panel.show_history(
                 HistoryOutcome(label="", events=(), error=HISTORY_NOT_APPLICABLE)
@@ -325,6 +459,119 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"Import failed: {result.error}")
             return
         self.refresh()
+
+    # -- transfer and file actions -------------------------------------------
+
+    def _plist_path(self, listing: TaskListing) -> Path | None:
+        """The plist path for *listing*: the discovered path, else the managed one."""
+        if listing.path is not None:
+            return listing.path
+        if listing.job is not None and self._services is not None:
+            return self._services.plist_path_for(listing.job.label)
+        return None
+
+    def _copy_text(self, text: str) -> None:
+        QApplication.clipboard().setText(text)
+        self.statusBar().showMessage("Copied to clipboard.")
+
+    def _on_reveal_plist(self) -> None:
+        listing = self._selected_listing()
+        if listing is None or self._services is None:
+            return
+        path = self._plist_path(listing)
+        if path is None:
+            self.statusBar().showMessage("No plist path available.")
+            return
+        error = self._services.reveal_path(path)
+        if error is not None:
+            self.statusBar().showMessage(error)
+
+    def _on_reveal_log(self, stream: str) -> None:
+        listing = self._selected_listing()
+        if listing is None or self._services is None or listing.job is None:
+            return
+        path = (
+            listing.job.logging.stdout_path
+            if stream == "stdout"
+            else listing.job.logging.stderr_path
+        )
+        if path is None:
+            self.statusBar().showMessage("No log path configured.")
+            return
+        error = self._services.reveal_path(path)
+        if error is not None:
+            self.statusBar().showMessage(error)
+
+    def _on_copy_command(self) -> None:
+        listing = self._selected_listing()
+        if listing is None:
+            return
+        text = shell_safe_command(listing)
+        if not text:
+            self.statusBar().showMessage("No command available to copy.")
+            return
+        self._copy_text(text)
+
+    def _on_copy_plist(self) -> None:
+        listing = self._selected_listing()
+        if listing is None or listing.job is None or self._services is None:
+            self.statusBar().showMessage("Select a managed task.")
+            return
+        self._copy_text(self._services.generate_plist_for(listing.job))
+
+    def _on_export_json(self) -> None:
+        listing = self._selected_listing()
+        if listing is None or listing.job is None or self._services is None:
+            self.statusBar().showMessage("Select a task to export.")
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export Managed JSON", listing.job.label + ".json"
+        )
+        if not path:
+            return
+        try:
+            self._services.export_managed_json(listing.job.label, Path(path))
+        except FileExistsError as exc:
+            self.statusBar().showMessage(f"Export failed: {exc}")
+            return
+        self.statusBar().showMessage(f"Exported to {path}")
+
+    def _on_import_json(self) -> None:
+        if self._json_transfer is None:
+            self.statusBar().showMessage("JSON import is not available.")
+            return
+        path, _ = QFileDialog.getOpenFileName(self, "Import Managed JSON")
+        if not path:
+            return
+        outcome = self._json_transfer.preview_import(Path(path))
+        if outcome.error is not None:
+            self.statusBar().showMessage(f"Cannot import: {outcome.error}")
+            return
+        dialog = JsonTransferDialog(outcome, self)
+        if not dialog.exec():
+            return
+        result = self._json_transfer.commit(outcome)
+        if result.error is not None:
+            self.statusBar().showMessage(f"Import failed: {result.error}")
+            return
+        self.refresh()
+
+    def _populate_badges(self, listing: TaskListing | None) -> None:
+        """Render the five status badges for *listing* in the right-pane strip."""
+        if listing is None:
+            self._badge_strip.hide()
+            return
+        self._badge_strip.show()
+        badge_set = agent_badges(listing)
+        descriptors = (
+            badge_set.state,
+            badge_set.installed,
+            badge_set.enabled,
+            badge_set.loaded,
+            badge_set.command,
+        )
+        for badge, descriptor in zip(self._badges, descriptors, strict=True):
+            badge.set_descriptor(descriptor)
 
     def _on_lifecycle_triggered(self, action: LifecycleAction) -> None:
         """Confirm when required, request through the controller, dispatch a worker."""
@@ -435,17 +682,11 @@ class MainWindow(QMainWindow):
         self._update_lifecycle_actions()
         self.statusBar().clearMessage()
         listing = self._selected_listing()
-        if (
-            listing is None
-            or listing.job is None
-            or self._label_of(listing) != outcome.label
-        ):
+        if listing is None or listing.job is None or self._label_of(listing) != outcome.label:
             return
         self.panel.show_test_outcome(listing.job, outcome)
         self._render_diagnostics(listing.job)
-        self.history_panel.show_history(
-            self._history_controller.history_for(outcome.label)
-        )
+        self.history_panel.show_history(self._history_controller.history_for(outcome.label))
 
     def _on_history_refresh(self) -> None:
         """Re-query execution history for the selected task."""
@@ -453,9 +694,7 @@ class MainWindow(QMainWindow):
         if listing is None or listing.job is None:
             self.statusBar().showMessage("Select a task to refresh its history.")
             return
-        self.history_panel.show_history(
-            self._history_controller.history_for(listing.job.label)
-        )
+        self.history_panel.show_history(self._history_controller.history_for(listing.job.label))
 
     def _on_diagnostics_refresh(self) -> None:
         """Re-read the selected job's persisted logs and environment diff."""
@@ -468,6 +707,4 @@ class MainWindow(QMainWindow):
     def _render_diagnostics(self, job: JobDefinition) -> None:
         """Fill the panel with a job's persisted logs and environment diff."""
         self.panel.show_logs_outcome(self._diagnostics_controller.read_logs(job))
-        self.panel.show_environment_outcome(
-            self._diagnostics_controller.compare_environment(job)
-        )
+        self.panel.show_environment_outcome(self._diagnostics_controller.compare_environment(job))

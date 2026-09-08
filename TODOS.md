@@ -235,7 +235,7 @@
 - [x] Closeout (`build`, serial): size review, SUMMARY v0.0.21, version grep, commit, push
 - Details in PLAN.md (pinned contract, lane map, shared-surface inventory)
 
-## Walk Increment 22 — Walk UX and Managed JSON Transfer (§63) (IN PROGRESS — v0.0.22)
+## Walk Increment 22 — Walk UX and Managed JSON Transfer (§63) (DONE — v0.0.22)
 - [x] Stage 0 (serial, `build`): `application/managed_json_transfer.py` (strict decoder + `ManagedJsonImportPreview` DTO); `TaskCommandService.export_managed_json`/`preview_managed_json_import`/`import_managed_json`/`reveal_path`; `platform/macos/finder.py` port + `bootstrap` wiring + `FakeTaskWorld` recording fake; `TaskListing` status fields; service/storage/platform tests. Stop: strict decode, v1→v2 migration, distinct conflict reporting, create-only + no-deploy, Finder fake all gated; `make check` green.
 - [x] Lane 1A (parallel, `faster`): `AgentTableModel` typed filter roles; `AgentFilterProxyModel` (search + 5 filter groups); pure badge presenter/descriptor; isolated tests. No `MainWindow` edits.
 - [x] Lane 1B (parallel, `faster`): `mactask export-json LABEL DEST` / `mactask import-json SOURCE` (`cli/app.py`, `cli/render.py`) + CLI tests (exit 0/2, catalog-only).
@@ -243,9 +243,9 @@
 - [x] Lane 1D (parallel, `faster`): README + `docs/architecture.md` + `docs/development.md` (filtering/status, Finder safety, clipboard scope, strict JSON transfer, v1 migration, conflict rules, no-deploy).
 - [x] Lane 2A (parallel, `faster`): `gui/controllers/json_transfer_controller.py` + `gui/widgets/json_transfer_dialog.py` + isolated tests. No `MainWindow` edits.
 - [x] Lane 2B (parallel, `faster`): standalone filter-control, empty-state, and badge widgets + isolated tests. No `MainWindow` edits.
-- [ ] Lane 3A (parallel, `faster`): `MainWindow` / `gui/app.py` composition — proxy mapping, controls, empty states, menu/context actions, reveal/copy handlers, JSON transfer wiring + focused window tests.
-- [ ] Integration (`build`, serial): review lane diffs vs. contract; composition gates (export/import exactly one file, UUID preserved, no plist/launchctl/Finder outside fakes, view→source mapping); `make check` + 100% coverage + test/code ratio ≤ 75%.
-- [ ] Closeout (`build`, serial): size review, SUMMARY v0.0.22, version grep, commit, push.
+- [x] Lane 3A (parallel, `faster`): `MainWindow` / `gui/app.py` composition — proxy mapping, controls, empty states, menu/context actions, reveal/copy handlers, JSON transfer wiring + focused window tests.
+- [x] Integration (`build`, serial): review lane diffs vs. contract; composition gates (export/import exactly one file, UUID preserved, no plist/launchctl/Finder outside fakes, view→source mapping); `make check` + 100% coverage + test/code ratio ≤ 75%.
+- [x] Closeout (`build`, serial): size review, SUMMARY v0.0.22, version grep, commit, push.
 - Details in PLAN.md (pinned contract, lane map, shared-surface inventory, composition gate).
 
 ## Crawl Increment 0 — Project Foundation (DONE)

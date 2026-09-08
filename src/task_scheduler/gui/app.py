@@ -13,6 +13,7 @@ from task_scheduler.gui.controllers.discovery_controller import DiscoveryControl
 from task_scheduler.gui.controllers.editor_controller import EditorController
 from task_scheduler.gui.controllers.history_controller import HistoryController
 from task_scheduler.gui.controllers.import_controller import ImportController
+from task_scheduler.gui.controllers.json_transfer_controller import JsonTransferController
 from task_scheduler.gui.controllers.lifecycle_controller import LifecycleController
 from task_scheduler.gui.main_window import MainWindow
 
@@ -28,6 +29,8 @@ def create_main_window(services: TaskCommandService) -> MainWindow:
         DiagnosticsController(services, gui_environment()),
         HistoryController(services),
         ImportController(services),
+        services=services,
+        json_transfer=JsonTransferController(services),
     )
 
 

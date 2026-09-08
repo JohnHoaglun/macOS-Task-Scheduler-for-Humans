@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from PySide6.QtCore import QModelIndex, QObject, QPersistentModelIndex, QSortFilterProxyModel
 
 from task_scheduler.gui.models.agent_table_model import (
@@ -11,7 +13,11 @@ from task_scheduler.gui.models.agent_table_model import (
     ROLE_LOADED,
     ROLE_SEARCH_TEXT,
     ROLE_STATE,
+    AgentTableModel,
 )
+
+if TYPE_CHECKING:
+    from task_scheduler.application.task_command_service import TaskListing
 
 __all__ = ["AgentFilterProxyModel", "accepts_row"]
 
@@ -66,6 +72,12 @@ class AgentFilterProxyModel(QSortFilterProxyModel):
         self._loaded = frozenset()
         self._command = frozenset()
         self.invalidateFilter()
+
+    def listing_at(self, row: int) -> TaskListing | None:
+        """The listing for proxy row *row*, mapped through the source model."""
+        source = self.sourceModel()
+        assert isinstance(source, AgentTableModel)
+        return source.listing_at(self.mapToSource(self.index(row, 0)).row())
 
     def filterAcceptsRow(
         self,
