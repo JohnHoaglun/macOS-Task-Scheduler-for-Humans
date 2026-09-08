@@ -789,7 +789,7 @@ Before closing each increment:
 4. Confirm no unit test accesses real user LaunchAgents, invokes `launchctl`, or depends on host Python environments.
 5. Review source sizes: logic-heavy files below 500 lines; review decomposition around 400–450 lines; functions generally below 50 lines.
 6. Increment version exactly by `+0.0.1`.
-7. Update every registry location in `versions_locations.md`.
+7. Update every registry location in `VERSIONS_LOCATIONS.md`.
 8. `grep` the repo for the old version to catch missed references.
 9. Update `PROJECT.md`, `TODOS.md`, `SUMMARY.md`, and `PLAN.md` in the same commit.
 10. Update README and architecture/development documentation when user-visible behavior, commands, dependencies, safety guarantees, or package behavior changes.
