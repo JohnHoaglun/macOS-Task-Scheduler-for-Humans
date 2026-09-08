@@ -522,7 +522,129 @@ import can commit: a checkbox in the GUI dialog (`import-acknowledge`), or
 the `--acknowledge-partial` CLI flag.  Without acknowledgement, the service
 raises and no write occurs.
 
-## Packaging Boundary (Increment 13)
+## Managed JSON Transfer and Walk UX (Increment 22)
+
+Increment 22 adds two feature families: a filterable, badged, empty-state-aware
+task list and a round-trip managed-JSON transfer facility distinct from the
+external-plist import (Increment 21).  Transfer preserves the immutable UUID
+and label (the opposite of §61's regenerate-UUID import), enforces a closed
+schema, and carries a preview-before-commit flow.
+
+### Strict Decoder vs Permissive Validate Path
+
+`application/managed_json_transfer.py` implements a transfer-specific strict
+decode path (`strict_decode_job_json`) that is distinct from the permissive
+`JsonJobRepository.load()` and `validate_json()` paths.  The strict decoder
+validates the raw JSON shape — rejecting unknown keys at every accepted
+nested level (top-level, command, schedule, environment, logging) — for both
+v1 and v2 payloads.  Legacy v1 schedules (`schedule.time` + `schedule.weekdays`)
+are accepted, migrated to the canonical v2 calendar variant, and then
+validated through `JobDefinition`.  A non-object top-level value, an
+unsupported schema version, or any unknown field at any accepted level raises
+`StrictJsonDecodeError` (a `ValueError` subclass) carrying a stable human
+message.  The permissive `validate_json()` behavior is unchanged: it accepts
+known fields only through the existing Pydantic validator without unknown-key
+rejection at the intermediate layers.
+
+### Transfer DTO and Service Façades
+
+`ManagedJsonImportPreview` is a frozen slots dataclass carrying:
+`source_path`, the strict-decoded `JobDefinition` (canonical v2, immutable
+UUID preserved), `normalized_schema_version`, `id_conflict_path`,
+`label_conflict_path`, and `can_import` (True only when both conflicts are
+`None`).
+
+`TaskCommandService` exposes three transfer façades:
+
+* `export_managed_json(label, destination)` — resolves the managed catalog
+  job by label (raises `JobNotFoundError` on missing or ambiguous label),
+  refuses to overwrite an existing destination (`FileExistsError`), writes
+  the canonical pretty JSON, and returns `destination`.  Never modifies the
+  catalog, plist store, `launchctl`, logs, or test processes.
+* `preview_managed_json_import(source)` — strictly decodes `source`, then
+  checks whether the candidate's UUID path already exists in the catalog
+  and whether a *different* catalog record already owns the candidate's
+  label; populates the conflict fields.  No write.
+* `import_managed_json(preview)` — re-checks both conflicts at commit time
+  (a conflict that appeared after preview aborts with no write via
+  `JobConflictError`); uses the create-only `JobService.import_job()`;
+  preserves the immutable UUID exactly; writes exactly one catalog JSON
+  file.  Never creates a plist, never invokes `launchctl`, never creates
+  logs.
+
+UUID and label conflicts remain *distinct* in the preview/result data even
+though `JobService.import_job()` collapses them into one `JobConflictError`;
+the transfer layer inspects the catalog itself to attribute the cause.
+
+### Identity Preservation
+
+Managed-JSON transfer preserves the job's immutable UUID exactly —
+`import_managed_json()` calls `JobService.import_job()` with the candidate's
+original `id`, not a regenerated UUID.  This is the inverse of §61's
+external-plist import, which regenerates a new durable UUID at commit and
+keeps only the label.  The create-only guarantee means an import cannot
+overwrite an existing catalog record: if the destination JSON already exists
+for the candidate's UUID, `FileExistsError` is raised; if a *different*
+managed record already claims the candidate's label, `JobConflictError` is
+raised.
+
+### Finder Reveal Port
+
+`platform/macos/finder.py` defines the `FinderRevealer` protocol
+(`reveal(path) -> str | None`) and its `LocalFinderRevealer` implementation,
+which delegates to the injected `ProcessRunner` with the command
+`/usr/bin/open -R <path>` and an empty environment.  The command runs
+through the existing process runner boundary — no layer calls
+`subprocess` or Finder directly.  `TaskCommandService.reveal_path(path)`
+verifies the target exists and returns a stable error when it does not,
+forwarding the result to the `FinderRevealer`.  `bootstrap.build_services()`
+constructs the local revealer; `FakeTaskWorld` injects a recording fake
+that records requested paths without opening Finder in tests.  The reveal
+capability is GUI-only: there is no CLI command for it.
+
+### GUI Filtering Contract
+
+`TaskListing` gains the `loaded: bool | None` field (True = loaded in
+launchd, False = not loaded, None = unknown/unavailable), enabling global
+truthful filtering.  `list_agents()` now performs an eager read-only
+`launchctl print` for every eligible discovered listing so badges and
+filters are accurate — one status call per discovered task.  Saved-only
+and invalid/unparseable listings carry `None` (no query issued).
+
+`AgentTableModel` exposes typed data roles via constants (`ROLE_STATE`,
+`ROLE_INSTALLED`, `ROLE_ENABLED`, `ROLE_LOADED`, `ROLE_COMMAND`,
+`ROLE_SEARCH_TEXT`) so filter predicates never parse localized display
+strings.  `AgentFilterProxyModel` (subclassing `QSortFilterProxyModel`)
+implements search plus the five pinned filter groups:
+
+1. **State** — Managed / External / Invalid (from `classify()`)
+2. **Installed** — Installed / Saved-only (from `ListingKind`)
+3. **Enabled** — enabled / disabled / unknown (from job `enabled` flag)
+4. **Loaded** — loaded / not loaded / unknown (from `TaskListing.loaded`)
+5. **Command type** — Python / Shell / Executable / unknown
+
+Search is a case-insensitive substring match over name, label, and
+shell-quoted command.  Each active filter group must match (AND across
+groups); selecting multiple values within one group broadens that group
+(OR within a group).  Each row has exactly one value per group, so every
+row matches exactly one option per group and no row is dropped for being
+unknown.  A pure badge presenter provides the visible text, accessible name,
+and tooltip fallback for each group's values.
+
+The empty-state widgets distinguish "No tasks found." (zero source rows)
+from "No matching tasks." with a Clear Filters action (zero proxy rows).
+The `MainWindow` owns every view-to-source index mapping: all controller and
+action calls receive source indexes, never proxy indexes.
+
+### Eager Read-Only Loaded-Status Refresh
+
+The loaded status is refreshed eagerly during `list_agents()` by reading
+each eligible discovered agent's launchd state — a single read-only
+`launchctl print` per discovered task.  This ensures the badge presenter's
+loaded/not-loaded indicators are globally truthful at the moment of listing.
+The refresh is read-only: no `launchctl` enable/disable/modify operations
+are issued, and no history events are recorded for the internal status
+calls.
 
 The application runtime has no packaging logic. The `.app` bundle is built
 by `pyside6-deploy` (Nuitka standalone mode) using a version-controlled

@@ -404,13 +404,47 @@ Exit codes:
 * `0` — success
 * `1` — launchd operation failed (bootstrap, bootout, print, kickstart, ...)
 * `2` — usage error: invalid label, invalid or unreadable JSON, conflicting
-  job, missing log configuration, or unknown job
+  job, missing log configuration, unknown job, or transfer decode error
 
 Reports and generated plist XML go to stdout; errors and diagnostics go to
 stderr. `inspect` appends a `diagnostics:` section when the plist is not
 fully supported (unparseable, or a missing/invalid `Label`), and a failed
 `install` bootstrap appends its `bootstrap_failure` diagnostic to stderr
 after launchctl's own output.
+
+Managed-JSON transfer (`export-json` / `import-json`) is catalog-only: it
+writes or reads managed JSON without touching deployed plists, `launchctl`,
+or log files.
+
+```bash
+mactask export-json <label> <destination>
+```
+
+Exports the managed job identified by *label* to a strict managed-JSON file
+at *destination*. Refuses to overwrite an existing destination. Returns exit
+`0` on success (prints a summary line to stdout); returns exit `2` when the
+label is not managed, the label is ambiguous, or the destination already
+exists.
+
+```bash
+mactask import-json <source>
+```
+
+Imports a strict managed-JSON file into the catalog. The import is
+create-only: no plist is written, no `launchctl` is invoked, no logs are
+created. Preserves the immutable UUID and label from the source file; legacy
+v1 payloads are normalized to canonical v2 before validation. Rejects a
+UUID conflict (a different managed job already holds the same id) and a label
+conflict (a different managed job already claims the same label). Returns
+exit `0` on success; returns exit `2` on decode failure (malformed JSON,
+unsupported schema version, unknown fields, or invalid job definition) or an
+id/label conflict.
+
+The CLI `export-json` and `import-json` commands are catalog-only
+facilities. The GUI offers the same transfer via its JSON-transfer dialog
+(Preview → Confirm for import, Export for export). Import never deploys
+a plist — an imported job appears as **Saved, not installed** until you
+explicitly install it.
 
 ## Import an Existing LaunchAgent
 

@@ -293,6 +293,47 @@ The app should open without Terminal, Terminal, or an activated venv,
 discover LaunchAgents safely, and show the main window. The bundle runs
 without PATH, venv, or source-checkout dependencies — it is self-contained.
 
+## Managed JSON Transfer Test Conventions (Increment 22)
+
+* Strict-decode tests build explicit JSON strings and assert the exact
+  `StrictJsonDecodeError` message for: malformed JSON (non-object top level,
+  unclosed braces), unsupported schema version, and unknown fields at every
+  accepted level (top-level, command by type, schedule by kind, environment,
+  logging).  v1 payloads (`schema_version: 1` with `schedule.time` +
+  `schedule.weekdays`) parse without error and are migrated to v2 by
+  `JsonJobRepository.load_text()` inside the strict path.  Tests assert that
+  the permissive `validate_json()` path remains unchanged.
+* Transfer-conflict tests use `FakeTaskWorld` with seeded catalog records:
+  a duplicate-UUID record and a duplicate-label record that exercise both
+  `id_conflict_path` and `label_conflict_path` independently, together, and
+  neither.  The commit-time conflict gate is verified by confirming that a
+  conflict introduced between `preview_managed_json_import` and
+  `import_managed_json` raises `JobConflictError` with no write.
+* CLI `export-json`/`import-json` tests drive the commands through
+  `CliRunner` + `FakeTaskWorld`.  Exit-code gates: `0` for success (verify
+  the summary line on stdout), `2` for not-found/ambiguous label, existing
+  destination, decode failure, and id/label conflict.  Create-only and
+  no-deploy gates use `world.launch_runner.specs` (zero launchctl calls),
+  catalog-only boundary assertions (exactly one new catalog JSON file, no
+  plist, no log directory, source bytes unchanged), and identity-preservation
+  assertions (imported job's `id` matches the exported file).
+* The finder adapter is tested with `FakeFinderRevealer` injected into
+  `FakeTaskWorld`: success (returns `None`), non-zero exit code, and launch
+  failure paths; tests assert that `FakeTaskWorld` records zero Finder
+  calls during normal test runs and that `reveal_path` returns a stable
+  "path does not exist" message for absent targets.
+* GUI proxy/badge tests use `qtbot` on the offscreen platform.  The
+  `AgentFilterProxyModel` is tested by feeding `AgentTableModel` with
+  known listings and asserting filter outcomes against typed roles
+  (`ROLE_STATE`, `ROLE_INSTALLED`, `ROLE_ENABLED`, `ROLE_LOADED`,
+  `ROLE_COMMAND`, `ROLE_SEARCH_TEXT`) rather than display strings.  The
+  pure badge presenter is tested with explicit `TaskListing` fixtures for
+  every state value.
+* The CLI `export-json` command is also tested with `FakeTaskWorld` to
+  confirm that `world.launch_runner.specs` and `world.launch_runner.specs`
+  for direct tests and Finder reveal calls remain empty — the transfer path
+  never invokes the process runner.
+
 ## Current State
 
 Crawl increments 0–13 establish:
