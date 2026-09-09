@@ -2,6 +2,10 @@
 
 ## Changelog
 
+### v0.0.23
+- Walk Increment 23 — Remaining Python Ecosystem Detectors (§58): completes the four Python ecosystem detectors deferred from increment 18 — pyenv (nearest `.python-version` → `<root>/versions/<name>/bin/python`), Conda (nearest `environment.yml`/`environment.yaml` top-level `name` → `<prefix>/envs/<name>/bin/python`, or `<prefix>/bin/python` for `base`), Pipenv (nearest `Pipfile` → `<project>/.venv/bin/python`), and Homebrew Python (fixed `/opt/homebrew/bin/python3` and `/usr/local/bin/python3` prefixes). All detectors are filesystem/config-only, injected-root based (`PythonDetectionRoots`), host-independent under tests, invoke no ecosystem tool, resolve no symlinks, and never auto-mutate a job; candidates remain explicit recommendations.
+- Entry finalized at closeout with test/coverage counts and disclosures.
+
 ### v0.0.22
 - Walk Increment 22 — Walk UX and Managed JSON Transfer (§63): filterable, badged, empty-state-aware task list (`QSortFilterProxyModel` search over name/label/shell-quoted command + classification / saved-installed / configured-enabled / loaded / parse-validation filters; visual status + validation badges with text fallbacks; context-aware empty states); catalog-only managed-JSON transfer (`mactask export-json LABEL DEST` / `mactask import-json SOURCE` + GUI preview-then-confirm dialog) that is identity-preserving (immutable UUID + label), create-only (export refuses an existing destination), rejects both ID and label conflicts, normalizes legacy v1→v2, and uses a strict closed schema (unknown fields rejected at every accepted level) — distinct from increment 21's regenerate-UUID external-plist import; platform-isolated `/usr/bin/open -R` Finder reveal (GUI-only) plus copy command (parsed jobs) / copy generated plist (managed jobs) via Qt clipboard.
 - 511 tests (full suite; +141 over the 370 at v0.0.21), 100% package line coverage (5,463 statements, up from 4,661), `make check` clean (`ruff` / `mypy` strict / pytest; 25 benign warnings — the pre-existing PytestCollection/Pydantic-serializer set plus new Qt `QSortFilterProxyModel.invalidateFilter` deprecations raised by the filter proxy)

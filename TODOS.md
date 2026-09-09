@@ -1,4 +1,4 @@
-# TODOS.md (v0.0.22)
+# TODOS.md (v0.0.23)
 
 ## Walk Increment 15 — Next-Run Preview (§62) (DONE)
 
@@ -247,6 +247,17 @@
 - [x] Integration (`build`, serial): review lane diffs vs. contract; composition gates (export/import exactly one file, UUID preserved, no plist/launchctl/Finder outside fakes, view→source mapping); `make check` + 100% coverage + test/code ratio ≤ 75%.
 - [x] Closeout (`build`, serial): size review, SUMMARY v0.0.22, version grep, commit, push.
 - Details in PLAN.md (pinned contract, lane map, shared-surface inventory, composition gate).
+
+## Walk Increment 23 — Remaining Python Ecosystem Detectors (§58) (IN PROGRESS — v0.0.23)
+- [ ] Stage 0 (serial, `build`): `DetectorKind` +`PYENV`/`CONDA`/`PIPENV`/`HOMEBREW`; `PythonDetectionRoots` (+`default()`); `DetectionContext.roots`; `detect_python(roots=)`; pure `nearest_marker_root`; `__init__` exports `PythonDetectionRoots`; extract `tests/unit/platform/python_detection_fakes.py` (shared `FakePythonDetectorFilesystem`). Registry stays `(core, uv, poetry)`. Stop: `make check` green, existing assertions unchanged, 100% coverage of new contract lines.
+- [ ] Lane A (parallel, `faster`): `platform/macos/pyenv_python_detector.py` + `tests/unit/platform/test_pyenv_python_detector.py`.
+- [ ] Lane B (parallel, `faster`): `platform/macos/conda_python_detector.py` + `tests/unit/platform/test_conda_python_detector.py`.
+- [ ] Lane C (parallel, `faster`): `platform/macos/pipenv_python_detector.py` + `tests/unit/platform/test_pipenv_python_detector.py`.
+- [ ] Lane D (parallel, `faster`): `platform/macos/homebrew_python_detector.py` + `tests/unit/platform/test_homebrew_python_detector.py`.
+- [ ] Lane E (parallel, `faster`): docs — README Python section, `docs/architecture.md` (registry + `PythonDetectionRoots`), `docs/development.md` (detector test conventions).
+- [ ] Wave 2 (serial, `build`): compose `default_python_detectors()` → `(core, uv, poetry, pipenv, pyenv, conda, homebrew)` (lazy imports); docstrings; registry-order + cross-detector composition tests in `test_python_detection.py`.
+- [ ] Wave 3 (serial, `build`): `make check` + 100% coverage + source-size review + **ratio ≤ 75% (trim test redundancy if over)**, docs finalized, version `0.0.22 → 0.0.23` registry + stale grep, commit, push.
+- Details in PLAN.md (pinned contract, lane map, shared-surface inventory, composition gate, ratio closeout gate).
 
 ## Crawl Increment 0 — Project Foundation (DONE)
 - [x] Create project directory
