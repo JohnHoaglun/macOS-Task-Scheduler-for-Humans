@@ -14,7 +14,6 @@ from __future__ import annotations
 import os
 import shutil
 import sys
-import tomllib
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
@@ -182,11 +181,6 @@ class EnvironmentDifference(BaseModel):
     different: dict[str, tuple[str, str]] = Field(default_factory=dict)
 
 
-def _is_usable(filesystem: PythonDetectorFilesystem, path: Path) -> bool:
-    """A candidate must be an absolute regular file with exec permission."""
-    return path.is_absolute() and filesystem.is_file(path) and filesystem.is_executable(path)
-
-
 def _ancestors(script: Path) -> list[Path]:
     """The script's parent directory and its ancestors, nearest first."""
     parent = script.parent
@@ -209,126 +203,6 @@ def nearest_marker_root(
         if filesystem.exists(root / marker_file):
             return root
     return None
-
-
-def _has_table(data: Mapping[str, object], key: str) -> bool:
-    """Whether a parsed ``pyproject.toml`` mapping holds ``tool.<key>``."""
-    tool = data.get("tool")
-    return isinstance(tool, Mapping) and key in tool
-
-
-class CorePythonDetector:
-    """The legacy discovery: nearby venvs, the current interpreter, PATH."""
-
-    kind = DetectorKind.CORE
-
-    def detect(self, context: DetectionContext) -> DetectorContribution:
-        entries: list[tuple[CandidateSource, Path]] = []
-        if context.script.is_absolute() and not context.filesystem.is_dir(context.script):
-            parent = context.script.parent
-            entries.append((CandidateSource.VENV, parent / ".venv" / "bin" / "python"))
-            entries.append((CandidateSource.VENV_FALLBACK, parent / "venv" / "bin" / "python"))
-        entries.append((CandidateSource.CURRENT, context.current_interpreter))
-        found = context.path_lookup("python3")
-        if found is not None:
-            entries.append((CandidateSource.PATH, Path(found)))
-        return DetectorContribution(
-            candidates=tuple(
-                (path, source) for source, path in entries if _is_usable(context.filesystem, path)
-            )
-        )
-
-
-class _MarkerDetector:
-    """Shared nearest-project-root walk for lock-file and config-table markers.
-
-    The first ancestor holding the marker file (or the config table) is the
-    project root; only ``<root>/.venv/bin/python`` is then considered.
-    """
-
-    kind: DetectorKind
-    marker_file: str
-    table_key: str
-    no_venv_message: str
-    parse_failure_message: str
-
-    def detect(self, context: DetectionContext) -> DetectorContribution:
-        if not context.script.is_absolute() or context.filesystem.is_dir(context.script):
-            return DetectorContribution()
-        notes: list[DetectionNote] = []
-        parse_noted = False
-        for root in _ancestors(context.script):
-            if context.filesystem.exists(root / self.marker_file):
-                return self._venv_contribution(context, root, notes)
-            pyproject = root / "pyproject.toml"
-            if not context.filesystem.exists(pyproject):
-                continue
-            data = _parse_pyproject(context.filesystem.read_text(pyproject))
-            if data is None:
-                if not parse_noted:
-                    notes.append(
-                        DetectionNote(detector=self.kind, message=self.parse_failure_message)
-                    )
-                    parse_noted = True
-                continue
-            if _has_table(data, self.table_key):
-                return self._venv_contribution(context, root, notes)
-        return DetectorContribution(notes=tuple(notes))
-
-    def _venv_contribution(
-        self, context: DetectionContext, root: Path, notes: list[DetectionNote]
-    ) -> DetectorContribution:
-        candidate = root / ".venv" / "bin" / "python"
-        if _is_usable(context.filesystem, candidate):
-            return DetectorContribution(
-                candidates=((candidate, CandidateSource.VENV),), notes=tuple(notes)
-            )
-        return DetectorContribution(
-            notes=(
-                *notes,
-                DetectionNote(detector=self.kind, message=self.no_venv_message),
-            )
-        )
-
-
-def _parse_pyproject(text: str | None) -> Mapping[str, object] | None:
-    """Parse ``pyproject.toml`` text; None means unreadable or malformed."""
-    if text is None:
-        return None
-    try:
-        data = tomllib.loads(text)
-    except tomllib.TOMLDecodeError:
-        return None
-    return data if isinstance(data, Mapping) else None
-
-
-class UvPythonDetector(_MarkerDetector):
-    """uv projects: a ``uv.lock`` or a ``[tool.uv]`` table marks the root."""
-
-    kind = DetectorKind.UV
-    marker_file = "uv.lock"
-    table_key = "uv"
-    no_venv_message = "a uv project was detected, but no usable .venv interpreter is available"
-    parse_failure_message = (
-        "pyproject.toml could not be read or parsed; uv configuration was ignored"
-    )
-
-
-class PoetryPythonDetector(_MarkerDetector):
-    """Poetry projects: a ``poetry.lock`` or a ``[tool.poetry]`` table marks the root."""
-
-    kind = DetectorKind.POETRY
-    marker_file = "poetry.lock"
-    table_key = "poetry"
-    no_venv_message = "a poetry project was detected, but no usable .venv interpreter is available"
-    parse_failure_message = (
-        "pyproject.toml could not be read or parsed; poetry configuration was ignored"
-    )
-
-
-def default_python_detectors() -> tuple[PythonEnvironmentDetector, ...]:
-    """The default registry order: core, then uv, then Poetry."""
-    return (CorePythonDetector(), UvPythonDetector(), PoetryPythonDetector())
 
 
 def project_environment_candidate(
@@ -355,13 +229,15 @@ def detect_python(
 ) -> PythonDetectionResult:
     """Find candidate interpreters and a default working directory.
 
-    Runs the default detector registry (core, uv, Poetry) over an injected
-    read-only filesystem view and merges their contributions: a path found
-    by several detectors appears once, at its first-discovered position,
-    with every discovering detector recorded in ``detectors``; notes stay
-    in detector-execution order with exact duplicates removed. Paths are
-    reported exactly as given (no symlink resolution).
+    Runs the default detector registry (core, uv, poetry, pipenv, pyenv,
+    conda, homebrew) over an injected read-only filesystem view and merges
+    their contributions: a path found by several detectors appears once, at
+    its first-discovered position, with every discovering detector recorded in
+    ``detectors``; notes stay in detector-execution order with exact duplicates
+    removed. Paths are reported exactly as given (no symlink resolution).
     """
+    from task_scheduler.platform.macos.python_detectors import default_python_detectors
+
     if current_interpreter is None:
         current_interpreter = Path(sys.executable)
     if path_lookup is None:

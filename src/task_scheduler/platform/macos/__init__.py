@@ -68,10 +68,10 @@ from task_scheduler.platform.macos.python_detection import (
     PythonDetectorFilesystem,
     PythonEnvironmentDetector,
     compare_environments,
-    default_python_detectors,
     detect_python,
     project_environment_candidate,
 )
+from task_scheduler.platform.macos.python_detectors import default_python_detectors
 
 __all__ = [
     "ArchitectureFinding",

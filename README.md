@@ -90,7 +90,7 @@ Planned capabilities include:
 * run shell scripts or commands
 * run arbitrary executables
 * schedule a task at a specific time on selected days
-* detect common Python virtual environments
+* detect a script's Python environment (venv, uv, Poetry, Pipenv, pyenv, Conda, Homebrew)
 * configure the working directory
 * configure environment variables
 * automatically capture stdout and stderr
@@ -619,18 +619,20 @@ The dialog is a scrollable form with the following sections:
   kind, each with a row table of arguments. On the Python page, editing
   the script path runs interpreter detection: candidates are listed as
   `path (source)` (sources: `.venv`, `venv`, `current`, `path`); a
-  candidate also found in a uv or Poetry project root is annotated with
-  those detectors (for example `path (.venv; uv, poetry)`), and the
-  **Use** button fills the interpreter field — and the working directory
-  while it is blank — from the detection result. Informative notes cover
-  the idle and no-match cases and non-fatal discovery problems (for
-  example, a detected uv or Poetry project without a usable `.venv`
-  interpreter, or a `pyproject.toml` that could not be read or parsed).
-  Detection is local-only: it reads the filesystem near the script —
-  including the nearest-project-root walk for uv/Poetry markers (`uv.lock`
-  or `[tool.uv]`, `poetry.lock` or `[tool.poetry]`) — and never runs
-  `uv`, `poetry`, or a shell, never resolves symlinks, and never modifies
-  anything.
+  candidate also found by a project-root detector (uv, Poetry, Pipenv,
+  pyenv, or Conda) is annotated with those detectors (for example
+  `path (.venv; uv, poetry)`), and the **Use** button fills the
+  interpreter field — and the working directory while it is blank — from
+  the detection result. Informative notes cover the idle and no-match
+  cases and non-fatal discovery problems (for example, a detected project
+  without a usable configured interpreter, or a `pyproject.toml` that
+  could not be read or parsed). Detection is local-only: it reads the
+  filesystem near the script — including the nearest-project-root walk
+  for the uv/Poetry/Pipenv/pyenv/Conda markers (`uv.lock` or
+  `[tool.uv]`, `poetry.lock` or `[tool.poetry]`, `Pipfile`,
+  `.python-version`, and `environment.yml`/`.yaml`) plus the fixed
+  Homebrew Python prefixes — and never runs an ecosystem tool or a
+  shell, never resolves symlinks, and never modifies anything.
 * **Schedule** — a schedule kind selector (Calendar / Interval). The
   Calendar page holds one `HH:MM` row per scheduled time (Add/Remove
   controls; at least one row is always kept, and removing the last row

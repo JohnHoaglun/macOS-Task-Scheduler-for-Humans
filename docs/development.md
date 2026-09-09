@@ -154,17 +154,29 @@ The diagnostics and log tests follow the GUI setup above and add:
   terminal-environment mapping — never the real `os.environ` — and assert
   on names/categories, not values.
 
-## Python Detection Test Conventions (Increment 18)
+## Python Detection Test Conventions (Increments 18 and 23)
 
 * `detect_python` accepts an injected read-only filesystem view
   (`PythonDetectorFilesystem`); the detector unit tests use a dict-backed
-  fake (file mapping plus `executable`, `dirs`, and `unreadable` path
-  sets) so synthetic uv/Poetry projects — marker files, `[tool.uv]` /
-  `[tool.poetry]` tables, unreadable or malformed `pyproject.toml`
-  content — are deterministic strings and the tests never depend on the
-  host's Python installation, PATH, or directory layout.
+  fake (`FakePythonDetectorFilesystem`: file mapping plus `executable`,
+  `dirs`, and `unreadable` path sets) so synthetic projects — marker
+  files, `[tool.uv]` / `[tool.poetry]` tables, unreadable or malformed
+  `pyproject.toml` content — are deterministic strings and the tests never
+  depend on the host's Python installation, PATH, or directory layout.
+* All detector unit tests live in one module
+  (`tests/unit/platform/test_python_detection.py`). Each detector's
+  `detect(context)` is exercised in isolation via the
+  `detect_context(script, fs, roots)` helper (which builds a
+  `DetectionContext`), and a compact `_roots(pyenv=(), conda=(),
+  homebrew=())` helper builds a `PythonDetectionRoots`. The pyenv, Conda,
+  and Homebrew detectors read only the injected roots, so their tests pin
+  every probe path through `PythonDetectionRoots` rather than a live home
+  directory; a marker that is absent yields an empty
+  `DetectorContribution()` (asserted verbatim).
 * Non-fatal detection notes are asserted verbatim (detector kind plus
-  exact message), in detector-execution order.
+  exact message), in detector-execution order — including the per-detector
+  "no usable … interpreter is available" notes for uv, Poetry, Pipenv,
+  pyenv, and Conda.
 * A small set of tests still drives the default
   `LocalPythonDetectorFilesystem` over real `tmp_path` files to cover the
   live reader itself (including its `read_text` error path).

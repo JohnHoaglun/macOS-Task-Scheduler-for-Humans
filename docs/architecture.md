@@ -309,30 +309,39 @@ test summary, diagnostics list, direct stdout/stderr tabs, persisted
 stdout/stderr tabs plus Refresh (synchronous re-read), the environment
 comparison, and the Python recommendation group.
 
-## Python Environment Detectors (Increment 18)
+## Python Environment Detectors (Increments 18 and 23)
 
-`platform/macos/python_detection.py` finds candidate Python interpreters
-for a selected script behind a detector registry. Detection is read-only
-and local: no `uv`/`poetry`/shell invocation, no symlink resolution, no
-path normalization — paths are reported exactly as given, and candidates
-are recommendations only.
+`platform/macos/python_detection.py` (the contracts and the
+`detect_python` façade) together with `platform/macos/python_detectors.py`
+(the detector implementations and the default registry) find candidate
+Python interpreters for a selected script behind a detector registry.
+Detection is read-only and local: no ecosystem tool (`uv`, `poetry`,
+`pyenv`, `conda`, `pipenv`) or shell invocation, no symlink resolution,
+no path normalization — paths are reported exactly as given, and
+candidates are recommendations only.
 
-**Contracts.** `DetectorKind` is a `StrEnum` (`core`, `uv`, `poetry`);
-`DetectionNote` is a frozen `(detector, message)` model;
-`PythonDetectionResult` carries `notes: list[DetectionNote]` alongside the
-candidates. A detection run is described by the frozen `DetectionContext`
-(`script`, `current_interpreter`, `path_lookup`, `filesystem`), where
+**Contracts.** `DetectorKind` is a `StrEnum` (`core`, `uv`, `poetry`,
+`pipenv`, `pyenv`, `conda`, `homebrew`); `DetectionNote` is a frozen
+`(detector, message)` model; `PythonDetectionResult` carries
+`notes: list[DetectionNote]` alongside the candidates. A detection run is
+described by the frozen `DetectionContext` (`script`,
+`current_interpreter`, `path_lookup`, `filesystem`, `roots`), where
 `filesystem` is the `PythonDetectorFilesystem` read-only protocol
 (`exists`, `is_file`, `is_dir`, `is_executable`, `read_text`; never
-raises) with the live implementation
-`LocalPythonDetectorFilesystem`. Each `PythonEnvironmentDetector`
-exposes `kind` and `detect(context) -> DetectorContribution`
-(`candidates: tuple[tuple[Path, CandidateSource], ...]`,
-`notes: tuple[DetectionNote, ...]`). `default_python_detectors()` fixes
-the registry order: core, uv, Poetry. `detect_python(script, *,
-current_interpreter=None, path_lookup=None, filesystem=None)` runs the
-registry and merges the contributions; the working-directory rule is
-unchanged (script parent when the script is absolute and not a directory).
+raises) with the live implementation `LocalPythonDetectorFilesystem`, and
+`roots` is the frozen `PythonDetectionRoots` (`pyenv`, `conda`, `homebrew`
+— each a `tuple[Path, ...]`) holding the well-known interpreter tool
+locations; its `default()` classmethod is the only place that reads the
+home directory, so the detectors read only pre-resolved paths. Each
+`PythonEnvironmentDetector` exposes `kind` and
+`detect(context) -> DetectorContribution` (`candidates:
+tuple[tuple[Path, CandidateSource], ...]`, `notes: tuple[DetectionNote,
+...]`). `default_python_detectors()` fixes the registry order: core, uv,
+poetry, pipenv, pyenv, conda, homebrew. `detect_python(script, *,
+current_interpreter=None, path_lookup=None, filesystem=None, roots=None)`
+runs the registry and merges the contributions; the working-directory
+rule is unchanged (script parent when the script is absolute and not a
+directory).
 
 **Detectors.** The core detector keeps the legacy discovery and order:
 `.venv/bin/python` beside the script, `venv/bin/python`, the current
@@ -344,7 +353,19 @@ relative or directory scripts): uv marks a root with a `uv.lock` file or
 a `[tool.uv]` table in `pyproject.toml`; Poetry with `poetry.lock` or
 `[tool.poetry]`. Only `<root>/.venv/bin/python` is then considered, and
 it carries `source = CandidateSource.VENV` — `CandidateSource` gained no
-values; ecosystem attribution lives solely in `detectors`.
+values; ecosystem attribution lives solely in `detectors`. The Pipenv
+detector marks a root with a `Pipfile` and uses `<root>/.venv/bin/python`
+(a `VENV` candidate), or a note when that interpreter is unusable. The
+pyenv detector marks a root with `.python-version`, skips a `system` or
+blank name, and selects the first usable `versions/<name>/bin/python`
+across the injected pyenv roots. The Conda detector marks a root with
+`environment.yml` (preferred) or `environment.yaml`, reads the first
+top-level `name:` line, and selects `<prefix>/bin/python` for `base` or
+`<prefix>/envs/<name>/bin/python` across the injected conda prefixes.
+The Homebrew detector probes the injected Homebrew prefixes for a usable
+`<prefix>/bin/python3` (a `PATH` candidate) and contributes nothing
+without a match. Pipenv, pyenv, and Conda all locate their root with the
+shared `nearest_marker_root(script, filesystem, marker)` helper.
 
 **Merging and notes.** A path found by several detectors appears once, at
 its first-discovered position, with its exact spelling and original
@@ -354,8 +375,12 @@ order. Notes never raise: a project root without a usable
 `<root>/.venv/bin/python` yields a per-ecosystem "no usable `.venv`
 interpreter is available" note; an unreadable or unparseable
 `pyproject.toml` yields one parse-failure note per detector per walk and
-never cancels a lock-file marker or stops the walk. Merged notes stay in
-detector-execution order with exact duplicates removed.
+never cancels a lock-file marker or stops the walk. Pipenv, pyenv, and
+Conda each yield a single non-fatal note when their marker is present but
+no configured interpreter resolves (Pipenv: "no usable `.venv`
+interpreter is available"; pyenv and Conda: "no usable configured
+interpreter is available"). Merged notes stay in detector-execution order
+with exact duplicates removed.
 
 **Recommendation.** The project-affine anchor is the first candidate
 whose source is `VENV` or `VENV_FALLBACK` (an ecosystem `.venv`
