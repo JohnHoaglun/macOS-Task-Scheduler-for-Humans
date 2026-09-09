@@ -14,10 +14,12 @@ from task_scheduler.application.test_service import DirectTestService
 from task_scheduler.domain import JobDefinition
 from task_scheduler.platform.macos import (
     CommandSpec,
+    DetectionContext,
     LaunchAgentBackend,
     LaunchAgentStore,
     PlistCodec,
     ProcessResult,
+    PythonDetectionRoots,
 )
 from task_scheduler.platform.macos.diagnostic_probes import (
     ArchitectureFinding,
@@ -241,3 +243,54 @@ class FakeDiagnosticProbes(DiagnosticProbes):
     ) -> ArchitectureFinding | None:
         self.architecture_calls.append((executable, {"machine": machine}))
         return self.architecture_finding
+
+
+class FakePythonDetectorFilesystem:
+    """Dict-backed ``PythonDetectorFilesystem`` for deterministic detector tests."""
+
+    def __init__(
+        self,
+        files: dict[Path, str],
+        executable: set[Path],
+        dirs: set[Path] | None = None,
+        unreadable: set[Path] | None = None,
+    ) -> None:
+        self.files = files
+        self.executable = executable
+        self.dirs = dirs or set()
+        self.unreadable = unreadable or set()
+
+    def exists(self, path: Path) -> bool:
+        return path in self.files or path in self.dirs or path in self.unreadable
+
+    def is_file(self, path: Path) -> bool:
+        return path in self.files
+
+    def is_dir(self, path: Path) -> bool:
+        return path in self.dirs
+
+    def is_executable(self, path: Path) -> bool:
+        return path in self.executable
+
+    def read_text(self, path: Path) -> str | None:
+        if path in self.unreadable:
+            return None
+        return self.files.get(path)
+
+
+EMPTY_DETECTION_ROOTS = PythonDetectionRoots(pyenv=(), conda=(), homebrew=())
+
+
+def detect_context(
+    script: Path,
+    filesystem: FakePythonDetectorFilesystem,
+    roots: PythonDetectionRoots,
+) -> DetectionContext:
+    """A ``DetectionContext`` for exercising one detector in isolation (no PATH hits)."""
+    return DetectionContext(
+        script=script,
+        current_interpreter=script.parent / "missing-interpreter",
+        path_lookup=lambda _name: None,
+        filesystem=filesystem,
+        roots=roots,
+    )

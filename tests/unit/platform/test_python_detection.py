@@ -6,50 +6,22 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from tests.fakes import EMPTY_DETECTION_ROOTS, FakePythonDetectorFilesystem
 
 from task_scheduler.platform.macos import (
     DetectorKind,
     LocalPythonDetectorFilesystem,
     PythonDetectionResult,
+    PythonDetectionRoots,
     detect_python,
 )
+from task_scheduler.platform.macos.python_detection import nearest_marker_root
 
 UV_NO_VENV = "a uv project was detected, but no usable .venv interpreter is available"
 POETRY_NO_VENV = "a poetry project was detected, but no usable .venv interpreter is available"
 UV_PARSE_NOTE = "pyproject.toml could not be read or parsed; uv configuration was ignored"
 POETRY_PARSE_NOTE = "pyproject.toml could not be read or parsed; poetry configuration was ignored"
 
-class FakePythonDetectorFilesystem:
-    """Dict-backed read-only filesystem for deterministic detector tests."""
-
-    def __init__(
-        self,
-        files: dict[Path, str],
-        executable: set[Path],
-        dirs: set[Path] | None = None,
-        unreadable: set[Path] | None = None,
-    ) -> None:
-        self.files = files
-        self.executable = executable
-        self.dirs = dirs or set()
-        self.unreadable = unreadable or set()
-
-    def exists(self, path: Path) -> bool:
-        return path in self.files or path in self.dirs or path in self.unreadable
-
-    def is_file(self, path: Path) -> bool:
-        return path in self.files
-
-    def is_dir(self, path: Path) -> bool:
-        return path in self.dirs
-
-    def is_executable(self, path: Path) -> bool:
-        return path in self.executable
-
-    def read_text(self, path: Path) -> str | None:
-        if path in self.unreadable:
-            return None
-        return self.files.get(path)
 
 def _detect(script: Path, filesystem: FakePythonDetectorFilesystem) -> PythonDetectionResult:
     return detect_python(
@@ -57,6 +29,7 @@ def _detect(script: Path, filesystem: FakePythonDetectorFilesystem) -> PythonDet
         current_interpreter=script.parent / "missing-interpreter",
         path_lookup=_lookup(None),
         filesystem=filesystem,
+        roots=EMPTY_DETECTION_ROOTS,
     )
 
 def _make_executable(path: Path) -> Path:
@@ -161,3 +134,23 @@ class TestRegistryAndLocalReader:
         assert not reader.exists(missing)
         assert reader.read_text(missing) is None
         assert reader.is_dir(tmp_path)
+
+
+class TestDetectionContract:
+
+    def test_default_roots_resolve_the_known_locations(self) -> None:
+        home = Path.home()
+        roots = PythonDetectionRoots.default()
+        assert roots.pyenv == (home / ".pyenv",)
+        assert roots.homebrew == (Path("/opt/homebrew"), Path("/usr/local"))
+        assert home / "miniconda3" in roots.conda
+
+    def test_nearest_marker_root_returns_nearest_ancestor(self, tmp_path: Path) -> None:
+        fs = FakePythonDetectorFilesystem(files={tmp_path / "a" / "uv.lock": ""}, executable=set())
+        assert nearest_marker_root(tmp_path / "a" / "b" / "job.py", fs, "uv.lock") == tmp_path / "a"
+
+    def test_nearest_marker_root_none_when_absent_or_invalid(self, tmp_path: Path) -> None:
+        fs = FakePythonDetectorFilesystem(files={}, executable=set(), dirs={tmp_path})
+        assert nearest_marker_root(tmp_path / "job.py", fs, "uv.lock") is None
+        assert nearest_marker_root(Path("relative.py"), fs, "uv.lock") is None
+        assert nearest_marker_root(tmp_path, fs, "uv.lock") is None

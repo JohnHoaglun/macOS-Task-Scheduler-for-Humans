@@ -39,6 +39,10 @@ class DetectorKind(StrEnum):
     CORE = "core"
     UV = "uv"
     POETRY = "poetry"
+    PYENV = "pyenv"
+    CONDA = "conda"
+    PIPENV = "pipenv"
+    HOMEBREW = "homebrew"
 
 
 class DetectionNote(BaseModel):
@@ -87,6 +91,35 @@ class LocalPythonDetectorFilesystem:
 
 
 @dataclass(frozen=True)
+class PythonDetectionRoots:
+    """Well-known interpreter tool locations, injected into every detection run.
+
+    :meth:`default` resolves the production values and is the only place that
+    reads the home directory; detectors read only these pre-resolved paths, so
+    tests can point them at ``tmp_path`` without touching live host state.
+    """
+
+    pyenv: tuple[Path, ...]
+    conda: tuple[Path, ...]
+    homebrew: tuple[Path, ...]
+
+    @classmethod
+    def default(cls) -> PythonDetectionRoots:
+        home = Path.home()
+        return cls(
+            pyenv=(home / ".pyenv",),
+            conda=(
+                home / ".conda",
+                home / "miniconda3",
+                home / "anaconda3",
+                home / "miniforge3",
+                home / "mambaforge",
+            ),
+            homebrew=(Path("/opt/homebrew"), Path("/usr/local")),
+        )
+
+
+@dataclass(frozen=True)
 class DetectionContext:
     """Everything one detector may look at for a single detection run."""
 
@@ -94,6 +127,7 @@ class DetectionContext:
     current_interpreter: Path
     path_lookup: Callable[[str], str | None]
     filesystem: PythonDetectorFilesystem
+    roots: PythonDetectionRoots
 
 
 @dataclass(frozen=True)
@@ -157,6 +191,24 @@ def _ancestors(script: Path) -> list[Path]:
     """The script's parent directory and its ancestors, nearest first."""
     parent = script.parent
     return [parent, *parent.parents]
+
+
+def nearest_marker_root(
+    script: Path,
+    filesystem: PythonDetectorFilesystem,
+    marker_file: str,
+) -> Path | None:
+    """The nearest ancestor of ``script`` (parent first) that holds ``marker_file``.
+
+    Returns ``None`` when the script is relative, is itself a directory, or no
+    ancestor contains the marker.
+    """
+    if not script.is_absolute() or filesystem.is_dir(script):
+        return None
+    for root in _ancestors(script):
+        if filesystem.exists(root / marker_file):
+            return root
+    return None
 
 
 def _has_table(data: Mapping[str, object], key: str) -> bool:
@@ -299,6 +351,7 @@ def detect_python(
     current_interpreter: Path | None = None,
     path_lookup: Callable[[str], str | None] | None = None,
     filesystem: PythonDetectorFilesystem | None = None,
+    roots: PythonDetectionRoots | None = None,
 ) -> PythonDetectionResult:
     """Find candidate interpreters and a default working directory.
 
@@ -315,11 +368,14 @@ def detect_python(
         path_lookup = shutil.which
     if filesystem is None:
         filesystem = LocalPythonDetectorFilesystem()
+    if roots is None:
+        roots = PythonDetectionRoots.default()
     context = DetectionContext(
         script=script,
         current_interpreter=current_interpreter,
         path_lookup=path_lookup,
         filesystem=filesystem,
+        roots=roots,
     )
     working_directory = (
         script.parent if script.is_absolute() and not filesystem.is_dir(script) else None
