@@ -959,6 +959,35 @@ Goal (spec §65): support production-quality macOS scheduling including jobs tha
 ### Run Definition of Done (spec §73)
 The application supports user scheduled tasks and system scheduled tasks and can reliably install and manage both through the appropriate macOS architecture. A system task may execute even with no interactive user logged in. The Python domain model and scheduling UI remain largely unchanged.
 
+## Usability Fix — Adaptive Main-Window Geometry (DONE — v0.0.25)
+
+### Goal
+
+Open the application at a practical size for its task table, inspector, diagnostics, and history content instead of accepting Qt's narrow layout-driven fallback. The observed fallback is approximately `764x855`, which compresses the configured `600:400` horizontal splitter allocation.
+
+### Pinned Contract
+
+- Preferred startup size is `1280x900` logical pixels.
+- The chosen startup size is bounded to the primary screen's usable geometry, excluding the macOS menu bar and Dock.
+- The main window remains normally resizable and maximizable. The application neither starts maximized nor enters full-screen mode.
+- The existing `QSplitter` layout and its `600:400` initial pane ratio remain unchanged; only the top-level startup geometry changes.
+- The sizing policy lives at the GUI entry point (`gui/app.py`), after composition and before `window.show()`. It does not persist window geometry and makes no scheduling, catalog, LaunchAgent, or lifecycle change.
+
+### Execution And Gate
+
+- **Solo `build`:** documentation, entry-point sizing, and its focused test share one small startup-geometry contract; splitting them would add coordination with no independent implementation surface.
+- `startup_window_size(available_size: QSize | None) -> QSize` returns `QSize(1280, 900)` when no usable screen size is supplied, otherwise bounds each target dimension to the supplied usable size. `main()` reads `QApplication.primaryScreen().availableGeometry().size()` when a primary screen exists, calls the helper, and passes its result to `window.resize(...)` before `window.show()`.
+- Add compact coverage for a display that fits `1280x900` and one that is smaller.
+- Gate: focused GUI-entry-point test, `make check`, and a manual launch proving a spacious initial window that remains below the usable display bounds.
+
+### Result
+
+- `gui.app` now applies the bounded startup size before `window.show()`.
+- The build-Mac smoke check observed a `3008x1575` usable display and a
+  `1280x900` shown window.
+- `make check` and explicit coverage pass: 530 tests, 5,570 statements, 0
+  missed; test/production lines are 8,148/10,868 (74.97%).
+
 **Parallelization decision:**
 - **Increment 24: solo `build`** — the threat model, IPC contract, and trust boundaries are one shared contract; no independent lane exists.
 - **Increment 25:** lane 25A pins the domain contract first (`JobScope` + `JobDefinition.scope` + v3 migration + label policy); then lanes 25B (service/lifecycle DTO routing), 25C (CLI rendering), 25D (editor draft + widget scope), 25E (listing/inspector presentation) fan out against the pinned contract.

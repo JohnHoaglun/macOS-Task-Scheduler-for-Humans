@@ -516,6 +516,10 @@ Launch it from the repository root with the virtual environment active:
 mactask-gui
 ```
 
+The window opens at a preferred `1280x900` size, bounded to the usable area
+of the primary display so it does not extend under the macOS menu bar or Dock.
+It remains normally resizable and maximizable.
+
 The main window lists every LaunchAgent discovered under
 `~/Library/LaunchAgents` — application-managed jobs, external agents created
 by other software, and malformed or unsupported plists — plus managed jobs

@@ -53,6 +53,10 @@ The GUI is tested with pytest-qt and runs fully headless:
   `launchctl`.
 * `make check` runs the GUI tests on every change; line coverage of the
   whole package stays at 100%.
+* Startup geometry is tested through the pure
+  `gui.app.startup_window_size(QSize | None)` helper: it prefers `1280x900`
+  and bounds it to a supplied usable display size. Do not assert platform
+  window-manager geometry in headless tests.
 
 ## Editor Dialog Test Conventions
 

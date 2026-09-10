@@ -110,6 +110,10 @@ gui/
   graph (repository, job service, store, backend, codec, test service, log
   service) for the `mactask` CLI and the `mactask-gui` entry point, so CLI
   and GUI behavior cannot drift.
+* `gui.app.startup_window_size()` gives the main window a preferred
+  `1280x900` startup size, bounded to the primary screen's usable geometry.
+  It is applied after GUI composition and before `show()`, without persisting
+  geometry or changing normal resize/maximize behavior.
 * The GUI's read path calls `list_agents()` (discovered plists plus
   catalog-only saved jobs) and `inspect_discovered()`, and the in-memory
   editor methods (`validate_job`, `generate_plist_for`, `save_managed_job`,

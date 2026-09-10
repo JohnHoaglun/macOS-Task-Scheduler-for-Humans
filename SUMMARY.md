@@ -2,6 +2,12 @@
 
 ## Changelog
 
+### v0.0.25
+- Adaptive main-window startup geometry: `mactask-gui` now opens at a preferred `1280x900` size bounded to the primary display's usable geometry, preserving normal resize/maximize behavior and the existing `600:400` table/inspector splitter allocation
+- `gui.app.startup_window_size()` is a pure, focused sizing policy; compact GUI-entry-point coverage verifies normal and constrained display bounds without asserting platform window-manager geometry
+- Documentation: README launch behavior, GUI architecture boundary, development test convention, PLAN.md execution/result, and TODO closeout updated
+- Verification: build-Mac smoke check observed `1280x900` within a `3008x1575` usable display; `make check` clean; 530 tests, 5,570 statements, 100% coverage; test/production ratio 8,148/10,868 (74.97%) remains below the 75% cap
+
 ### v0.0.24
 - Run phase plan approved and persisted (no code changes): spec §§65–73 defined as increments 24–29 — Run architecture, threat model, and helper contract (24); scope-aware managed-job model (25); native Swift XPC helper + authenticated IPC (26); system LaunchDaemon lifecycle (27); system-service UX and CLI (28); release security and distribution (29)
 - Pinned Run decisions (approved 2026-09-09): macOS 13+ baseline for System Service (`SMAppService`); scope-explicit labels (`.user.` existing, `.system.` new) with the helper accepting only `.system.`; initial helper operations install/reinstall/uninstall/status/enable/disable with no Run Now; the per-user catalog remains the authoring authority while the helper validates every canonical payload and owns the deployed daemon artifacts; strict approved-location execution paths (absolute, root-owned, non-symlink, non-group/world-writable, no user-home); no custom environment variables for System Services until a separate Keychain design; Test/Test Draft disabled for System Services; helper-derived stdout/stderr paths under a root-owned application log root; scope immutable after save; administrator authorization for every system mutation (status read-only); Swift XPC service with a typed fixed operation set and no root GUI; first release a Developer ID-signed, hardened, notarized, stapled `.app`

@@ -1,12 +1,12 @@
 # VERSIONS_LOCATIONS.md
 
 ## Current Version
-0.0.24
+0.0.25
 
 ## Version Locations
 | File | Line/Location | Value |
 |---|---|---|
-| PROJECT.md | status section | 0.0.24 |
-| SUMMARY.md | changelog entry | v0.0.24 |
-| pyproject.toml | `[project] version` | 0.0.24 |
-| src/task_scheduler/version.py | `__version__` | 0.0.24 |
+| PROJECT.md | status section | 0.0.25 |
+| SUMMARY.md | changelog entry | v0.0.25 |
+| pyproject.toml | `[project] version` | 0.0.25 |
+| src/task_scheduler/version.py | `__version__` | 0.0.25 |

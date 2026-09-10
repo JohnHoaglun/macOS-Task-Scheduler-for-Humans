@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 
+from PySide6.QtCore import QSize
 from PySide6.QtWidgets import QApplication
 
 from task_scheduler.application.task_command_service import TaskCommandService
@@ -18,6 +19,15 @@ from task_scheduler.gui.controllers.lifecycle_controller import LifecycleControl
 from task_scheduler.gui.main_window import MainWindow
 
 __all__ = ["create_main_window", "main"]
+
+MAIN_WINDOW_STARTUP_SIZE = QSize(1280, 900)
+
+
+def startup_window_size(available_size: QSize | None) -> QSize:
+    """Return the preferred startup size bounded to usable display space."""
+    if available_size is None:
+        return MAIN_WINDOW_STARTUP_SIZE
+    return MAIN_WINDOW_STARTUP_SIZE.boundedTo(available_size)
 
 
 def create_main_window(services: TaskCommandService) -> MainWindow:
@@ -38,6 +48,9 @@ def main() -> int:
     """Build the production services, show the main window, and return on close."""
     app = QApplication(sys.argv)
     window = create_main_window(build_services())
+    screen = app.primaryScreen()
+    available_size = screen.availableGeometry().size() if screen is not None else None
+    window.resize(startup_window_size(available_size))
     window.show()
     return app.exec()
 

@@ -1,4 +1,4 @@
-# TODOS.md (v0.0.24)
+# TODOS.md (v0.0.25)
 
 ## Run Phase — Increments 24–29 (APPROVED 2026-09-09 — next: Increment 24)
 
@@ -21,7 +21,14 @@
 - [ ] PENDING — XPC protocol definition (request/response schema, capability discovery, fixed operations)
 - [ ] PENDING — `JobScope` + `.system.` label policy + result models as the pinned domain contract
 - [ ] PENDING — macOS 13+ `SMAppService`/XPC feasibility spike (helper registration + narrow operation boundary)
-- [ ] PENDING — Closeout: `make check` + 100% coverage, version 0.0.24 → 0.0.25, commit, push
+- [ ] PENDING — Closeout: `make check` + 100% coverage, version increment, commit, push
+
+## Usability Fix — Adaptive Main-Window Geometry (DONE — v0.0.25)
+- [x] Plan: preferred `1280x900` startup size bounded to usable display geometry; normal resize/maximize behavior retained
+- [x] `gui/app.py`: apply the bounded startup size before `window.show()`
+- [x] Tests: cover normal and constrained display sizes
+- [x] Verify: 530 passing, 5,570 statements at 100% coverage; build-Mac smoke check showed `1280x900` within a `3008x1575` usable display
+- [x] Closeout: docs/version registry/stale-reference grep/ratio/commit/push
 
 ### Increment 25 — Scope-Aware Managed-Job Model (spec §69)
 - [ ] PENDING — `JobScope` in domain, `JobDefinition.scope`, v2→v3 read-time migration (writes always v3)

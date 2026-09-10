@@ -7,13 +7,13 @@ from pathlib import Path
 from typing import NoReturn
 
 import pytest
-from PySide6 import QtWidgets
+from PySide6 import QtCore, QtWidgets
 from pytestqt.qtbot import QtBot
 
 import task_scheduler.bootstrap as bootstrap
 from task_scheduler.application.task_command_service import TaskListing
 from task_scheduler.gui import main_window
-from task_scheduler.gui.app import create_main_window
+from task_scheduler.gui.app import create_main_window, startup_window_size
 from task_scheduler.gui.main_window import MainWindow
 
 
@@ -37,6 +37,9 @@ class _FakeApp:
         self.exec_called = True
         return 42
 
+    def primaryScreen(self) -> None:
+        return None
+
 def test_create_main_window_returns_main_window(qtbot: QtBot) -> None:
     win = create_main_window(_EmptyServices())
     qtbot.addWidget(win)
@@ -50,6 +53,14 @@ class _FakeWindow:
 
     def show(self) -> None:
         self.shown = True
+
+    def resize(self, _size: object) -> None:
+        pass
+
+
+def test_startup_window_size_is_bounded_to_usable_display() -> None:
+    assert startup_window_size(QtCore.QSize(1600, 1000)) == QtCore.QSize(1280, 900)
+    assert startup_window_size(QtCore.QSize(1100, 800)) == QtCore.QSize(1100, 800)
 
 def test_main_module_launcher_exits_with_return_code(
     qtbot: QtBot, monkeypatch: pytest.MonkeyPatch
@@ -75,4 +86,3 @@ def test_main_module_launcher_exits_with_return_code(
     with pytest.raises(SystemExit) as excinfo:
         runpy.run_path(str(app_file), run_name="__main__")
     assert excinfo.value.code == 42
-
