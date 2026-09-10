@@ -1,4 +1,55 @@
-# TODOS.md (v0.0.23)
+# TODOS.md (v0.0.24)
+
+## Run Phase — Increments 24–29 (APPROVED 2026-09-09 — next: Increment 24)
+
+### Pinned Run decisions (approved 2026-09-09) — full text in PLAN.md
+- macOS 13+ baseline for System Service (`SMAppService`); My User jobs unaffected
+- Scope-explicit labels: `.user.` (existing) / `.system.` (new); helper accepts only `.system.`
+- Initial helper operations: install/reinstall/uninstall/status/enable/disable — **no Run Now**
+- Per-user catalog remains authoring authority; helper validates the canonical payload and owns deployed daemon artifacts/state
+- Strict approved-location execution paths (absolute, root-owned, non-symlink, non-group/world-writable); user-home paths rejected
+- No custom environment variables for System Services until a separate Keychain design (spec §71)
+- Test / Test Draft disabled for System Services
+- Helper-derived stdout/stderr paths under a root-owned application log root; no custom system-job log paths
+- Scope immutable after save; no cross-scope conversion
+- Administrator authorization for every system mutation; status read-only
+- Swift XPC service via `SMAppService`; typed fixed operations; no root GUI
+- First release: Developer ID-signed, hardened, notarized, stapled `.app`; no PKG/updater
+
+### Increment 24 — Run Architecture, Threat Model, and Helper Contract (spec §§65–70)
+- [ ] PENDING — threat model + trust boundaries + attack-test matrix (persisted under `docs/`)
+- [ ] PENDING — XPC protocol definition (request/response schema, capability discovery, fixed operations)
+- [ ] PENDING — `JobScope` + `.system.` label policy + result models as the pinned domain contract
+- [ ] PENDING — macOS 13+ `SMAppService`/XPC feasibility spike (helper registration + narrow operation boundary)
+- [ ] PENDING — Closeout: `make check` + 100% coverage, version 0.0.24 → 0.0.25, commit, push
+
+### Increment 25 — Scope-Aware Managed-Job Model (spec §69)
+- [ ] PENDING — `JobScope` in domain, `JobDefinition.scope`, v2→v3 read-time migration (writes always v3)
+- [ ] PENDING — scope-aware listing/inspect/lifecycle DTOs; CLI renders scope
+- [ ] PENDING — editor draft + Run as field; system scope authorable but gated (unavailable until helper exists)
+- [ ] PENDING — Closeout: My User round-trip + identical lifecycle behavior; no system→user routing; `make check` + 100% coverage
+
+### Increment 26 — Native Helper and Authenticated IPC (spec §§67–68)
+- [ ] PENDING — signed Swift XPC helper scaffold + typed protocol (6 fixed operations)
+- [ ] PENDING — Python `SystemHelperClient` port + `FakeSystemHelper` in `tests/fakes.py`
+- [ ] PENDING — request authentication, capability discovery, canonical-definition validation, approved-root checks
+- [ ] PENDING — Closeout: malformed/unauthorized/replayed/cross-scope/arbitrary requests rejected; no root GUI; `make check` + 100% coverage
+
+### Increment 27 — System LaunchDaemon Lifecycle (spec §66)
+- [ ] PENDING — helper-owned daemon write/stage/remove/status/enable/disable under `/Library/LaunchDaemons`
+- [ ] PENDING — scope-aware `TaskCommandService` routing + `bootstrap.build_services()` wiring
+- [ ] PENDING — Closeout: user/system routing never cross; system deployment helper-only; opt-in symlink/path/ownership attack tests; `make check` + 100% coverage
+
+### Increment 28 — System-Service UX and CLI (spec §69)
+- [ ] PENDING — editor Run as control + behavioral disclosure; scope badges + inspector field
+- [ ] PENDING — scope-aware confirmations, authorization-result wording, CLI list/inspect/status output
+- [ ] PENDING — lifecycle gating (system: no Run Now, no Test/Test Draft)
+- [ ] PENDING — Closeout: accurate user/system/authorization disclosure; `make check` + 100% coverage
+
+### Increment 29 — Release Security and Distribution (spec §72)
+- [ ] PENDING — reproducible packaging config (fix `pysidedeploy.spec` absolute paths)
+- [ ] PENDING — Developer ID signing + hardened runtime + helper signing + notarization + stapling + verification
+- [ ] PENDING — Closeout: Gatekeeper-verified artifacts; automated signing/notarization checks; `make check` + 100% coverage
 
 ## Walk Increment 15 — Next-Run Preview (§62) (DONE)
 

@@ -11,7 +11,7 @@ A human-friendly macOS task scheduler built on top of Apple's `launchd`. The goa
 - **Linting:** Ruff + mypy
 - **Domain Model:** Pydantic 2.x
 - **plist handling:** Python standard library `plistlib`
-- **Platform:** macOS (user LaunchAgents, system LaunchDaemons planned for Run phase)
+- **Platform:** macOS (user LaunchAgents; system LaunchDaemons planned for Run phase on macOS 13+)
 - **Packaging:** PySide6 deployment tooling → macOS `.app` bundle
 
 ### Architectural Layers
@@ -24,8 +24,8 @@ GUI (PySide6)          CLI (Typer)
 ```
 
 ## Status
-**Version:** 0.0.23
-**Phase:** Walk. Crawl complete (all 13 increments; 767 tests at v0.0.13). Walk plan approved 2026-09-04: increments 14–22 covering scheduling model + migration (14), next-run preview (15), calendar scheduling expansion (16), interval/login triggers (17), Python ecosystem detection (18), expanded diagnostics (19), execution history (20), external plist import (21), and UX/JSON transfer (22). Increments 14 (schema-v2 schedule variants + v1→v2 migration), 15 (next-run preview), 16 (multi-time calendar authoring), 17 (interval and login triggers), 18 (Python environment detectors), and 19 (expanded diagnostics: typed diagnostic models, report engine with pinned group order, platform probes for protected paths and Mach-O architecture, GUI/CLI diagnostics surfacing) are complete (v0.0.19). Increment 20 (application-observed execution history: append-only sqlite3 history, service-boundary event recording, `mactask history`, GUI history panel) is complete (v0.0.20); increment 21 (external plist import) is complete (v0.0.21); increment 22 (Walk UX + catalog-only managed-JSON transfer: filterable/badged/empty-state task list, GUI/CLI `export-json`/`import-json` with identity-preserving create-only transfer and v1→v2 migration, and a platform-isolated Finder reveal) is complete (v0.0.22). Increment 23 (the four Python ecosystem detectors deferred from increment 18: pyenv, Conda, Pipenv, and Homebrew Python) is complete (v0.0.23).
+**Version:** 0.0.24
+**Phase:** Run (planned). Walk complete: all 23 increments shipped (Crawl 0–13; Walk 14–23 at v0.0.23). Run phase plan approved 2026-09-09: increments 24–29 covering Run architecture/threat model/helper contract (24), scope-aware managed-job model (25), native Swift XPC helper + authenticated IPC (26), system LaunchDaemon lifecycle (27), system-service UX/CLI (28), and release security/distribution (29). Next increment: 24. Increments 14 (schema-v2 schedule variants + v1→v2 migration), 15 (next-run preview), 16 (multi-time calendar authoring), 17 (interval and login triggers), 18 (Python environment detectors), and 19 (expanded diagnostics: typed diagnostic models, report engine with pinned group order, platform probes for protected paths and Mach-O architecture, GUI/CLI diagnostics surfacing) are complete (v0.0.19). Increment 20 (application-observed execution history: append-only sqlite3 history, service-boundary event recording, `mactask history`, GUI history panel) is complete (v0.0.20); increment 21 (external plist import) is complete (v0.0.21); increment 22 (Walk UX + catalog-only managed-JSON transfer: filterable/badged/empty-state task list, GUI/CLI `export-json`/`import-json` with identity-preserving create-only transfer and v1→v2 migration, and a platform-isolated Finder reveal) is complete (v0.0.22). Increment 23 (the four Python ecosystem detectors deferred from increment 18: pyenv, Conda, Pipenv, and Homebrew Python) is complete (v0.0.23).
 
 ## Repository
 Source of truth: https://github.com/JohnHoaglun/macOS-Task-Scheduler-for-Humans/tree/sched_dev_opencode

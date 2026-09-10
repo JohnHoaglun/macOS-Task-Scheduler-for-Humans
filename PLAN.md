@@ -18,7 +18,7 @@ Crawl Increments 0–12 complete and pushed to `sched_dev_opencode` (version 0.0
 - **Increment 12:** GUI diagnostics/logs: job-based façade contracts (`test_job(job, *, detection=None)`, `test(label)` delegating, `compare_environment(job, terminal_environment)`, `read_logs_for(job)` with `read_logs(label)` delegating, `gui_environment()` in the composition layer), Qt-free `DiagnosticsController` + `QThread` `DiagnosticsWorker`, shared `DiagnosticLogsPanel` (test summary, diagnostics, direct/persisted stdout/stderr with Refresh, name-only environment comparison, Python recommendations), main-window Test action with selection/stale-result guard, `DirectTestDialog` for the editor's Test Draft (persists nothing); 766 tests
 - Verification at v0.0.12: 766 tests, 100% coverage, ruff + mypy strict clean
 
-Current focus: none — **Walk Increment 20 — Application-Observed Execution History** shipped 2026-09-07 at v0.0.20 (`22dfa09` plan / `2d261a0` stage 0 / `f93337f` 1A / `b8559ec` 1E / `d005ade` 1B / `bc65d7b` 1C / `8ccf653` 1D / `ad6d511` integration); increments 14–20 complete at v0.0.20.
+Current focus: **Walk complete** — increments 14–23 shipped at v0.0.23 (Increment 23: the remaining Python ecosystem detectors — pyenv, Conda, Pipenv, Homebrew — 2026-09-09). **Run Phase** approved 2026-09-09: increments 24–29 (architecture/threat model/helper contract, scope-aware managed-job model, native XPC helper + authenticated IPC, system LaunchDaemon lifecycle, system-service UX/CLI, release security) — next increment is 24.
 - Verification at v0.0.20: 1184 tests, 100% coverage (4416 statements), `make check` clean (ruff / mypy strict / pytest, no ResourceWarnings); same-turn ratio enforcement then cut the suite to 323 tests at 100% coverage (tests 5,444 lines = 62.4% of the 8,723 production lines, under the 75% cap)
 
 ---
@@ -899,6 +899,85 @@ Completes the four Python ecosystem detectors that increment 18 deferred (pyenv,
 
 ### Walk Definition of Done (spec §64)
 The application answers, with truthful wording: what scheduled jobs exist; what a job will run; which Python it uses; when it should run; why it didn't work; and what launchd currently thinks about it.
+
+## Run Phase — Approved Plan (2026-09-09)
+
+Goal (spec §65): support production-quality macOS scheduling including jobs that must execute when the user is not logged in. This requires a meaningful architecture change at the macOS boundary but must not rewrite the domain/application layers; the Python domain model and scheduling UI remain largely unchanged (§73). Six increments (24–29), each delivered as a small vertical slice with `make check` + 100% package coverage and a `+0.0.1` version bump at closeout.
+
+**Pinned Run decisions (approved 2026-09-09):**
+1. **Platform baseline:** System Service support requires macOS 13+ (`SMAppService`, spec §67). My User jobs are unaffected and continue to work on older versions.
+2. **Job labels:** scope-explicit prefixes — `io.github.macos-task-scheduler.user.` (My User, existing) and `io.github.macos-task-scheduler.system.` (System Service, new). The helper accepts only the `.system.` prefix for privileged operations; existing labels are never rewritten.
+3. **Initial helper operations:** install, reinstall, uninstall, status, enable, disable. **Run Now is excluded** — no privileged on-demand execution in the first release.
+4. **Catalog authority:** the per-user authoring catalog remains the source of truth for intent. The helper never treats a user-writable JSON file or plist as trusted; every privileged operation carries a canonical payload that the helper revalidates, and the helper owns the deployed daemon plist and deployment state.
+5. **Executable paths:** strict approved-location policy — absolute, non-symlink, root-owned, non-group/world-writable paths under approved system locations; user-home paths are rejected. User projects remain My User jobs.
+6. **Environment variables:** custom environment maps are **disallowed** for System Services until a separately approved Keychain/reference design exists (spec §71).
+7. **Direct testing:** Test / Test Draft are **disabled** for System Services; troubleshooting relies on validation, deployment results, launchd status, and configured logs.
+8. **Logs:** stdout/stderr paths are helper-derived under a dedicated root-owned application log root; custom system-job log paths are rejected; output exposure is bounded and scope-aware.
+9. **Scope changes:** a saved job's scope is **immutable** — no cross-scope conversion and no identity/deployment artifact reuse; cloning is a future explicit new-job flow.
+10. **Authorization:** every system mutation (install, reinstall, uninstall, enable, disable) requires administrator authorization; status is read-only and does not prompt.
+11. **IPC shape:** Swift XPC service registered and managed through `SMAppService` (spec §67) with a typed fixed operation set and no generic command API; the PySide6 application is never run as root (spec §66).
+12. **Initial distribution:** Developer ID-signed, hardened-runtime, notarized, stapled `.app` (spec §72); no PKG and no automatic updates initially.
+
+**Pinned Run architecture contract (settled before implementation):**
+1. System scope is a persisted, validated `JobScope` (`MY_USER` / `SYSTEM_SERVICE`); existing jobs default to `MY_USER`. `JobDefinition.scope` serializes as `scope` in managed JSON; `SUPPORTED_SCHEMA_VERSION = 3` with a read-time migration of v2 (adds `scope: "my_user"`); all writes are v3.
+2. Existing LaunchAgent paths, `gui/<uid>` launchctl targets, lifecycle transaction semantics, and catalog-only operations stay isolated in the current user adapter and remain behaviorally unchanged.
+3. System lifecycle actions cross only the native privileged-helper boundary; Python receives structured results, never arbitrary command execution.
+4. The helper accepts only managed, scope-`SYSTEM_SERVICE` jobs whose immutable ID, label, and canonical definition pass helper-side validation.
+5. Helper operations are fixed to the approved set (decision 3): no shell command, no arbitrary plist bytes, no arbitrary path, no arbitrary `launchctl` arguments.
+6. Every helper request is authenticated, authorized, schema-versioned, bounded, and correlated to the managed job's identity.
+7. The helper regenerates the daemon plist from the validated canonical job definition; it never copies or replaces an arbitrary existing plist (spec §70).
+8. Helper-side filesystem handling rejects traversal, symlinks, non-regular files, unexpected owner/group/mode, paths outside approved roots, and stale or conflicting managed labels.
+9. System-service logs, retained artifacts, and failure output are treated as sensitive; the helper exposes only approved metadata and bounded diagnostic text.
+10. External plist imports remain catalog-only and create My User jobs only (§61); they never become privileged deployment authority.
+11. No secret-management feature until a separately approved Keychain design (spec §71).
+12. Unit tests use fakes only; real-helper or `/Library/LaunchDaemons` tests are opt-in, isolated, authorization-gated, and cleanup-guaranteed.
+
+### Increment 24 — Run Architecture, Threat Model, and Helper Contract (spec §§65–70) — NEXT
+- Threat-model document (attacker model, trust boundaries, attack-test matrix) persisted under `docs/`; XPC protocol definition (request/response schema, capability discovery, fixed operations); `JobScope` + `.system.` label policy + result models as the pinned domain contract; macOS 13+ `SMAppService`/XPC feasibility spike proving helper registration and the narrow operation boundary; security test matrix.
+- **Stop:** security design persisted and reviewed; spike green on the build machine; no system-deployment functionality enabled; `make check` + 100% coverage.
+
+### Increment 25 — Scope-Aware Managed-Job Model (spec §69)
+- `JobScope` in `domain/job.py`; `JobDefinition.scope` with v2→v3 read-time migration (storage); scope-aware `TaskListing`/inspect/lifecycle DTOs; CLI renders scope; `JobDraft`/`JobEditor` gain the scope field; system scope authorable but **unavailable** (gated) until the helper capability exists.
+- **Stop:** existing My User jobs round-trip with identical lifecycle behavior; system-scope jobs cannot route to the user adapter; `make check` + 100% coverage.
+
+### Increment 26 — Native Helper and Authenticated IPC (spec §§67–68)
+- Signed Swift XPC helper scaffold (macOS 13+); typed protocol surface (install/reinstall/uninstall/status/enable/disable); Python client port (`SystemHelperClient` protocol + unprivileged local implementation) + recording `FakeSystemHelper` in `tests/fakes.py`; request authentication, capability discovery, canonical-definition validation, approved-root checks.
+- **Stop:** malformed, unauthorized, replayed, cross-scope, arbitrary-path, arbitrary-plist, and arbitrary-command requests are rejected; no root GUI; deterministic fake-based tests green; `make check` + 100% coverage.
+
+### Increment 27 — System LaunchDaemon Lifecycle (spec §66)
+- Helper-owned daemon write / staged replace / remove / status / enable / disable under `/Library/LaunchDaemons`; scope-aware `TaskCommandService` routing (user adapter for `.user.`, helper client for `.system.`); `bootstrap.build_services()` wires both; `LaunchAgentStore`/`LaunchAgentBackend` remain the user implementation and are **not** generalized to `/Library`.
+- **Stop:** user and system lifecycle routing never cross; system deployment is helper-only; symlink/path/ownership attacks covered by opt-in integration tests; `make check` + 100% coverage.
+
+### Increment 28 — System-Service UX and CLI (spec §69)
+- Editor **Run as** control ("My User — runs in my login session" / "System Service — can run when no user is logged in. Administrator authorization required") with the behavioral disclosure; scope badges + inspector field; scope-aware confirmations and authorization-result wording; list/inspect/status CLI output; lifecycle gating (system jobs: no Run Now, no Test/Test Draft).
+- **Stop:** GUI and CLI accurately disclose user vs system behavior, authorization status, and refusal reasons; `make check` + 100% coverage.
+
+### Increment 29 — Release Security and Distribution (spec §72)
+- Reproducible packaging config (fix `pysidedeploy.spec` absolute-path hardcoding); Developer ID signing; hardened runtime; helper signing; notarization + stapling; artifact verification via externally supplied credentials.
+- **Stop:** release artifact verifies under Gatekeeper; signing/notarization checks automated; `make check` + 100% coverage.
+
+### Run Definition of Done (spec §73)
+The application supports user scheduled tasks and system scheduled tasks and can reliably install and manage both through the appropriate macOS architecture. A system task may execute even with no interactive user logged in. The Python domain model and scheduling UI remain largely unchanged.
+
+**Parallelization decision:**
+- **Increment 24: solo `build`** — the threat model, IPC contract, and trust boundaries are one shared contract; no independent lane exists.
+- **Increment 25:** lane 25A pins the domain contract first (`JobScope` + `JobDefinition.scope` + v3 migration + label policy); then lanes 25B (service/lifecycle DTO routing), 25C (CLI rendering), 25D (editor draft + widget scope), 25E (listing/inspector presentation) fan out against the pinned contract.
+- **Increments 26–27:** 26A (Swift helper scaffold) and 26B (Python client port + fakes) run in parallel against the XPC protocol pinned in 24; 27 is a serial integration lane owning `TaskCommandService`/`bootstrap.py`.
+- **Increment 28:** lanes run in parallel once 27's routing contract is pinned: 28A (CLI), 28B (editor scope control), 28C (listing/inspector/lifecycle/confirmations); each lane owns its files exclusively (see shared-surface inventory).
+- **Increment 29: solo `build`** — packaging config, signing, and notarization are one serial pass over the Makefile/spec/build files.
+
+**Shared-surface inventory (increments 25–28, pinned before dispatch):**
+- `domain/job.py` + `storage/json_repository.py` (scope field, v3 migration, label policy): 25A only.
+- `application/task_command_service.py` + service-level DTOs (scope-aware routing, system operations): 25B + 27 (27 owns the final routing; 25B is DTO-only, no helper calls).
+- `cli/app.py` + `cli/render.py` (scope rendering, CLI gating): 28A only.
+- `gui/controllers/editor_controller.py` + `gui/widgets/job_editor.py` (scope field, Run as control, availability gating): 25D + 28B (25D is draft wiring only, no disclosure wording).
+- `gui/presenters/agent_presenter.py` + `gui/widgets/agent_inspector.py` + `gui/main_window.py` + `gui/controllers/lifecycle_controller.py` (badges, inspector field, confirmations, gating): 25E + 28C (25E is data placement only).
+- Native helper (Swift source, XPC protocol) + Python client port: 26A/26B only.
+- `bootstrap.py` composition: 27 only.
+- `tests/fakes.py` shared fakes: owned by the lane that introduces the corresponding port (26B introduces `FakeSystemHelper`); other lanes add usage, never redefinition.
+- Documentation files (README, `docs/architecture.md`, `docs/development.md`): one docs lane per increment, no production edits.
+
+**Ratio closeout gate (hard constraint):** the project sits at 8,138 test : 10,855 src = 74.97% (v0.0.23). New production lines `Δsrc` allow at most `3 + 0.75·Δsrc` new test lines before breaching 75% (headroom ≈ 3 lines). Pinned mitigations: (1) shared fakes in `tests/fakes.py` (no per-file duplication), (2) compact, heavily parametrized tests, (3) natural (non-padded) production code, (4) if still over at closeout, cut existing test redundancy coverage-preservingly before committing. 100% line coverage must hold throughout any trim.
 
 ---
 
