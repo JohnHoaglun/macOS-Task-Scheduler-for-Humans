@@ -7,9 +7,26 @@ touch the real ``~/Library/LaunchAgents``.
 
 from __future__ import annotations
 
+import hashlib
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
+
+
+class SourceChangedError(ValueError):
+    """Destination content or identity diverged from the expected snapshot."""
+
+
+@dataclass(frozen=True, slots=True)
+class SourceSnapshot:
+    """Immutable fingerprint for a file on disk."""
+
+    payload: bytes
+    sha256: str
+    st_dev: int
+    st_ino: int
+    st_size: int
 
 
 class LaunchAgentFilesystem(Protocol):
@@ -40,6 +57,16 @@ class LaunchAgentFilesystem(Protocol):
         ``source`` is left in place. Unlike :meth:`create_exclusive` this is an
         explicit overwrite: the caller staged ``source`` and decided to
         activate it, so the destination is replaced, never created only.
+        """
+
+    def read_snapshot(self, path: Path) -> SourceSnapshot:
+        """Return an immutable snapshot (bytes + hash + inode identity)."""
+
+    def replace_verified(
+        self, source: Path, destination: Path, expected: SourceSnapshot
+    ) -> None:
+        """Atomically replace ``destination`` with ``source`` only when
+        ``destination`` still matches ``expected``.
         """
 
 
@@ -85,3 +112,35 @@ class LocalFilesystem:
             os.replace(temporary, destination)
         finally:
             temporary.unlink(missing_ok=True)
+
+    def read_snapshot(self, path: Path) -> SourceSnapshot:
+        if path.is_symlink() or not path.is_file():
+            raise ValueError(f"path is not a regular non-symlink file: {path}")
+        payload = path.read_bytes()
+        stat = path.stat()
+        return SourceSnapshot(
+            payload=payload,
+            sha256=hashlib.sha256(payload).hexdigest(),
+            st_dev=stat.st_dev,
+            st_ino=stat.st_ino,
+            st_size=stat.st_size,
+        )
+
+    def replace_verified(
+        self, source: Path, destination: Path, expected: SourceSnapshot
+    ) -> None:
+        try:
+            current = self.read_snapshot(destination)
+        except (FileNotFoundError, ValueError) as exc:
+            raise SourceChangedError(
+                f"destination {destination} not found or inaccessible"
+            ) from exc
+        if (
+            current.sha256 != expected.sha256
+            or current.st_dev != expected.st_dev
+            or current.st_ino != expected.st_ino
+        ):
+            raise SourceChangedError(
+                f"destination {destination} changed from expected snapshot"
+            )
+        self.replace(source, destination)

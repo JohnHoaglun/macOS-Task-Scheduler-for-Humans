@@ -20,6 +20,7 @@ from task_scheduler.domain import JobDefinition
 from task_scheduler.platform.macos.filesystem import (
     LaunchAgentFilesystem,
     LocalFilesystem,
+    SourceSnapshot,
 )
 from task_scheduler.platform.macos.plist_codec import PlistCodec
 from task_scheduler.platform.macos.plist_models import ParsedLaunchAgent
@@ -173,3 +174,59 @@ class LaunchAgentStore:
         if path.parent != self._root:
             raise ValueError(f"path is outside the LaunchAgent root: {path}")
         return self._filesystem.remove_file(path)
+
+    # -- external (in-place edit of user-owned plists) -----------------------
+
+    def read_external(self, path: Path) -> SourceSnapshot:
+        """Read a snapshot of an external plist (must be under root)."""
+        if path.parent != self._root:
+            raise ValueError(f"path is outside the LaunchAgent root: {path}")
+        return self._filesystem.read_snapshot(path)
+
+    def stage_external(self, path: Path, payload: bytes) -> Path:
+        """Create a uniquely named staged sibling for an external plist."""
+        if path.parent != self._root:
+            raise ValueError(f"path is outside the LaunchAgent root: {path}")
+        for attempt in range(1, 1001):
+            candidate = path.with_name(f"{path.name}.staged.{attempt}")
+            try:
+                self._filesystem.create_exclusive(candidate, payload)
+                return candidate
+            except FileExistsError:
+                continue
+        raise RuntimeError(
+            f"could not allocate a unique staged sibling for {path.name!r}"
+        )
+
+    def backup_external(self, path: Path) -> Path:
+        """Preserve an external plist as a uniquely named backup sibling."""
+        if path.parent != self._root:
+            raise ValueError(f"path is outside the LaunchAgent root: {path}")
+        try:
+            payload = self._filesystem.read_plist_bytes(path)
+        except FileNotFoundError:
+            payload = b""
+        for attempt in range(1, 1001):
+            candidate = path.with_name(f"{path.name}.backup.{attempt}")
+            try:
+                self._filesystem.create_exclusive(candidate, payload)
+                return candidate
+            except FileExistsError:
+                continue
+        raise RuntimeError(
+            f"could not allocate a unique backup sibling for {path.name!r}"
+        )
+
+    def activate_external(
+        self, staged: Path, destination: Path, expected: SourceSnapshot
+    ) -> None:
+        """Atomically replace ``destination`` with ``staged`` when it matches.
+
+        Removes ``staged`` on success.
+        """
+        if staged.parent != self._root:
+            raise ValueError(f"path is outside the LaunchAgent root: {staged}")
+        if destination.parent != self._root:
+            raise ValueError(f"path is outside the LaunchAgent root: {destination}")
+        self._filesystem.replace_verified(staged, destination, expected)
+        self._filesystem.remove_file(staged)

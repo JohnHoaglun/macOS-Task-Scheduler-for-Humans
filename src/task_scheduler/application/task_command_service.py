@@ -31,6 +31,11 @@ from task_scheduler.application.diagnostic_service import (
     collect_preflight_paths,
     evaluate_diagnostic_report,
 )
+from task_scheduler.application.external_edit_models import (
+    ExternalEditPhase,
+    ExternalEditPreview,
+    ExternalEditResult,
+)
 from task_scheduler.application.external_import import ExternalPlistImportPreview
 from task_scheduler.application.history_models import (
     HISTORY_UNAVAILABLE,
@@ -61,6 +66,7 @@ from task_scheduler.platform.macos import (
     ProcessResult,
     PythonDetectionResult,
     compare_environments,
+    parse_bytes,
     parse_path,
     validate_label,
 )
@@ -765,3 +771,135 @@ class TaskCommandService:
             if group.source == DiagnosticSource.PLIST:
                 return group.diagnostics
         return ()
+
+    # -- external plist edit ---------------------------------------------------
+
+    def preview_external_plist_edit(self, path: Path) -> ExternalEditPreview:
+        """Preview editing an external LaunchAgent plist at *path*.
+
+        Read-only. Raises ``ValueError`` when the plist is ineligible
+        for direct editing (outside the root, unsupported, managed, or
+        has an unknown launchd status).
+        """
+        root = self._store.root
+        if path.parent != root:
+            raise ValueError(f"path is not a direct child of the LaunchAgent root: {path}")
+
+        snapshot = self._store.read_external(path)
+
+        parsed = parse_bytes(snapshot.payload)
+        if parsed.status is not ParseSupport.SUPPORTED or parsed.job is None:
+            detail = "; ".join(parsed.warnings) if parsed.warnings else "not representable"
+            raise ValueError(f"cannot edit {path}: {detail}")
+
+        label = parsed.job.label
+        if self._jobs.find(label) is not None:
+            raise ValueError(f"label is already managed: {label}")
+
+        status = self._backend.status(label)
+        if status.loaded is None:
+            raise ValueError(f"launchd status is unknown for {label}; direct editing is not safe")
+
+        return ExternalEditPreview(
+            source_path=path,
+            label=label,
+            candidate=parsed.job,
+            sha256=snapshot.sha256,
+            identity=(snapshot.st_dev, snapshot.st_ino),
+            loaded=status.loaded,
+            nonce=uuid4().hex,
+        )
+
+    def commit_external_plist_edit(
+        self,
+        preview: ExternalEditPreview,
+        edited_job: JobDefinition,
+        *,
+        nonce: str,
+    ) -> ExternalEditResult:
+        """Commit an external-plist edit transaction.
+
+        Raises ``ValueError`` when the nonce, label, or source identity
+        does not match the previewed state.  Returns the transaction result
+        describing every phase and its artifacts.
+        """
+        if nonce != preview.nonce:
+            raise ValueError("preview nonce does not match the previewed source")
+        if edited_job.label != preview.label:
+            raise ValueError(
+                f"label cannot change in an external edit: {preview.label} -> {edited_job.label}"
+            )
+
+        fresh = self._store.read_external(preview.source_path)
+        if (
+            fresh.sha256 != preview.sha256
+            or (fresh.st_dev, fresh.st_ino) != preview.identity
+        ):
+            raise ValueError(
+                "the source plist changed outside this application; "
+                "review it and preview again"
+            )
+
+        phases: list[ExternalEditPhase] = []
+        completed: list[str] = []
+        retained: list[Path] = []
+        last_process: ProcessResult | None = None
+
+        new_bytes = self._codec.encode_bytes(edited_job)
+        staged = self._store.stage_external(preview.source_path, new_bytes)
+
+        if preview.loaded:
+            bootout_result = self._backend.bootout(preview.label)
+            bootout_phase = ExternalEditPhase("bootout", bootout_result.process)
+            phases.append(bootout_phase)
+            if bootout_result.process.exit_code != 0:
+                last_process = bootout_result.process
+                return ExternalEditResult(
+                    source_path=preview.source_path,
+                    label=preview.label,
+                    process=last_process,
+                    phases=tuple(phases),
+                    completed_phases=(),
+                    retained_artifacts=(staged,),
+                    replaced=False,
+                    reloaded=False,
+                )
+            completed.append("bootout")
+
+        backup = self._store.backup_external(preview.source_path)
+        retained.append(backup)
+
+        self._store.activate_external(staged, preview.source_path, fresh)
+
+        reloaded = False
+        if preview.loaded:
+            bootstrap_result = self._backend.bootstrap_path(preview.label, preview.source_path)
+            bootstrap_phase = ExternalEditPhase("bootstrap", bootstrap_result.process)
+            phases.append(bootstrap_phase)
+            if bootstrap_result.process.exit_code == 0:
+                completed.append("bootstrap")
+            reloaded = bootstrap_result.process.exit_code == 0
+            last_process = bootstrap_result.process
+            retained_artifacts = tuple(retained)
+            return ExternalEditResult(
+                source_path=preview.source_path,
+                label=preview.label,
+                process=last_process,
+                phases=tuple(phases),
+                completed_phases=tuple(completed),
+                retained_artifacts=retained_artifacts,
+                replaced=True,
+                reloaded=reloaded,
+            )
+
+        retained_artifacts = tuple(retained)
+        return ExternalEditResult(
+            source_path=preview.source_path,
+            label=preview.label,
+            process=None,
+            phases=(),
+            completed_phases=(),
+            retained_artifacts=retained_artifacts,
+            replaced=True,
+            reloaded=False,
+        )

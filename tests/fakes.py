@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -25,6 +26,10 @@ from task_scheduler.platform.macos.diagnostic_probes import (
     ArchitectureFinding,
     DiagnosticProbes,
     ProtectedPathFinding,
+)
+from task_scheduler.platform.macos.filesystem import (
+    SourceChangedError,
+    SourceSnapshot,
 )
 from task_scheduler.storage import (
     ExecutionHistoryRepository,
@@ -94,15 +99,42 @@ class FakeFilesystem:
         files: dict[str, bytes] | None = None,
         *,
         create_error: Exception | None = None,
+        symlinks: set[str] | None = None,
+        directories: set[str] | None = None,
     ) -> None:
         self._files: dict[str, bytes] = dict(files or {})
         self._create_error = create_error
+        self._symlinks: set[str] = set(symlinks or ())
+        self._directories: set[str] = set(directories or ())
+        self._identity_counter: int = 0
+        self._name_to_identity: dict[str, tuple[int, int]] = {}
         self.reads: list[str] = []
         self.listings: list[str] = []
         self.roots_created: list[str] = []
         self.created: list[str] = []
         self.removed: list[str] = []
         self.replaced: list[str] = []
+
+    def _ensure_identity(self, name: str) -> tuple[int, int]:
+        if name not in self._name_to_identity:
+            dev = 1
+            ino = self._identity_counter
+            self._identity_counter += 1
+            self._name_to_identity[name] = (dev, ino)
+        return self._name_to_identity[name]
+
+    def _snapshot_for(self, name: str) -> SourceSnapshot:
+        if name not in self._files:
+            raise FileNotFoundError(name)
+        payload = self._files[name]
+        dev, ino = self._ensure_identity(name)
+        return SourceSnapshot(
+            payload=payload,
+            sha256=hashlib.sha256(payload).hexdigest(),
+            st_dev=dev,
+            st_ino=ino,
+            st_size=len(payload),
+        )
 
     def read_plist_bytes(self, path: Path) -> bytes:
         self.reads.append(path.name)
@@ -123,6 +155,7 @@ class FakeFilesystem:
         if self._create_error is not None:
             raise self._create_error
         self._files[destination.name] = payload
+        self._ensure_identity(destination.name)
         self.created.append(destination.name)
 
     def remove_file(self, path: Path) -> bool:
@@ -135,6 +168,33 @@ class FakeFilesystem:
     def replace(self, source: Path, destination: Path) -> None:
         if source.name not in self._files:
             raise FileNotFoundError(source.name)
+        self._files[destination.name] = self._files[source.name]
+        self.replaced.append(destination.name)
+
+    def read_snapshot(self, path: Path) -> SourceSnapshot:
+        if path.name in self._symlinks or path.name in self._directories:
+            raise ValueError(f"path is not a regular non-symlink file: {path}")
+        return self._snapshot_for(path.name)
+
+    def replace_verified(
+        self, source: Path, destination: Path, expected: SourceSnapshot
+    ) -> None:
+        if source.name not in self._files:
+            raise FileNotFoundError(source.name)
+        if destination.name not in self._files:
+            raise SourceChangedError(
+                f"destination {destination.name} not found in fake filesystem"
+            )
+        dev, ino = self._ensure_identity(destination.name)
+        current_sha = hashlib.sha256(self._files[destination.name]).hexdigest()
+        if (
+            current_sha != expected.sha256
+            or dev != expected.st_dev
+            or ino != expected.st_ino
+        ):
+            raise SourceChangedError(
+                f"destination {destination.name} changed from expected snapshot"
+            )
         self._files[destination.name] = self._files[source.name]
         self.replaced.append(destination.name)
 

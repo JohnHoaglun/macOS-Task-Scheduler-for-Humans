@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shlex
 from collections.abc import Sequence
+from typing import Any
 
 from PySide6.QtCore import (
     QAbstractTableModel,
@@ -91,10 +92,17 @@ class AgentTableModel(QAbstractTableModel):
     def columnCount(self, parent: QModelIndex | QPersistentModelIndex = _DEFAULT_INDEX) -> int:
         return len(COLUMNS)
 
-    def header(self, section: int, orientation: Qt.Orientation) -> object:
-        if orientation == Qt.Orientation.Horizontal:
-            return COLUMNS[section]
-        return str(section + 1)
+    def headerData(
+        self,
+        section: int,
+        orientation: Qt.Orientation,
+        role: int = Qt.ItemDataRole.DisplayRole.value,
+    ) -> Any:
+        if orientation == Qt.Orientation.Horizontal and role == Qt.ItemDataRole.DisplayRole:
+            if 0 <= section < len(COLUMNS):
+                return COLUMNS[section]
+            return None
+        return super().headerData(section, orientation, role)
 
     def data(
         self,

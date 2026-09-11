@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from enum import StrEnum
+from pathlib import Path
 
 from task_scheduler.domain import JobDefinition
 from task_scheduler.platform.macos.launch_agent_store import (
@@ -120,6 +121,18 @@ class LaunchAgentBackend:
             "bootstrap",
             self.domain,
             str(self._store.destination_for(label)),
+        )
+
+    def bootstrap_path(self, label: str, path: Path) -> LaunchctlResult:
+        """Bootstrap an arbitrary plist path into launchd (``bootstrap``)."""
+        validate_label(label)
+        if path.parent != self._store.root:
+            raise ValueError(f"path is outside the LaunchAgent root: {path}")
+        return self._run(
+            LaunchctlAction.INSTALL,
+            "bootstrap",
+            self.domain,
+            str(path),
         )
 
     def status(self, label: str) -> LaunchAgentStatus:

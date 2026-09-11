@@ -13,6 +13,7 @@ from pytestqt.qtbot import QtBot
 from conftest import make_job
 from task_scheduler.application.task_command_service import ListingKind, TaskListing
 from task_scheduler.domain import PythonCommand, command_argv
+from task_scheduler.gui.models.agent_filter_proxy_model import AgentFilterProxyModel
 from task_scheduler.gui.models.agent_table_model import (
     COLUMNS,
     ROLE_COMMAND,
@@ -127,13 +128,38 @@ class TestSetAgents:
 
 
 class TestHeader:
-    def test_horizontal_sections(self, agent_model: AgentTableModel) -> None:
-        for section, title in enumerate(COLUMNS):
-            assert agent_model.header(section, Qt.Orientation.Horizontal) == title
+    @pytest.mark.parametrize(
+        ("section", "expected"),
+        [(i, name) for i, name in enumerate(COLUMNS)],
+    )
+    def test_horizontal_display_role(self, agent_model: AgentTableModel, section, expected) -> None:
+        assert agent_model.headerData(section, Qt.Orientation.Horizontal) == expected
 
-    def test_vertical(self, agent_model: AgentTableModel) -> None:
-        assert agent_model.header(0, Qt.Orientation.Vertical) == "1"
-        assert agent_model.header(1, Qt.Orientation.Vertical) == "2"
+    def test_horizontal_out_of_range(self, agent_model: AgentTableModel) -> None:
+        assert agent_model.headerData(5, Qt.Orientation.Horizontal) is None
+
+    def test_horizontal_other_role(self, agent_model: AgentTableModel) -> None:
+        result = agent_model.headerData(
+            0, Qt.Orientation.Horizontal, Qt.ItemDataRole.ToolTipRole
+        )
+        assert result is None
+
+    def test_vertical_default(self, agent_model: AgentTableModel) -> None:
+        assert agent_model.headerData(0, Qt.Orientation.Vertical) == 1
+        assert agent_model.headerData(1, Qt.Orientation.Vertical) == 2
+        assert agent_model.headerData(2, Qt.Orientation.Vertical) == 3
+
+    def test_vertical_other_role(self, agent_model: AgentTableModel) -> None:
+        result = agent_model.headerData(
+            0, Qt.Orientation.Vertical, Qt.ItemDataRole.ToolTipRole
+        )
+        assert result is None
+
+    def test_header_through_filter_proxy(self, agent_model: AgentTableModel) -> None:
+        proxy = AgentFilterProxyModel()
+        proxy.setSourceModel(agent_model)
+        for i, name in enumerate(COLUMNS):
+            assert proxy.headerData(i, Qt.Orientation.Horizontal) == name
 
 
 class TestData:

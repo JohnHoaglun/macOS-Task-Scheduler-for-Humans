@@ -13,6 +13,8 @@ from task_scheduler.platform.macos.diagnostic_probes import (
 from task_scheduler.platform.macos.filesystem import (
     LaunchAgentFilesystem,
     LocalFilesystem,
+    SourceChangedError,
+    SourceSnapshot,
 )
 from task_scheduler.platform.macos.finder import (
     FINDER_OPEN_PATH,
@@ -119,6 +121,8 @@ __all__ = [
     "PythonDetectorFilesystem",
     "PythonEnvironmentDetector",
     "SubprocessRunner",
+    "SourceChangedError",
+    "SourceSnapshot",
     "compare_environments",
     "default_launch_agents_root",
     "default_python_detectors",
