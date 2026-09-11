@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QTabWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -49,21 +50,22 @@ class DiagnosticLogsPanel(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._summary = QLabel(self)
+        diagnostics_content = QWidget(self)
+        self._summary = QLabel(diagnostics_content)
         self._summary.setObjectName("diagnostics-summary")
         self._summary.setWordWrap(True)
         self._summary.setText("Run Test to check this task directly.")
 
-        self._limitation = QLabel(TEST_LIMITATION_TEXT, self)
+        self._limitation = QLabel(TEST_LIMITATION_TEXT, diagnostics_content)
         self._limitation.setObjectName("diagnostics-limitation")
         self._limitation.setWordWrap(True)
 
-        self._diagnostics_text = QPlainTextEdit(self)
+        self._diagnostics_text = QPlainTextEdit(diagnostics_content)
         self._diagnostics_text.setObjectName("diagnostics-diagnostics")
         self._diagnostics_text.setReadOnly(True)
         self._diagnostics_text.setPlainText("No diagnostics.")
 
-        self._tabs = QTabWidget(self)
+        self._tabs = QTabWidget(diagnostics_content)
         self._tabs.setObjectName("diagnostics-tabs")
         self._direct_stdout = self._add_tab(
             "Direct stdout", "diagnostics-direct-stdout"
@@ -71,19 +73,33 @@ class DiagnosticLogsPanel(QWidget):
         self._direct_stderr = self._add_tab(
             "Direct stderr", "diagnostics-direct-stderr"
         )
+
+        diagnostics_layout = QVBoxLayout(diagnostics_content)
+        diagnostics_layout.addWidget(self._summary)
+        diagnostics_layout.addWidget(self._limitation)
+        diagnostics_layout.addWidget(self._diagnostics_text)
+        diagnostics_layout.addWidget(self._tabs)
+
+        persisted_content = QWidget(self)
+        self._persisted_tabs = QTabWidget(persisted_content)
+        self._persisted_tabs.setObjectName("diagnostics-persisted-tabs")
         self._persisted_stdout = self._add_tab(
-            "Persisted stdout", "diagnostics-persisted-stdout"
+            "Persisted stdout", "diagnostics-persisted-stdout", self._persisted_tabs
         )
         self._persisted_stderr = self._add_tab(
-            "Persisted stderr", "diagnostics-persisted-stderr"
+            "Persisted stderr", "diagnostics-persisted-stderr", self._persisted_tabs
         )
 
         refresh_row = QHBoxLayout()
-        refresh_row.addWidget(QLabel("Persisted logs", self))
+        refresh_row.addWidget(QLabel("Persisted logs", persisted_content))
         refresh_row.addStretch(1)
-        self.refresh_button = QPushButton("Refresh", self)
+        self.refresh_button = QPushButton("Refresh", persisted_content)
         self.refresh_button.setObjectName("diagnostics-log-refresh")
         refresh_row.addWidget(self.refresh_button)
+
+        persisted_layout = QVBoxLayout(persisted_content)
+        persisted_layout.addWidget(self._persisted_tabs)
+        persisted_layout.addLayout(refresh_row)
 
         self._environment_disclosure = QLabel(ENVIRONMENT_DISCLOSURE_TEXT, self)
         self._environment_disclosure.setObjectName(
@@ -100,30 +116,54 @@ class DiagnosticLogsPanel(QWidget):
         self._environment_box.setObjectName("diagnostics-environment")
         self._environment_box.setLayout(environment_layout)
 
-        self._python_text = QLabel(self)
+        python_content = QWidget(self)
+        self._python_text = QLabel(python_content)
         self._python_text.setObjectName("diagnostics-python-text")
         self._python_text.setWordWrap(True)
         python_layout = QVBoxLayout()
         python_layout.addWidget(self._python_text)
-        self._python_box = QGroupBox("Python interpreter", self)
-        self._python_box.setObjectName("diagnostics-python")
-        self._python_box.setLayout(python_layout)
+        python_content.setLayout(python_layout)
 
         layout = QVBoxLayout(self)
-        layout.addWidget(self._summary)
-        layout.addWidget(self._limitation)
-        layout.addWidget(self._diagnostics_text)
-        layout.addWidget(self._tabs)
-        layout.addLayout(refresh_row)
+        layout.addWidget(
+            self._collapsible_section("Diagnostics", "diagnostics-section", diagnostics_content)
+        )
+        layout.addWidget(
+            self._collapsible_section("Persisted logs", "diagnostics-persisted", persisted_content)
+        )
         layout.addWidget(self._environment_box)
-        layout.addWidget(self._python_box)
+        layout.addWidget(
+            self._collapsible_section("Python interpreter", "diagnostics-python", python_content)
+        )
 
-    def _add_tab(self, title: str, object_name: str) -> QPlainTextEdit:
+    def _collapsible_section(
+        self, title: str, object_name: str, content: QWidget
+    ) -> QWidget:
+        """Create a collapsed disclosure header and its hidden content."""
+        section = QWidget(self)
+        section.setObjectName(object_name)
+        toggle = QToolButton(section)
+        toggle.setObjectName(f"{object_name}-toggle")
+        toggle.setText(title)
+        toggle.setCheckable(True)
+        content.setObjectName(f"{object_name}-content")
+        content.hide()
+        toggle.toggled.connect(content.setVisible)
+        layout = QVBoxLayout(section)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(toggle)
+        layout.addWidget(content)
+        return section
+
+    def _add_tab(
+        self, title: str, object_name: str, tabs: QTabWidget | None = None
+    ) -> QPlainTextEdit:
         """Create a read-only tab page and return it."""
-        edit = QPlainTextEdit(self)
+        parent = tabs or self._tabs
+        edit = QPlainTextEdit(parent)
         edit.setObjectName(object_name)
         edit.setReadOnly(True)
-        self._tabs.addTab(edit, title)
+        parent.addTab(edit, title)
         return edit
 
     def show_notice(self, text: str) -> None:

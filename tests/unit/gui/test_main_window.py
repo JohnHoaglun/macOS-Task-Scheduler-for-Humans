@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QVBoxLayout,
 )
 from pytestqt.qtbot import QtBot
 from tests.fakes import FakeTaskWorld
@@ -134,6 +135,16 @@ def _window_full(qtbot: QtBot, controller: DiscoveryController) -> MainWindow:
     qtbot.addWidget(window)
     window.show()
     return window
+
+
+def test_inspector_has_right_pane_stretch(
+    qtbot: QtBot, tmp_path: Path
+) -> None:
+    window = _window(qtbot, DiscoveryController(FakeTaskWorld(tmp_path).services))
+    layout = window.inspector.parentWidget().layout()
+    assert isinstance(layout, QVBoxLayout)
+    assert layout.stretch(layout.indexOf(window.inspector)) == 1
+    assert layout.stretch(layout.indexOf(window.panel)) == 0
 
 
 def _row_by_path(model: AgentTableModel, path: Path) -> int:

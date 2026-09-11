@@ -520,6 +520,10 @@ The window opens at a preferred `1280x900` size, bounded to the usable area
 of the primary display so it does not extend under the macOS menu bar or Dock.
 It remains normally resizable and maximizable.
 
+Diagnostics, Persisted logs, and Python interpreter details begin collapsed
+so the selected task's Overview remains readable. Click a section header to
+open its details; new results do not open sections automatically.
+
 The main window lists every LaunchAgent discovered under
 `~/Library/LaunchAgents` — application-managed jobs, external agents created
 by other software, and malformed or unsupported plists — plus managed jobs

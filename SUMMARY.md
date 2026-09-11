@@ -2,6 +2,11 @@
 
 ## Changelog
 
+### v0.0.26
+- Overview-first diagnostics layout: Diagnostics, Persisted logs, and Python interpreter details now begin collapsed behind user-controlled headers; rendering new test, log, or interpreter data updates hidden content without auto-expanding it
+- `MainWindow` assigns the inspector the right pane's stretch allocation, preserving existing task/list behavior while reclaiming startup height for the Overview
+- Verification: `make check` clean; 532 tests, 5,594 statements, 100% coverage; build-Mac `1280x900` smoke check confirmed all three sections hidden, a 221-pixel diagnostics panel, and a 361-pixel inspector; test/production ratio 8,180/10,907 (74.99%) remains under the 75% cap
+
 ### v0.0.25
 - Adaptive main-window startup geometry: `mactask-gui` now opens at a preferred `1280x900` size bounded to the primary display's usable geometry, preserving normal resize/maximize behavior and the existing `600:400` table/inspector splitter allocation
 - `gui.app.startup_window_size()` is a pure, focused sizing policy; compact GUI-entry-point coverage verifies normal and constrained display bounds without asserting platform window-manager geometry

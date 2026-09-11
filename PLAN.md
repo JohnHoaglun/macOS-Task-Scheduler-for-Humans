@@ -988,6 +988,49 @@ Open the application at a practical size for its task table, inspector, diagnost
 - `make check` and explicit coverage pass: 530 tests, 5,570 statements, 0
   missed; test/production lines are 8,148/10,868 (74.97%).
 
+## Usability Fix — Collapsible Diagnostics And Overview Priority (DONE — v0.0.26)
+
+### Goal
+
+Make the selected-task Overview readable at startup by removing expanded
+diagnostic detail from the right pane until the user asks to see it.
+
+### Pinned Contract
+
+- `DiagnosticLogsPanel` exposes three visible collapsible headers:
+  `Diagnostics`, `Persisted logs`, and `Python interpreter`.
+- All three sections start collapsed. Their headers remain visible and are
+  the only control that expands or collapses their content.
+- New test results, log-refresh results, and Python-detection results update
+  their hidden content but **never auto-expand** a section.
+- Existing direct-output, persisted-output, refresh-button, environment, and
+  controller interfaces retain their current object names and behavior.
+- `MainWindow` gives `AgentInspector` the right pane's surplus vertical
+  space. Diagnostics and history retain content-height allocation; the
+  horizontal splitter and adaptive startup geometry remain unchanged.
+
+### Execution And Gate
+
+- **Solo `build`:** `DiagnosticLogsPanel` structure, `MainWindow` stretch
+  allocation, and their tests share one visual contract. The scope is smaller
+  than delegation overhead.
+- Use three checkable disclosure headers, following the existing lifecycle
+  technical-details pattern. Each header owns one content container with a
+  stable object name for widget tests.
+- Gate: unit tests prove default collapsed state, explicit toggle behavior,
+  and non-auto-expansion on result rendering; main-window test proves the
+  inspector's stretch priority; `make check`, explicit 100% coverage, and a
+  `1280x900` build-Mac smoke check pass.
+
+### Result
+
+- Diagnostics, Persisted logs, and Python interpreter details now start
+  collapsed and retain that state as results render.
+- The `1280x900` build-Mac smoke check observed all three content containers
+  hidden, a `221`-pixel diagnostics panel, and a `361`-pixel inspector.
+- `make check` and explicit coverage pass: 532 tests, 5,594 statements, 0
+  missed; test/production lines are 8,180/10,907 (74.99%).
+
 **Parallelization decision:**
 - **Increment 24: solo `build`** — the threat model, IPC contract, and trust boundaries are one shared contract; no independent lane exists.
 - **Increment 25:** lane 25A pins the domain contract first (`JobScope` + `JobDefinition.scope` + v3 migration + label policy); then lanes 25B (service/lifecycle DTO routing), 25C (CLI rendering), 25D (editor draft + widget scope), 25E (listing/inspector presentation) fan out against the pinned contract.

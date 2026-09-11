@@ -3,6 +3,7 @@
 from datetime import timedelta
 from pathlib import Path
 
+from PySide6.QtWidgets import QToolButton, QWidget
 from tests.conftest import make_job
 
 from task_scheduler.application.diagnostic_models import (
@@ -76,6 +77,26 @@ class TestShowTestOutcome:
             panel.findChild(object, "diagnostics-direct-stdout").toPlainText()
             == "direct out"
         )
+
+
+class TestCollapsibleSections:
+    def test_sections_start_collapsed_toggle_and_stay_collapsed(self, qtbot) -> None:
+        panel = DiagnosticLogsPanel()
+        qtbot.addWidget(panel)
+        names = ("diagnostics-section", "diagnostics-persisted", "diagnostics-python")
+        for name in names:
+            content = panel.findChild(QWidget, f"{name}-content")
+            toggle = panel.findChild(QToolButton, f"{name}-toggle")
+            assert content is not None and toggle is not None and content.isHidden()
+            toggle.click()
+            assert not content.isHidden()
+            toggle.click()
+            assert content.isHidden()
+        job = make_job()
+        panel.show_test_outcome(job, _outcome(job))
+        panel.show_logs_outcome(LogsOutcome(label=job.label, logs=None, error="missing"))
+        assert all(panel.findChild(QWidget, f"{name}-content").isHidden() for name in names)
+
 
 class TestShowLogsOutcome:
 

@@ -57,6 +57,9 @@ The GUI is tested with pytest-qt and runs fully headless:
   `gui.app.startup_window_size(QSize | None)` helper: it prefers `1280x900`
   and bounds it to a supplied usable display size. Do not assert platform
   window-manager geometry in headless tests.
+* Diagnostics widget tests assert collapsed startup state, explicit toggle
+  behavior, and rendering without auto-expansion; main-window tests assert
+  the inspector's right-pane stretch priority.
 
 ## Editor Dialog Test Conventions
 

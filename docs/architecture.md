@@ -114,6 +114,10 @@ gui/
   `1280x900` startup size, bounded to the primary screen's usable geometry.
   It is applied after GUI composition and before `show()`, without persisting
   geometry or changing normal resize/maximize behavior.
+* `DiagnosticLogsPanel` keeps Diagnostics, Persisted logs, and Python
+  interpreter details behind collapsed, user-controlled headers at startup.
+  Rendering new results updates hidden content without opening a section;
+  `MainWindow` gives the inspector the right pane's surplus vertical space.
 * The GUI's read path calls `list_agents()` (discovered plists plus
   catalog-only saved jobs) and `inspect_discovered()`, and the in-memory
   editor methods (`validate_job`, `generate_plist_for`, `save_managed_job`,

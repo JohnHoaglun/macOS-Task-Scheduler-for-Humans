@@ -129,7 +129,7 @@ class MainWindow(QMainWindow):
         right_layout = QVBoxLayout(right_pane)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.addWidget(self._badge_strip)
-        right_layout.addWidget(self.inspector)
+        right_layout.addWidget(self.inspector, 1)
         right_layout.addWidget(self.panel)
         self.history_panel = HistoryPanel()
         right_layout.addWidget(self.history_panel)

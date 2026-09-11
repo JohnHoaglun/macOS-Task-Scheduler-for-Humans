@@ -1,4 +1,4 @@
-# TODOS.md (v0.0.25)
+# TODOS.md (v0.0.26)
 
 ## Run Phase — Increments 24–29 (APPROVED 2026-09-09 — next: Increment 24)
 
@@ -28,6 +28,14 @@
 - [x] `gui/app.py`: apply the bounded startup size before `window.show()`
 - [x] Tests: cover normal and constrained display sizes
 - [x] Verify: 530 passing, 5,570 statements at 100% coverage; build-Mac smoke check showed `1280x900` within a `3008x1575` usable display
+- [x] Closeout: docs/version registry/stale-reference grep/ratio/commit/push
+
+## Usability Fix — Collapsible Diagnostics And Overview Priority (DONE — v0.0.26)
+- [x] Plan: Diagnostics, Persisted logs, and Python interpreter start collapsed and never auto-expand
+- [x] `DiagnosticLogsPanel`: split the requested content into three collapsible sections
+- [x] `MainWindow`: give AgentInspector surplus right-pane height
+- [x] Tests: default state, toggles, hidden-content rendering, and inspector stretch priority
+- [x] Verify: 532 passing, 5,594 statements at 100% coverage; `1280x900` smoke check hid all three sections
 - [x] Closeout: docs/version registry/stale-reference grep/ratio/commit/push
 
 ### Increment 25 — Scope-Aware Managed-Job Model (spec §69)
