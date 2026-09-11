@@ -1074,3 +1074,211 @@ Before closing each increment:
 9. Update `PROJECT.md`, `TODOS.md`, `SUMMARY.md`, and `PLAN.md` in the same commit.
 10. Update README and architecture/development documentation when user-visible behavior, commands, dependencies, safety guarantees, or package behavior changes.
 11. Commit only verified changes and push the increment version upstream.
+
+---
+
+## Approved: Header Fix + Direct External Edit (v0.0.27 target, approved 2026-09-10)
+
+User-directed increment ahead of Run increment 24. Two workstreams: (1) fix the
+task-table headers that render `1..5` instead of column names; (2) add a narrow,
+safety-gated **direct in-place edit of external user LaunchAgents** (user chose
+"edit original directly" over import-only on 2026-09-10). This is a deliberate
+amendment to the read-only-external policy in the original spec/plan text: the
+amendment is scoped below and documented in README/architecture (the upstream
+spec file is not edited).
+
+### Pinned decisions
+1. **Scope:** only fully `ParseSupport.SUPPORTED` plists with a representable
+   `JobDefinition`, direct children of the current-user LaunchAgents root,
+   regular non-symlink files, not catalog-managed, with a *known* launchd
+   loaded state. Partial and invalid plists remain read-only (existing
+   import flow unchanged).
+2. **Ownership:** the edited task **remains External**. No catalog JSON is
+   created or updated; the durable managed identity is never assigned.
+3. **Label immutability:** the label is read-only in the editor; the source
+   filename is never changed; bootstrap uses the exact source path, never a
+   label-derived destination.
+4. **Two-step confirmation** with pinned wording below; Cancel is the default
+   button at both gates.
+5. **Transaction (exact order):** fresh fingerprint re-verify → stage unique
+   sibling → `bootout` (only when preview.loaded) → backup unique sibling →
+   verified atomic replace of the exact source path → `bootstrap` of the exact
+   source path (only when preview.loaded). Backup is **retained on success**
+   (recovery point for a user-owned file; separate cleanup is out of scope).
+   The transaction never claims a rollback.
+6. **Fail closed:** unknown launchd status → preview refused; source change
+   (bytes or identity) between preview and commit → commit refused; write-time
+   fingerprint mismatch → `SourceChangedError`.
+7. **Enabled flag semantics:** the edited `JobDefinition.enabled` changes only
+   the plist `Disabled` key; no `launchctl enable`/`disable` is invoked; a
+   loaded job is booted out and re-bootstrapped, an unloaded job is never
+   loaded by the edit.
+8. **No CLI surface** for this increment; the GUI carries the human-readable
+   confirmation flow. `mactask import` remains the CLI ownership path.
+9. **Headers:** `AgentTableModel` implements Qt's `headerData` API (the
+   existing `header` method is dead code Qt never calls); columns render
+   `Name / Command / Schedule / Classification / State`. The `Edit Managed
+   Task...` action is disabled unless a managed row with a catalog job is
+   selected (closes the visible-but-refusing UX gap).
+
+### Pinned wording
+- Gate A title: `Edit External LaunchAgent?`
+- Gate A body: `This task is managed outside macOS Task Scheduler for Humans.\n\nSaving will replace this user LaunchAgent plist directly at:\n{path}\n\nThe task will remain External. It will not be added to your managed task catalog. Only settings this app fully understands can be edited safely.`
+- Gate A buttons: `Cancel` (default) / `Continue to Edit`
+- Editor title: `Edit External LaunchAgent`; banner: `External plist — changes are written directly to {path}. This task remains External and is not added to the task catalog.`; save button text: `Save External Plist...`; XML preview group label: `Proposed replacement plist`
+- Gate B title: `Replace External LaunchAgent Plist?`; body: `Replace {path} with the validated configuration for {label}?\n\nThis writes directly to an external user LaunchAgent. The task remains External and is not added to the managed catalog.\n\n` + (`The application will reload the LaunchAgent so the change can take effect now.` when loaded / `The LaunchAgent is not currently loaded; no reload is needed.` when not)
+- Gate B buttons: `Cancel` (default) / `Replace and Reload` (loaded) or `Replace Plist` (unloaded)
+- Success: `Updated external LaunchAgent and reloaded it successfully. It remains External.` (loaded) / `Updated external LaunchAgent. It remains External.` (unloaded)
+- Reload failure after replace: `The plist was replaced, but launchd could not reload it. The previous plist is retained at: {backup}`
+- Disabled-action tooltip (partially supported): `Direct editing is unavailable because this plist contains settings this app cannot preserve. Review the unsupported settings, edit it in another plist-aware tool, or import a managed copy after acknowledging the warnings.`
+- Disabled-action tooltip (invalid): `Direct editing is unavailable because this plist cannot be safely interpreted. The raw plist remains available in Advanced.`
+
+### Pinned contracts (Stage 0 implemented; lanes must not edit these files)
+- `application/external_edit_models.py`: `ExternalEditPhase(name, process)`,
+  `ExternalEditPreview(source_path, label, candidate, sha256, identity, loaded,
+  nonce)` with `identity = (st_dev, st_ino)`,
+  `ExternalEditResult(source_path, label, process, phases, completed_phases,
+  retained_artifacts, replaced, reloaded)` — `process` is `None` when no
+  launchctl phase ran (unloaded job). Exported via `application/__init__.py`.
+
+**Platform (Lane B owns):**
+- `filesystem.py`: `SourceChangedError(ValueError)`; frozen
+  `SourceSnapshot(payload, sha256, st_dev, st_ino, st_size)`; protocol adds
+  `read_snapshot(path) -> SourceSnapshot` (ValueError on symlink or
+  non-regular: `path is not a regular non-symlink file: {path}`) and
+  `replace_verified(source, destination, expected) -> None` (re-reads
+  destination; raises `SourceChangedError` when sha256 or (st_dev, st_ino)
+  differ; otherwise the same atomic replace as `replace`).
+- `launch_agent_store.py` (each raises ValueError
+  `path is outside the LaunchAgent root: {path}` when `path.parent != root`):
+  `read_external(path) -> SourceSnapshot`; `stage_external(path, payload) -> Path`
+  (sibling `{name}.staged.{attempt}`, 1001 attempts); `backup_external(path) -> Path`
+  (sibling `{name}.backup.{attempt}`, 1001 attempts); `activate_external(staged, destination, expected)`
+  (containment check both paths → `replace_verified` → remove staged).
+- `launchctl.py`: `bootstrap_path(label, path) -> LaunchctlResult` —
+  `validate_label(label)` + direct-child containment check, argv
+  `["/bin/launchctl", "bootstrap", "gui/<uid>", str(path)]`. Reuses existing
+  `bootout(label)`.
+- `platform/macos/__init__.py`: export `SourceSnapshot`, `SourceChangedError`.
+- `tests/fakes.py` (Lane B owns this file exclusively this increment):
+  `FakeFilesystem` gains `symlinks: set[str]` / `directories: set[str]`
+  rejection sets and an identity registry `(st_dev, st_ino)` per name;
+  `read_snapshot` (FileNotFoundError when absent; ValueError for the two
+  rejection sets; sha256 via hashlib) and `replace_verified`
+  (FileNotFoundError when source absent; SourceChangedError when destination
+  absent or snapshot differs; copy otherwise). `FakeProcessRunner` /
+  `FakeTaskWorld` unchanged otherwise.
+
+**Service (Lane C owns `application/task_command_service.py`):**
+- `preview_external_plist_edit(path) -> ExternalEditPreview` — read-only;
+  eligibility (each a ValueError): not a direct child of the store root
+  (`path is not a direct child of the LaunchAgent root: {path}`); snapshot
+  read failure (propagated); parse of `snapshot.payload` not SUPPORTED or job
+  None (`cannot edit {path}: {detail}`); label already managed
+  (`label is already managed: {label}`); launchd status unknown
+  (`launchd status is unknown for {label}; direct editing is not safe`).
+  `nonce = uuid4().hex`, `sha256`/`identity` from the snapshot, `loaded` from
+  `backend.status(label).loaded`.
+- `commit_external_plist_edit(preview, edited_job, *, nonce) -> ExternalEditResult`
+  — rejections (ValueError, in order): nonce mismatch (`preview nonce does not
+  match the previewed source`); label changed (`label cannot change in an
+  external edit: {old} -> {new}`); fresh `read_external` mismatch vs preview
+  (sha256 or identity: `the source plist changed outside this application;
+  review it and preview again`); write-time `SourceChangedError` propagates.
+  Transaction per pinned order; phases named `bootout`/`bootstrap`;
+  `completed_phases` lists successful launchctl phases only; success keeps the
+  backup in `retained_artifacts`; bootout failure keeps the staged sibling with
+  `replaced=False`; bootstrap failure keeps the backup with
+  `replaced=True, reloaded=False`. No catalog writes, no history events.
+
+**GUI (Lane D owns):**
+- `MainWindow.edit_external_action = QAction("Edit External Plist...")` in the
+  File menu after the import action; enabled only when the selected listing is
+  DISCOVERED, not managed, `parsed.status is ParseSupport.SUPPORTED`,
+  `parsed.job is not None`, and no lifecycle/external worker is busy. Dynamic
+  tooltip carries the pinned unavailable-reason wording for partially
+  supported / invalid DISCOVERED rows.
+- Flow: Gate A → `preview_external_plist_edit` (main thread, like import) →
+  `JobEditor.open_external(source_path, job)` (external mode: title, banner
+  objectName `editor-external-banner`, read-only label field, read-only
+  source-path line objectName `editor-source-path`, save text per wording, XML
+  group label `Proposed replacement plist`) → on valid accept,
+  `EditorController.save_external(draft) -> JobDefinition` (validate + build,
+  **no catalog write**; editor exposes `edited_job`, `saved_path` stays
+  `None`) → Gate B → QThread worker (LifecycleWorker pattern) →
+  `commit_external_plist_edit` → result presentation (replaced/reloaded,
+  retained artifacts incl. backup path, "remains External") → `refresh()`
+  preserving selection by path.
+- `edit_task_action` enabled only for managed selections (pinned decision 9).
+
+### Lane map and wave order
+- **Wave 0 (build, serial):** Stage 0 DTOs + exports + model tests; this
+  plan/TODOS/PROJECT; plan commit.
+- **Wave 1 (parallel, faster):**
+  - **Lane A** — `gui/models/agent_table_model.py` (header → `headerData`) +
+    `tests/unit/gui/test_agent_table_model.py` (assert via
+    `headerData(..., DisplayRole)`, incl. through the filter proxy). Stop: its
+    tests green; forbidden: `main_window.py`, `test_main_window.py`,
+    `tests/fakes.py`.
+  - **Lane B** — platform ops + fakes + platform tests. Stop: platform tests
+    green; forbidden: `application/*`, `gui/*`, `test_main_window.py`.
+  - **Lane C** — service methods + `tests/unit/application/test_external_edit_service.py`,
+    coding against the pinned platform/fake APIs. Stop: service tests green;
+    forbidden: `platform/*`, `tests/fakes.py`, `gui/*`.
+- **Integration (build, serial):** `make check`; review lane diffs vs.
+  contract; composition gates — no catalog writes on commit, exact-path
+  bootstrap argv, no real `launchctl`/LaunchAgents in unit tests, headers
+  render through the proxy.
+- **Wave 2 (parallel, faster):**
+  - **Lane D** — GUI (main_window, job_editor, editor_controller, new dialog,
+    GUI tests).
+  - **Lane E** — docs only (README, `docs/architecture.md`,
+    `docs/development.md`); no production edits.
+- **Closeout (build, serial):** `make check` + 100% whole-package coverage;
+  ratio enforcement (gate below); version 0.0.26 → 0.0.27 at all four
+  registry locations; stale-version grep; SUMMARY.md changelog; PROJECT/TODOS
+  status; commit + push.
+
+### Shared-surface inventory (ownership, exclusive)
+| Surface | Owner |
+|---|---|
+| `application/external_edit_models.py` + `application/__init__.py` | Stage 0 (pinned; no lane edits) |
+| `gui/models/agent_table_model.py` + its test file | Lane A |
+| `platform/macos/filesystem.py`, `launch_agent_store.py`, `launchctl.py`, `platform/macos/__init__.py`, `tests/fakes.py` | Lane B |
+| `application/task_command_service.py` + service tests | Lane C |
+| `gui/main_window.py`, `gui/widgets/job_editor.py`, `gui/controllers/editor_controller.py`, new dialog widget, GUI tests | Lane D |
+| README, `docs/architecture.md`, `docs/development.md` | Lane E |
+
+### Test gates
+- Lane A: `headerData` returns `COLUMNS` for the five horizontal sections on
+  the source model and through `AgentFilterProxyModel`; vertical headers
+  unchanged; no regression in existing model tests.
+- Lane B: symlink/non-regular/outside-root rejection; stage/backup sibling
+  naming; verified replace on match; `SourceChangedError` on byte or identity
+  drift; `bootstrap_path` argv + containment; LocalFilesystem behavior against
+  `tmp_path` (no launchctl).
+- Lane C: eligibility rejections (partial, invalid, unrepresentable, managed,
+  outside root, symlink, status-unknown) with zero writes and zero launchctl
+  calls; label-change and nonce rejections; TOCTOU rejections (bytes and
+  identity drift); loaded success order (stage → bootout → backup → activate →
+  bootstrap exact path) with backup retained; unloaded success (no launchctl
+  calls, `process=None`); bootout/bootstrap failure artifact states; catalog
+  untouched in every case; existing import/reinstall tests unchanged.
+- Lane D: action gating across all row classes; Gate A/B wording verbatim;
+  cancellations produce no writes/launchctl; external editor mode (banner,
+  read-only label/path, save text); success refresh + External classification +
+  path selection preserved; source-change conflict message; reload-failure
+  message with retained backup path; edit-action managed-only gating.
+- Whole suite: `make check` green, 100% line coverage, ruff + mypy strict.
+
+### Ratio closeout gate (hard constraint, measured 2026-09-10)
+Current state: **8,304 test : 10,989 src = 75.56% — over the 75% cap** (the
+v0.0.25/26 usability fixes grew the suite past the cap; disclosed in SUMMARY
+at closeout). This increment adds roughly +650 src / +1,200 tests, so
+closeout must cut ~700+ existing test lines **coverage-preservingly**
+(consolidate redundancy, parametrize, drop test units whose covered lines are
+fully covered by survivors — the v0.0.20 coverage-kernel minimization
+approach) until `tests ≤ 0.75 × src`, with 100% line coverage held. Lanes must
+write compact tests (parametrize aggressively; no per-case fixture
+duplication) to minimize the cut. Cutting before green is forbidden; cutting
+happens only in the serial closeout.

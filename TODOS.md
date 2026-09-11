@@ -1,5 +1,29 @@
 # TODOS.md (v0.0.26)
 
+## Header Fix + Direct External Edit (APPROVED 2026-09-10 — in progress, target v0.0.27)
+
+User-directed increment ahead of Run increment 24. Full pinned plan: PLAN.md ("Approved: Header Fix + Direct External Edit").
+
+### Wave 0 — Stage 0 (build, serial)
+- [x] `application/external_edit_models.py` frozen DTOs (`ExternalEditPhase`, `ExternalEditPreview`, `ExternalEditResult`) + `application/__init__.py` exports + model tests
+- [ ] Persist plan to PLAN.md/TODOS.md/PROJECT.md; `make check` green; commit plan + Stage 0
+
+### Wave 1 — parallel lanes (`faster`)
+- [ ] Lane A — `gui/models/agent_table_model.py`: `header` → `headerData` (Qt API); test via `headerData(..., DisplayRole)` incl. through the filter proxy. Stop: model tests green
+- [ ] Lane B — platform: `SourceSnapshot`/`SourceChangedError`/`read_snapshot`/`replace_verified` (filesystem), `read_external`/`stage_external`/`backup_external`/`activate_external` (store), `bootstrap_path` (launchctl), `__init__` exports, `tests/fakes.py` support. Stop: platform tests green
+- [ ] Lane C — service: `preview_external_plist_edit` + `commit_external_plist_edit` with pinned rejections and transaction (stage → bootout → backup → activate → bootstrap exact path; backup retained; no catalog writes). Stop: service tests green
+
+### Integration (build, serial)
+- [ ] `make check`; review lane diffs vs pinned contracts; composition gates (no catalog writes, exact-path bootstrap argv, no real launchctl/unit, headers via proxy)
+
+### Wave 2 — parallel lanes (`faster`)
+- [ ] Lane D — GUI: `edit_external_action` (gating + dynamic tooltip), Gate A/B dialogs (pinned wording), `JobEditor.open_external`, `EditorController.save_external` (no catalog write), QThread worker, refresh preserving selection; `edit_task_action` managed-only enablement
+- [ ] Lane E — docs only: README, `docs/architecture.md`, `docs/development.md` (external edit safety model, amendment to read-only-external policy, retention-on-success backup)
+
+### Closeout (build, serial)
+- [ ] `make check` + 100% whole-package coverage; ratio enforcement (currently 8,304:10,989 = 75.56% — OVER cap; trim existing tests coverage-preservingly until ≤75%, disclose in SUMMARY)
+- [ ] Version 0.0.26 → 0.0.27 (all 4 registry locations), stale-version grep, SUMMARY.md changelog, PROJECT/TODOS status, commit + push
+
 ## Run Phase — Increments 24–29 (APPROVED 2026-09-09 — next: Increment 24)
 
 ### Pinned Run decisions (approved 2026-09-09) — full text in PLAN.md

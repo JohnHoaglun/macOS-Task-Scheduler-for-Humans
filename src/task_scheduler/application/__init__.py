@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from task_scheduler.application.external_edit_models import (
+    ExternalEditPhase,
+    ExternalEditPreview,
+    ExternalEditResult,
+)
 from task_scheduler.application.external_import import ExternalPlistImportPreview
 from task_scheduler.application.job_service import (
     JobConflictError,
@@ -28,6 +33,9 @@ from task_scheduler.application.test_service import DirectTestResult, DirectTest
 __all__ = [
     "DirectTestResult",
     "DirectTestService",
+    "ExternalEditPhase",
+    "ExternalEditPreview",
+    "ExternalEditResult",
     "ExternalPlistImportPreview",
     "InspectReport",
     "InstallPhase",
