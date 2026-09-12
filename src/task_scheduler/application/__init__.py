@@ -6,6 +6,7 @@ from task_scheduler.application.external_edit_models import (
     ExternalEditPhase,
     ExternalEditPreview,
     ExternalEditResult,
+    ExternalEditSession,
 )
 from task_scheduler.application.external_import import ExternalPlistImportPreview
 from task_scheduler.application.job_service import (
@@ -29,13 +30,16 @@ from task_scheduler.application.task_command_service import (
     UninstallResult,
 )
 from task_scheduler.application.test_service import DirectTestResult, DirectTestService
+from task_scheduler.platform.macos import ExternalEditField
 
 __all__ = [
     "DirectTestResult",
     "DirectTestService",
+    "ExternalEditField",
     "ExternalEditPhase",
     "ExternalEditPreview",
     "ExternalEditResult",
+    "ExternalEditSession",
     "ExternalPlistImportPreview",
     "InspectReport",
     "InstallPhase",

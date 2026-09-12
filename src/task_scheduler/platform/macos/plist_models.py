@@ -68,3 +68,21 @@ class ParsedLaunchAgent(BaseModel):
     raw: dict[str, object] = Field(default_factory=dict)
     unsupported_keys: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+
+
+class ExternalEditField(StrEnum):
+    """Typed fields a structured external edit may touch.
+
+    Dirty fields are the only keys merged into the original decoded
+    plist; every other key is preserved unchanged (pinned decision,
+    Universal Task Controls, v0.0.27).
+    """
+
+    PROGRAM_ARGUMENTS = "program_arguments"
+    SCHEDULE = "schedule"
+    RUN_AT_LOAD = "run_at_load"
+    WORKING_DIRECTORY = "working_directory"
+    ENVIRONMENT_VARIABLES = "environment_variables"
+    STDOUT_PATH = "stdout_path"
+    STDERR_PATH = "stderr_path"
+    ENABLED = "enabled"

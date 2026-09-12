@@ -1,24 +1,27 @@
-"""External-plist edit models: preview and result for direct in-place editing.
+"""External-plist edit and control models for the Universal Task Controls.
 
 Direct editing rewrites an external user LaunchAgent plist at its exact
 source path and never creates or updates a managed catalog record — the
-edited task remains external (pinned decision, v0.0.27 increment). The
-preview fingerprints the original raw bytes and captures the launchd
-loaded state so commit can fail closed when anything changed out-of-band.
+edited task remains external (pinned decision, v0.0.27). Sessions
+fingerprint the original raw bytes and capture the launchd loaded state
+so every transaction (edit, disable, enable, run-now, remove) can fail
+closed when anything changed out-of-band.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from task_scheduler.domain import JobDefinition
-from task_scheduler.platform.macos import ProcessResult
+from task_scheduler.platform.macos import ParseSupport, ProcessResult
 
 __all__ = [
     "ExternalEditPhase",
     "ExternalEditPreview",
     "ExternalEditResult",
+    "ExternalEditSession",
 ]
 
 
@@ -52,23 +55,57 @@ class ExternalEditPreview:
 
 
 @dataclass(frozen=True, slots=True)
-class ExternalEditResult:
-    """Outcome of a committed external-edit transaction.
+class ExternalEditSession:
+    """Everything the GUI needs to open an external edit, captured once.
 
-    ``process`` is the last launchctl phase's result, or ``None`` when
-    the job was not loaded and no launchctl phase was attempted.
-    ``replaced`` marks that the source plist's bytes were swapped and
-    ``reloaded`` that launchd was re-bootstrapped. ``retained_artifacts``
-    always includes the backup sibling on success (external edits keep a
-    recovery point) and, on failure, any staged sibling kept for
-    diagnosis. The transaction never claims a rollback.
+    ``original`` is the decoded plist dict (lossless; present whenever
+    the plist decoded), ``job`` the representable domain job (``None``
+    for unrepresentable plists), ``label`` the usable launchd label
+    (``None`` when absent or not launchd-safe) and ``loaded`` the launchd
+    loaded state (``None`` when no status could be queried).
+    ``edit_mode`` selects the editor: structured edits need a
+    representable job; everything else falls back to the raw editor
+    (pinned decision, Universal Task Controls, v0.0.27). ``nonce`` is
+    informational — commit protection is the source fingerprint
+    re-verification, not the nonce.
     """
 
     source_path: Path
-    label: str
+    sha256: str
+    identity: tuple[int, int]
+    nonce: str
+    label: str | None
+    loaded: bool | None
+    original: dict[str, object] | None
+    status: ParseSupport
+    job: JobDefinition | None
+
+    def edit_mode(self) -> Literal["structured", "raw"]:
+        return "structured" if self.job is not None else "raw"
+
+
+@dataclass(frozen=True, slots=True)
+class ExternalEditResult:
+    """Outcome of an external edit, disable, enable, run-now, or remove.
+
+    ``process`` is the last launchctl phase's result, or ``None`` when
+    no launchctl phase was attempted. ``replaced`` marks that the
+    source plist's bytes were swapped and ``reloaded`` that launchd was
+    re-bootstrapped. ``quarantined_path`` is set when a no-label disable
+    moved the plist to the quarantine directory. ``removed`` marks a
+    completed remove. ``retained_artifacts`` always includes the backup
+    sibling on success (external edits and removes keep a recovery
+    point) and, on failure, any staged sibling kept for diagnosis. The
+    transaction never claims a rollback.
+    """
+
+    source_path: Path
+    label: str | None
     process: ProcessResult | None
     phases: tuple[ExternalEditPhase, ...]
     completed_phases: tuple[str, ...]
     retained_artifacts: tuple[Path, ...]
     replaced: bool
     reloaded: bool
+    quarantined_path: Path | None = None
+    removed: bool = False

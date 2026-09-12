@@ -44,6 +44,7 @@ from task_scheduler.platform.macos.plist_models import (
     LAUNCHD_TO_WEEKDAY,
     SUPPORTED_KEYS,
     WEEKDAY_TO_LAUNCHD,
+    ExternalEditField,
     ParsedLaunchAgent,
     ParseSupport,
 )
@@ -93,6 +94,7 @@ __all__ = [
     "DetectorKind",
     "DiscoveredLaunchAgent",
     "EnvironmentDifference",
+    "ExternalEditField",
     "InterpreterCandidate",
     "FINDER_OPEN_PATH",
     "LAUNCHCTL_PATH",
