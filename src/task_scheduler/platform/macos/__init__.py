@@ -39,7 +39,7 @@ from task_scheduler.platform.macos.log_reader import (
     LogReader,
     LogReadResult,
 )
-from task_scheduler.platform.macos.plist_codec import PlistCodec
+from task_scheduler.platform.macos.plist_codec import PlistCodec, merge_external_edit
 from task_scheduler.platform.macos.plist_models import (
     LAUNCHD_TO_WEEKDAY,
     SUPPORTED_KEYS,
@@ -113,6 +113,7 @@ __all__ = [
     "LogReader",
     "PlistCodec",
     "ProcessLaunchFailure",
+    "merge_external_edit",
     "ProcessResult",
     "FinderRevealer",
     "ProcessRunner",

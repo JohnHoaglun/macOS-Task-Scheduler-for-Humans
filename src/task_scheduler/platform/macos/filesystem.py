@@ -69,6 +69,10 @@ class LaunchAgentFilesystem(Protocol):
         ``destination`` still matches ``expected``.
         """
 
+    def remove_verified(self, path: Path, expected: SourceSnapshot) -> None:
+        """Remove ``path`` only when it still matches ``expected``.
+        """
+
 
 class LocalFilesystem:
     """Production :class:`LaunchAgentFilesystem` built on :mod:`pathlib`."""
@@ -144,3 +148,20 @@ class LocalFilesystem:
                 f"destination {destination} changed from expected snapshot"
             )
         self.replace(source, destination)
+
+    def remove_verified(self, path: Path, expected: SourceSnapshot) -> None:
+        try:
+            current = self.read_snapshot(path)
+        except (FileNotFoundError, ValueError) as exc:
+            raise SourceChangedError(
+                f"{path} not found or inaccessible"
+            ) from exc
+        if (
+            current.sha256 != expected.sha256
+            or current.st_dev != expected.st_dev
+            or current.st_ino != expected.st_ino
+        ):
+            raise SourceChangedError(
+                f"{path} changed from expected snapshot"
+            )
+        self.remove_file(path)

@@ -198,6 +198,22 @@ class FakeFilesystem:
         self._files[destination.name] = self._files[source.name]
         self.replaced.append(destination.name)
 
+    def remove_verified(self, path: Path, expected: SourceSnapshot) -> None:
+        if path.name not in self._files:
+            raise FileNotFoundError(path.name)
+        dev, ino = self._ensure_identity(path.name)
+        current_sha = hashlib.sha256(self._files[path.name]).hexdigest()
+        if (
+            current_sha != expected.sha256
+            or dev != expected.st_dev
+            or ino != expected.st_ino
+        ):
+            raise SourceChangedError(
+                f"{path.name} changed from expected snapshot"
+            )
+        del self._files[path.name]
+        self.removed.append(path.name)
+
 
 OK_PROCESS = ProcessResult(exit_code=0)
 

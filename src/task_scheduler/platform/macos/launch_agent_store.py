@@ -230,3 +230,59 @@ class LaunchAgentStore:
             raise ValueError(f"path is outside the LaunchAgent root: {destination}")
         self._filesystem.replace_verified(staged, destination, expected)
         self._filesystem.remove_file(staged)
+
+    # -- universal task controls (v0.0.27) -------------------------------------
+
+    def backup_external_from_snapshot(
+        self, path: Path, snapshot: SourceSnapshot
+    ) -> Path:
+        """Preserve an external plist as a uniquely named backup sibling.
+
+        Writes ``snapshot.payload`` (never re-reads the source). Returns the
+        backup path.
+        """
+        if path.parent != self._root:
+            raise ValueError(f"path is outside the LaunchAgent root: {path}")
+        for attempt in range(1, 1001):
+            candidate = path.with_name(f"{path.name}.backup.{attempt}")
+            try:
+                self._filesystem.create_exclusive(candidate, snapshot.payload)
+                return candidate
+            except FileExistsError:
+                continue
+        raise RuntimeError(
+            f"could not allocate a unique backup sibling for {path.name!r}"
+        )
+
+    def quarantine_external(self, path: Path) -> Path:
+        """Move an external plist into a quarantine directory.
+
+        Creates ``<root>/.task-scheduler-disabled`` if missing; the destination
+        file uses the pattern ``{stem}-{attempt}.plist``.
+        """
+        if path.parent != self._root:
+            raise ValueError(f"path is outside the LaunchAgent root: {path}")
+        quarantine_dir = self._root / ".task-scheduler-disabled"
+        self._filesystem.create_root(quarantine_dir)
+        stem = path.stem
+        for attempt in range(1, 1001):
+            candidate = quarantine_dir / f"{stem}-{attempt}.plist"
+            try:
+                payload = self._filesystem.read_plist_bytes(path)
+                self._filesystem.create_exclusive(candidate, payload)
+                self._filesystem.replace(path, candidate)
+                self._filesystem.remove_file(path)
+                return candidate
+            except FileExistsError:
+                continue
+        raise RuntimeError(
+            f"could not allocate a unique quarantine file for {path.name!r}"
+        )
+
+    def remove_external_verified(
+        self, path: Path, expected: SourceSnapshot
+    ) -> None:
+        """Remove an external plist only when it matches ``expected``."""
+        if path.parent != self._root:
+            raise ValueError(f"path is outside the LaunchAgent root: {path}")
+        self._filesystem.remove_verified(path, expected)
