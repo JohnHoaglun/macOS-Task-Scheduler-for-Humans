@@ -1,28 +1,29 @@
 # TODOS.md (v0.0.26)
 
-## Header Fix + Direct External Edit (APPROVED 2026-09-10 — in progress, target v0.0.27)
+## Universal Task Controls (APPROVED 2026-09-11 — in progress, target v0.0.27)
 
-User-directed increment ahead of Run increment 24. Full pinned plan: PLAN.md ("Approved: Header Fix + Direct External Edit").
+User-directed increment ahead of Run increment 24: every row supports create/edit/disable/remove in ANY and ALL states. Full pinned plan: PLAN.md ("Approved: Universal Task Controls"). Supersedes the 2026-09-10 narrow external-edit scope. Wave 1 platform primitives (read_snapshot/replace_verified, store read/stage/backup/activate_external, bootstrap_path) and the `headerData` fix already landed in `3bb1a52` and remain the foundation.
 
-### Wave 0 — Stage 0 (build, serial)
-- [x] `application/external_edit_models.py` frozen DTOs (`ExternalEditPhase`, `ExternalEditPreview`, `ExternalEditResult`) + `application/__init__.py` exports + model tests
+### Stage 0 — serial (build)
+- [x] Narrow foundation: DTOs, platform primitives, service transaction, `headerData` (committed `3bb1a52`)
+- [ ] `platform/macos/plist_models.py`: `ExternalEditField` enum (8 values) + exports (`platform/macos/__init__.py`, `application/__init__.py`)
+- [ ] `application/external_edit_models.py`: `ExternalEditSession` (new), `ExternalEditResult` extended (`label: str | None`, `quarantined_path`, `removed`); `ExternalEditPreview` retained until Lane B; DTO tests
 - [ ] Persist plan to PLAN.md/TODOS.md/PROJECT.md; `make check` green; commit plan + Stage 0
 
 ### Wave 1 — parallel lanes (`faster`)
-- [ ] Lane A — `gui/models/agent_table_model.py`: `header` → `headerData` (Qt API); test via `headerData(..., DisplayRole)` incl. through the filter proxy. Stop: model tests green
-- [ ] Lane B — platform: `SourceSnapshot`/`SourceChangedError`/`read_snapshot`/`replace_verified` (filesystem), `read_external`/`stage_external`/`backup_external`/`activate_external` (store), `bootstrap_path` (launchctl), `__init__` exports, `tests/fakes.py` support. Stop: platform tests green
-- [ ] Lane C — service: `preview_external_plist_edit` + `commit_external_plist_edit` with pinned rejections and transaction (stage → bootout → backup → activate → bootstrap exact path; backup retained; no catalog writes). Stop: service tests green
+- [ ] Lane A — platform: `remove_verified` (filesystem + fake), `backup_external_from_snapshot`, `quarantine_external`, `remove_external_verified` (store), `merge_external_edit` (plist_codec, pure), `__init__` exports. Stop: platform tests green. Forbidden: `application/*`, `gui/*`
+- [ ] Lane B — service: `open_external_edit_session`, `commit_structured_external_edit`, `commit_raw_external_edit`, `disable_external`, `enable_external`, `run_now_external`, `remove_external`, `remove_saved_job`; deletes narrow preview/commit + narrow service tests; new `test_external_control_service.py`. Stop: service tests green. Forbidden: `platform/*`, `gui/*`, `tests/fakes.py`
+- [ ] Lane C — GUI: universal `Edit Task…` (structured patch / raw editor routing), `RawPlistEditor`, `ExternalControlWorker` + `ExternalControlKind`/`ExternalControlRequest`, `external_control_dialog.py` (Gate A/B + disable/quarantine/remove/saved-job confirmations, pinned wording), universal Lifecycle gating (SAVED managed Disable/Enable; external Disable/Enable/Run Now via state matrix), `remove_task_action` (uninstall / Remove-from-Catalog / external remove), `external_dirty_fields` in EditorController, JobEditor external baseline + read-only name; rewrite the 18-failure narrow GUI test block + new dialog/worker/raw-editor tests. Stop: GUI tests green. Forbidden: `platform/*`, `application/*`
 
 ### Integration (build, serial)
-- [ ] `make check`; review lane diffs vs pinned contracts; composition gates (no catalog writes, exact-path bootstrap argv, no real launchctl/unit, headers via proxy)
+- [ ] `make check`; review lane diffs vs pinned contracts; composition gates (no catalog writes on any external op, quarantine byte-identical, bootout-before-activate on loaded rows, no real launchctl/unit)
 
 ### Wave 2 — parallel lanes (`faster`)
-- [ ] Lane D — GUI: `edit_external_action` (gating + dynamic tooltip), Gate A/B dialogs (pinned wording), `JobEditor.open_external`, `EditorController.save_external` (no catalog write), QThread worker, refresh preserving selection; `edit_task_action` managed-only enablement
-- [ ] Lane E — docs only: README, `docs/architecture.md`, `docs/development.md` (external edit safety model, amendment to read-only-external policy, retention-on-success backup)
+- [ ] Lane D — docs only: README, `docs/architecture.md`, `docs/development.md` (universal controls + preservation contract, raw editor, quarantine, verified removal; replace the narrow external-edit sections)
 
 ### Closeout (build, serial)
 - [ ] `make check` + 100% whole-package coverage; ratio enforcement (currently 8,304:10,989 = 75.56% — OVER cap; trim existing tests coverage-preservingly until ≤75%, disclose in SUMMARY)
-- [ ] Version 0.0.26 → 0.0.27 (all 4 registry locations), stale-version grep, SUMMARY.md changelog, PROJECT/TODOS status, commit + push
+- [ ] Version 0.0.26 → 0.0.27 (all 4 registry locations), stale-version grep, SUMMARY.md changelog (incl. scope redefinition + ratio breach), PROJECT/TODOS status, commit + push
 
 ## Run Phase — Increments 24–29 (APPROVED 2026-09-09 — next: Increment 24)
 

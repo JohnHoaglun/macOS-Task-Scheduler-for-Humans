@@ -18,7 +18,7 @@ Crawl Increments 0–12 complete and pushed to `sched_dev_opencode` (version 0.0
 - **Increment 12:** GUI diagnostics/logs: job-based façade contracts (`test_job(job, *, detection=None)`, `test(label)` delegating, `compare_environment(job, terminal_environment)`, `read_logs_for(job)` with `read_logs(label)` delegating, `gui_environment()` in the composition layer), Qt-free `DiagnosticsController` + `QThread` `DiagnosticsWorker`, shared `DiagnosticLogsPanel` (test summary, diagnostics, direct/persisted stdout/stderr with Refresh, name-only environment comparison, Python recommendations), main-window Test action with selection/stale-result guard, `DirectTestDialog` for the editor's Test Draft (persists nothing); 766 tests
 - Verification at v0.0.12: 766 tests, 100% coverage, ruff + mypy strict clean
 
-Current focus: **Walk complete** — increments 14–23 shipped at v0.0.23 (Increment 23: the remaining Python ecosystem detectors — pyenv, Conda, Pipenv, Homebrew — 2026-09-09). **Run Phase** approved 2026-09-09: increments 24–29 (architecture/threat model/helper contract, scope-aware managed-job model, native XPC helper + authenticated IPC, system LaunchDaemon lifecycle, system-service UX/CLI, release security) — next increment is 24.
+Current focus: **Universal Task Controls** (v0.0.27 target, approved 2026-09-11) — every row in the task list supports create/edit/disable/remove in any and all states (managed saved/installed, external supported/partial/invalid, with or without a usable label); supersedes the narrow external-edit scope of 2026-09-10. Walk complete: increments 14–23 shipped at v0.0.23. **Run Phase** approved 2026-09-09: increments 24–29 — next increment after this one is 24.
 - Verification at v0.0.20: 1184 tests, 100% coverage (4416 statements), `make check` clean (ruff / mypy strict / pytest, no ResourceWarnings); same-turn ratio enforcement then cut the suite to 323 tests at 100% coverage (tests 5,444 lines = 62.4% of the 8,723 production lines, under the 75% cap)
 
 ---
@@ -1077,208 +1077,377 @@ Before closing each increment:
 
 ---
 
-## Approved: Header Fix + Direct External Edit (v0.0.27 target, approved 2026-09-10)
+## Approved: Universal Task Controls (v0.0.27 target, approved 2026-09-11)
 
-User-directed increment ahead of Run increment 24. Two workstreams: (1) fix the
-task-table headers that render `1..5` instead of column names; (2) add a narrow,
-safety-gated **direct in-place edit of external user LaunchAgents** (user chose
-"edit original directly" over import-only on 2026-09-10). This is a deliberate
-amendment to the read-only-external policy in the original spec/plan text: the
-amendment is scoped below and documented in README/architecture (the upstream
-spec file is not edited).
+Supersedes the narrow "Header Fix + Direct External Edit" scope approved
+2026-09-10. User directive (2026-09-11): every row in the task list must
+support create, edit, disable, and remove **in any and all states** — managed
+saved/installed, external supported/partial/invalid, with or without a usable
+launchd label. The Wave 1 platform + service primitives (commit `3bb1a52`)
+and the header fix remain the foundation; the narrow supported-only
+service/GUI surface is **replaced in place**, not extended. This is a second,
+wider amendment of the original read-only-external policy; it is documented in
+README/architecture at closeout (the upstream spec file is not edited).
+
+### User requirements (verbatim, 2026-09-11)
+- "I need to be able create new entries."
+- "I need to be able to edit existing entries in ANY and ALL states"
+- "I need to be able to disable entries in ANY and ALL states"
+- "I need to be able to delete/remove entries in ANY and ALL states"
 
 ### Pinned decisions
-1. **Scope:** only fully `ParseSupport.SUPPORTED` plists with a representable
-   `JobDefinition`, direct children of the current-user LaunchAgents root,
-   regular non-symlink files, not catalog-managed, with a *known* launchd
-   loaded state. Partial and invalid plists remain read-only (existing
-   import flow unchanged).
-2. **Ownership:** the edited task **remains External**. No catalog JSON is
-   created or updated; the durable managed identity is never assigned.
-3. **Label immutability:** the label is read-only in the editor; the source
-   filename is never changed; bootstrap uses the exact source path, never a
-   label-derived destination.
-4. **Two-step confirmation** with pinned wording below; Cancel is the default
-   button at both gates.
-5. **Transaction (exact order):** fresh fingerprint re-verify → stage unique
-   sibling → `bootout` (only when preview.loaded) → backup unique sibling →
-   verified atomic replace of the exact source path → `bootstrap` of the exact
-   source path (only when preview.loaded). Backup is **retained on success**
-   (recovery point for a user-owned file; separate cleanup is out of scope).
-   The transaction never claims a rollback.
-6. **Fail closed:** unknown launchd status → preview refused; source change
-   (bytes or identity) between preview and commit → commit refused; write-time
-   fingerprint mismatch → `SourceChangedError`.
-7. **Enabled flag semantics:** the edited `JobDefinition.enabled` changes only
-   the plist `Disabled` key; no `launchctl enable`/`disable` is invoked; a
-   loaded job is booted out and re-bootstrapped, an unloaded job is never
-   loaded by the edit.
-8. **No CLI surface** for this increment; the GUI carries the human-readable
-   confirmation flow. `mactask import` remains the CLI ownership path.
-9. **Headers:** `AgentTableModel` implements Qt's `headerData` API (the
-   existing `header` method is dead code Qt never calls); columns render
-   `Name / Command / Schedule / Classification / State`. The `Edit Managed
-   Task...` action is disabled unless a managed row with a catalog job is
-   selected (closes the visible-but-refusing UX gap).
+1. **Universal availability:** Edit, Disable, and Remove are enabled for
+   every selected row regardless of kind or parse state. Where a state cannot
+   support an operation (no usable label), the control is disabled with an
+   honest tooltip or routed to the safe file-level alternative (quarantine) —
+   never by silently discarding plist data.
+2. **Create:** the existing New Task… action already creates entries (managed
+   catalog). No change; documented.
+3. **Preservation contract (structured edit):** the structured editor loads
+   the parsed job; saving patches only the changed app-owned fields into the
+   original decoded plist dict. Every other key (KeepAlive,
+   LimitLoadToSessionType, unknown keys) survives untouched. The label is
+   never rewritten. A no-op save writes nothing and calls no launchctl.
+4. **Edit modes:** rows with a representable `JobDefinition` (SUPPORTED or
+   PARTIALLY_SUPPORTED with a job) open in the structured editor; rows
+   without one (PARTIALLY_SUPPORTED/INVALID with no representable job, or
+   undecodable) open in a new **raw plist editor** — XML text for UTF-8
+   sources, base64 for binary. A raw save parses the replacement (must be a
+   plist dict; keeps the same valid label when the source had one; otherwise
+   requires a valid label) and writes canonical XML through the same verified
+   transaction.
+5. **Universal Disable:** usable label → `launchctl disable
+   gui/<uid>/<label>`; `bootout` appended only when currently loaded (skip
+   and disclose when the loaded state is unknown). No usable label →
+   **quarantine**: atomically move the plist to
+   `~/Library/LaunchAgents/.task-scheduler-disabled/<name>` (unique name); no
+   launchctl; the result discloses that a running instance may stop but
+   cannot be verified.
+6. **Universal Remove:** external → snapshot → byte-identical backup sibling
+   → `bootout` only when loaded is True → snapshot re-verify → verified
+   removal; no launchctl when there is no usable label. Managed installed →
+   the existing uninstall transaction. Managed saved → new
+   **Remove-from-Catalog** (catalog JSON removal only, no plist/launchctl).
+   Backups are retained on success; no automatic cleanup.
+7. **Enable / Run Now for external rows:** require a usable label. Enable =
+   `launchctl enable` + `bootstrap` of the exact source path when loaded is
+   False (skip bootstrap when unknown). Run Now is enabled only when loaded
+   is known True (`kickstart -k`).
+8. **Managed SAVED rows:** the existing Install-only lifecycle pin is
+   amended (per the ANY-and-ALL-states directive): SAVED managed rows gain
+   Disable/Enable (pure `launchctl disable/enable` on the label, identical to
+   the installed path) and Remove-from-Catalog. Run Now remains unavailable
+   (nothing deployed).
+9. **Fail-closed editing:** a session with a usable label whose launchd
+   status is unknown (None) is refused for editing; label-less rows are
+   file-level only. Source drift (sha256 or identity) between open and commit
+   → commit refused; write-time drift → `SourceChangedError`.
+10. **Ownership:** external operations never create, update, or delete
+    managed catalog JSON. Catalog rows are removed only via
+    Remove-from-Catalog.
+11. **No CLI surface** for this increment; the GUI carries the control flow.
+12. **Usable label** = the decoded plist `Label` key is a non-empty string
+    that passes `validate_label`.
+
+### State matrix (pinned)
+| Row state | Edit | Disable | Enable | Run Now | Remove |
+|---|---|---|---|---|---|
+| Managed installed | structured (catalog save) | launchctl disable (existing) | launchctl enable (existing) | kickstart (existing) | uninstall (existing) |
+| Managed saved | structured (catalog save) | launchctl disable (new) | launchctl enable (new) | — (tooltip) | Remove-from-Catalog (new) |
+| External, representable job | structured patch (other keys preserved) | disable (+bootout if loaded) | enable (+bootstrap if not loaded) | kickstart when loaded True | backup + (bootout) + verified removal |
+| External, decoded but unrepresentable | raw text editor | disable if label else quarantine | enable if label else — | kickstart when loaded True | backup + verified removal |
+| External, undecodable | raw editor (base64) | quarantine | — (tooltip) | — (tooltip) | backup + verified removal |
+
+### Pinned contracts
+
+**Stage 0 (serial, build — pinned; lanes must not edit these surfaces):**
+- `platform/macos/plist_models.py`: `class ExternalEditField(str, Enum)` with
+  values `program_arguments`, `schedule`, `run_at_load`, `working_directory`,
+  `environment_variables`, `stdout_path`, `stderr_path`, `enabled`; exported
+  via `platform/macos/__init__.py` and `application/__init__.py`.
+- `application/external_edit_models.py`: `ExternalEditPhase(name, process)`
+  retained; **new** frozen `ExternalEditSession(source_path, sha256, identity,
+  nonce, label: str | None, loaded: bool | None, original: dict[str, object] |
+  None, status: ParseSupport, job: JobDefinition | None)` with
+  `edit_mode() -> "structured" | "raw"` (structured iff `job is not None`);
+  `ExternalEditResult` extended with `label: str | None` (was `label: str`),
+  `quarantined_path: Path | None = None`, `removed: bool = False` (existing
+  fields kept: source_path, process, phases, completed_phases,
+  retained_artifacts, replaced, reloaded). `ExternalEditPreview` stays until
+  Lane B removes it (tree remains green at Stage 0).
+- DTO tests for session/result shape + `edit_mode`.
+
+**Platform (Lane A owns):**
+- `platform/macos/plist_codec.py`: pure `merge_external_edit(original:
+  Mapping[str, object], job: JobDefinition, *, dirty: frozenset[ExternalEditField])
+  -> dict[str, object]` — starts from a copy of `original`; for each dirty
+  field writes the job-encoded value (removes the key when the job value is
+  absent/empty); SCHEDULE first removes both `StartCalendarInterval` and
+  `StartInterval`, then sets the key matching the job's kind; RUN_AT_LOAD
+  writes `RunAtLoad: True` or removes; ENABLED writes `Disabled: True` or
+  removes; non-dirty keys and `Label` are never touched. Exported via
+  `platform/macos/__init__.py`.
+- `platform/macos/filesystem.py`: `remove_verified(path, expected:
+  SourceSnapshot) -> None` — re-reads the snapshot; raises
+  `SourceChangedError` when sha256 or (st_dev, st_ino) differ or the file is
+  absent; otherwise unlinks. Protocol + LocalFilesystem.
+- `platform/macos/launch_agent_store.py` (each root-containment-checked,
+  ValueError `path is outside the LaunchAgent root: {path}`):
+  - `backup_external_from_snapshot(path, snapshot: SourceSnapshot) -> Path` —
+    writes `snapshot.payload` to a unique sibling `{name}.backup.{attempt}`
+    (1001 attempts); **never re-reads the source** (fixes the
+    `backup_external` empty-backup bug; `backup_external` itself stays for
+    the managed reinstall path).
+  - `quarantine_external(path) -> Path` — `create_root(root /
+    ".task-scheduler-disabled")`; unique destination
+    `{stem}-{attempt}.plist` (1001 attempts); `replace(path, destination)`;
+    returns the destination.
+  - `remove_external_verified(path, expected: SourceSnapshot) -> None` —
+    delegates to `remove_verified`.
+- `tests/fakes.py`: `FakeFilesystem.remove_verified` (FileNotFoundError when
+  absent; SourceChangedError on drift; otherwise removes + records).
+  `replace`/`remove_file`/`create_root` already exist — quarantine tests use
+  them.
+
+**Service (Lane B owns `application/task_command_service.py`):**
+Replaces `preview_external_plist_edit` / `commit_external_plist_edit` (and
+the old narrow service test file) with:
+- `open_external_edit_session(path) -> ExternalEditSession` — root-contained
+  regular non-symlink file; snapshot; `parse_bytes` (never raises); usable
+  label; status only when a usable label exists. ValueError (pinned): `path
+  is not a direct child of the LaunchAgent root: {path}`; `path is not a
+  regular non-symlink file: {path}` (propagated); `label is already managed:
+  {label}` (decoded label resolves to a catalog job); `launchd status is
+  unknown for {label}; editing is not safe` (usable label, status.loaded
+  None). No usable label → `label=None`, `loaded=None`, no status call.
+  `nonce = uuid4().hex` (informational; commit protection is the source
+  fingerprint re-verify).
+- `commit_structured_external_edit(session, job, dirty:
+  frozenset[ExternalEditField]) -> ExternalEditResult` — ValueError in order:
+  `cannot structurally edit {path}: no representable job` (session.job
+  None); `label cannot change in an external edit: {old} -> {new}`; `the edit
+  produced no changes` (dirty empty or merged result equals the original
+  dict); `the source plist changed outside this application; review it and
+  open it again` (fresh snapshot sha256/identity ≠ session). Transaction
+  (pinned order): stage → `bootout` (only when session.loaded True) → backup
+  (from the fresh snapshot payload) → activate (`replace_verified`) →
+  `bootstrap` of the exact source path (only when session.loaded True).
+  Backup retained on success; bootout failure → staged sibling retained with
+  `replaced=False`; bootstrap failure → backup retained with
+  `replaced=True, reloaded=False`. Phases named `bootout`/`bootstrap`. No
+  catalog writes, no history events.
+- `commit_raw_external_edit(session, replacement_text: str) ->
+  ExternalEditResult` — ValueError in order: `the replacement is not a valid
+  plist` (parse failure or not a dict); `label cannot change in an external
+  edit: {old} -> {new}` (session.label set and differs); `the replacement
+  must contain a valid launchd label` (no session label, or the replacement's
+  label is missing/invalid); `the edit produced no changes` (canonical bytes
+  equal the current source bytes); source drift (message as above). Payload =
+  `plistlib.dumps(parsed, fmt=FMT_XML)`. Same transaction.
+- `disable_external(path) -> ExternalEditResult` — fresh snapshot + parse +
+  usable label; status when a label exists. Label: phase `disable`
+  (`launchctl disable`); phase `bootout` only when loaded True (loaded None
+  → skip; result wording discloses). No label: quarantine;
+  `quarantined_path` set, `process=None`.
+- `enable_external(path) -> ExternalEditResult` — ValueError `cannot enable
+  {path}: no usable launchd label`; phase `enable`; phase `bootstrap` (exact
+  path) only when loaded False (None → skip).
+- `run_now_external(path) -> ExternalEditResult` — ValueError `cannot run
+  {path} now: no usable launchd label`; `launchd status is unknown for
+  {label}` (loaded None); `cannot run {path} now: it is not loaded in
+  launchd` (loaded False). Phase `run` (kickstart -k).
+- `remove_external(path) -> ExternalEditResult` — fresh snapshot;
+  `backup_external_from_snapshot`; phase `bootout` when a label exists and
+  loaded True; re-verify → `remove_external_verified` (drift → `the source
+  plist changed outside this application; review it and remove again`);
+  `removed=True`; the backup is in `retained_artifacts`.
+- `remove_saved_job(label) -> Path` — `_require_managed(label)`;
+  `self._jobs.remove(job.id)` (idempotent); returns the catalog path
+  `root/<job.id>.json`. No plist/launchctl.
+- Deletes: `preview_external_plist_edit`, `commit_external_plist_edit`, and
+  the `ExternalEditPreview` import/use.
+
+**GUI (Lane C owns):**
+- `main_window.py`:
+  - `edit_task_action` text `Edit Task…`, enabled for any selected row:
+    managed → existing catalog flow; external with a job → Gate A
+    (structured) → `open_external_edit_session` → `JobEditor` external
+    structured mode; external without a job → Gate A (raw) →
+    `RawPlistEditor`.
+  - `edit_external_action` deleted (subsumed).
+  - New `remove_task_action` (`Remove Task…`, File menu), enabled for any row:
+    managed installed → existing uninstall confirmation/flow; managed saved →
+    `RemoveSavedJobConfirmDialog` → synchronous `remove_saved_job` → status +
+    refresh; external → `ExternalRemoveConfirmDialog` → worker →
+    `remove_external` → result + refresh, selection cleared.
+  - Lifecycle `disable_action` / `enable_action` / `run_now_action`
+    universal per the state matrix; external rows dispatch to
+    `ExternalControlWorker` (kinds DISABLE/ENABLE/RUN_NOW) instead of the
+    managed LifecycleWorker; single busy slot; pinned tooltips for
+    unavailable Enable/Run Now.
+  - After external control ops: `refresh()` preserving selection by path;
+    remove/quarantine → selection cleared.
+- `gui/controllers/lifecycle_controller.py`: `enabled_actions(listing)`
+  universal per the matrix (SAVED managed → INSTALL, DISABLE, ENABLE;
+  installed managed → the existing five; external → always DISABLE; ENABLE
+  when a usable label; RUN_NOW when a usable label and
+  `listing.status.loaded is True`); `request()` accepts external rows
+  (`LifecycleRequest` gains `source_path: Path | None = None`; `label`/`job`
+  may be None for external); `execute()` routes external kinds to the
+  external service methods; `LifecycleOutcome` gains
+  `external_result: ExternalEditResult | None = None` (main `result` stays
+  None for external kinds).
+- `gui/controllers/editor_controller.py`: new pure `external_dirty_fields(
+  loaded: JobDraft, current: JobDraft) -> frozenset[ExternalEditField]` —
+  command kind/interpreter/script/arguments → PROGRAM_ARGUMENTS; schedule
+  kind/times/weekdays/interval value+unit → SCHEDULE; run_at_load →
+  RUN_AT_LOAD; working-directory value → WORKING_DIRECTORY; env rows →
+  ENVIRONMENT_VARIABLES; stdout/stderr paths → STDOUT_PATH/STDERR_PATH;
+  enabled → ENABLED; name/label never dirty; the working-dir auto flag alone
+  does not dirty.
+- `gui/widgets/job_editor.py`: external structured mode — records the loaded
+  baseline draft for dirty computation; the name field is read-only in
+  external mode (like the label); banner per pinned wording; save text
+  `Save External Plist…`; on accept exposes `edited_job` and `dirty_fields`
+  (controller-computed from baseline + collected draft).
+- New `gui/widgets/raw_plist_editor.py` — `RawPlistEditor(QDialog)`:
+  objectNames `raw-plist-editor`, `raw-plist-banner` (pinned disclosure),
+  `raw-plist-mode` (`XML plist text` | `Base64-encoded plist (binary
+  source)`), `raw-plist-text` (monospace QPlainTextEdit), `raw-plist-errors`
+  panel, buttons `raw-plist-save` (`Save Plist…`) / `raw-plist-cancel`.
+  `open(*, source_path, text: str, binary_mode: bool, label: str | None)`;
+  `replacement_text()` accessor. No validation in the widget (service owns
+  it).
+- New `gui/widgets/external_control_dialog.py` — `ExternalEditGateDialog`
+  (mode structured|raw), `ExternalReplaceGateDialog` (mode + loaded),
+  `ExternalDisableConfirmDialog` (label variant / quarantine variant),
+  `ExternalRemoveConfirmDialog`, `RemoveSavedJobConfirmDialog`; Cancel is the
+  default button everywhere; wording constants per the pinned wording below.
+- New `gui/controllers/external_control_worker.py` (replaces
+  `external_edit_worker.py`): `ExternalControlKind(StrEnum)` (STRUCTURED_EDIT,
+  RAW_EDIT, DISABLE, ENABLE, RUN_NOW, REMOVE); frozen
+  `ExternalControlRequest(kind, path, session=None, job=None,
+  dirty=frozenset(), raw_text=None)`; `ExternalControlWorker(QObject)`
+  (QThread; `run()` dispatches to the service; emits `finished(object)` =
+  `ExternalEditResult` or Exception).
+- Deletes: `gui/widgets/external_edit_dialog.py`,
+  `gui/controllers/external_edit_worker.py` (and their test files).
+- GUI tests: new `test_external_control_dialog.py`,
+  `test_external_control_worker.py`, `test_raw_plist_editor.py`; rewritten
+  external blocks in `test_job_editor.py`, dirty-field tests in
+  `test_editor_controller.py`, universal gating + flows in
+  `test_main_window.py` (replacing the 18-failure narrow block).
 
 ### Pinned wording
-- Gate A title: `Edit External LaunchAgent?`
-- Gate A body: `This task is managed outside macOS Task Scheduler for Humans.\n\nSaving will replace this user LaunchAgent plist directly at:\n{path}\n\nThe task will remain External. It will not be added to your managed task catalog. Only settings this app fully understands can be edited safely.`
-- Gate A buttons: `Cancel` (default) / `Continue to Edit`
-- Editor title: `Edit External LaunchAgent`; banner: `External plist — changes are written directly to {path}. This task remains External and is not added to the task catalog.`; save button text: `Save External Plist...`; XML preview group label: `Proposed replacement plist`
-- Gate B title: `Replace External LaunchAgent Plist?`; body: `Replace {path} with the validated configuration for {label}?\n\nThis writes directly to an external user LaunchAgent. The task remains External and is not added to the managed catalog.\n\n` + (`The application will reload the LaunchAgent so the change can take effect now.` when loaded / `The LaunchAgent is not currently loaded; no reload is needed.` when not)
-- Gate B buttons: `Cancel` (default) / `Replace and Reload` (loaded) or `Replace Plist` (unloaded)
-- Success: `Updated external LaunchAgent and reloaded it successfully. It remains External.` (loaded) / `Updated external LaunchAgent. It remains External.` (unloaded)
-- Reload failure after replace: `The plist was replaced, but launchd could not reload it. The previous plist is retained at: {backup}`
-- Disabled-action tooltip (partially supported): `Direct editing is unavailable because this plist contains settings this app cannot preserve. Review the unsupported settings, edit it in another plist-aware tool, or import a managed copy after acknowledging the warnings.`
-- Disabled-action tooltip (invalid): `Direct editing is unavailable because this plist cannot be safely interpreted. The raw plist remains available in Advanced.`
+- **Edit Gate A** title: `Edit External LaunchAgent?`
+  - Structured body: `This task is managed outside macOS Task Scheduler for Humans.\n\nSaving will rewrite only the settings you change in this user LaunchAgent plist:\n{path}\n\nEvery other setting in the file is preserved unchanged. The task remains External and is not added to the managed task catalog.`
+  - Raw body: `This task is managed outside macOS Task Scheduler for Humans, and this app cannot represent its plist with the normal editor.\n\nYou will edit the raw plist text. Saving replaces the file:\n{path}\n\n{label_clause}The task remains External and is not added to the managed task catalog.`
+    - label_clause (label known): `The replacement must keep the same launchd label ({label}).\n\n`
+    - label_clause (no label): `The replacement must contain a valid launchd label.\n\n`
+  - Buttons: `Cancel` (default) / `Continue to Edit`
+- **Edit Gate B** title: `Replace External LaunchAgent Plist?`
+  - Structured body: `Replace the settings in {path} with the values you edited?\n\nOnly the changed settings are rewritten; every other setting in the file is preserved. The task remains External.\n\n{loaded_sentence}`
+  - Raw body: `Replace {path} with the plist text you supplied?\n\nThe entire file is replaced and normalized to XML before writing. The task remains External.\n\n{loaded_sentence}`
+  - loaded_sentence: loaded → `The application will reload the LaunchAgent so the change can take effect now.`; not loaded → `The LaunchAgent is not currently loaded; no reload is needed.`
+  - Buttons: loaded → `Cancel` (default) / `Replace and Reload`; not loaded → `Cancel` / `Replace Plist`
+- **Edit results:** loaded → `Updated external LaunchAgent and reloaded it successfully. It remains External.`; not loaded → `Updated external LaunchAgent. It remains External.`
+- **Reload failure after replace:** `The plist was replaced, but launchd could not reload it. The previous plist is retained at: {backup}`
+- **Source drift:** `The source plist changed outside this application. Review it and try again.`
+- **No-op save (editor status):** `No changes to save.` (save flow suppressed)
+- **Editor external banner (structured):** `External plist — only the settings you change are rewritten; every other setting in this file is preserved. This task remains External and is not added to the task catalog.`
+- **Raw editor banner:** `Raw plist editor — the text below is the entire plist. Saving replaces {path}.` Base64 mode note: `The source is not UTF-8 text; it is shown base64-encoded. Decoding your replacement must produce a plist dict.`
+- **Disable (external, label)** confirmation title: `Disable External LaunchAgent?`; body: `Tell launchd to stop starting {label}?\n\nlaunchd will not start this agent at login. If it is currently running, it will be unloaded now. The plist file is not changed.\n\n{path}`; buttons: `Cancel` (default) / `Disable`
+- **Disable results (label):** loaded → `Disabled {label}. launchd will not restart it; the running instance was unloaded.`; not loaded → `Disabled {label}. launchd will not start it.`; unknown → `Disabled {label}. The loaded state could not be determined, so no unload was attempted.`
+- **Disable (quarantine)** confirmation body: `This task has no usable launchd label, so it cannot be told to stop through launchd.\n\nIt will be moved out of your LaunchAgents folder to:\n{dest}\n\nlaunchd will no longer load it from its original location. A running instance may stop, but this app cannot verify that without a usable label.`; buttons: `Cancel` / `Move and Disable`
+- **Quarantine result:** `Quarantined {source} to {dest}. launchd will no longer load it from its original location.`
+- **Enable (external) results:** loaded → `Enabled {label}.`; not loaded → `Enabled {label} and loaded it.`; unknown → `Enabled {label}. It could not be verified that it is loaded; it will start at the next login.`
+- **Enable tooltip (no label):** `This task has no usable launchd label, so it cannot be enabled through launchd. Edit the plist to add a valid label, or remove the task.`
+- **Run Now tooltip (external, not loaded/unknown):** `This task is not currently loaded in launchd. Enable it first to load it.` (no label: `This task has no usable launchd label.`)
+- **Remove (external)** confirmation title: `Remove External LaunchAgent?`; body: `Permanently remove this plist file?\n\n{path}\n\n{loaded_clause}A byte-identical backup is retained as a sibling file in the same folder.` (loaded_clause, loaded True: `It is currently running; it will be unloaded first.\n\n`); buttons: `Cancel` / `Remove`
+- **Remove (external) result:** `Removed {path}. A backup is retained at: {backup}.` (append ` It was unloaded first.` when the bootout phase ran)
+- **Remove (saved job)** confirmation title: `Remove Saved Task?`; body: `Remove this task from the managed catalog?\n\n{name} ({label}) is saved but not installed. Removing it deletes the saved definition; no launchd change is made.`; buttons: `Cancel` / `Remove`
+- **Remove (saved job) result:** `Removed {name} from the catalog.`
+- **Service errors (shown verbatim):** `cannot enable {path}: no usable launchd label`; `cannot run {path} now: no usable launchd label`; `launchd status is unknown for {label}`; `cannot run {path} now: it is not loaded in launchd`; `label cannot change in an external edit: {old} -> {new}`; `the replacement must contain a valid launchd label`; `the replacement is not a valid plist`; `the edit produced no changes`; `cannot structurally edit {path}: no representable job`; `label is already managed: {label}`; `launchd status is unknown for {label}; editing is not safe`; `the source plist changed outside this application; review it and open it again`; `path is not a direct child of the LaunchAgent root: {path}`; `path is not a regular non-symlink file: {path}`
 
-### Pinned contracts (Stage 0 implemented; lanes must not edit these files)
-- `application/external_edit_models.py`: `ExternalEditPhase(name, process)`,
-  `ExternalEditPreview(source_path, label, candidate, sha256, identity, loaded,
-  nonce)` with `identity = (st_dev, st_ino)`,
-  `ExternalEditResult(source_path, label, process, phases, completed_phases,
-  retained_artifacts, replaced, reloaded)` — `process` is `None` when no
-  launchctl phase ran (unloaded job). Exported via `application/__init__.py`.
-
-**Platform (Lane B owns):**
-- `filesystem.py`: `SourceChangedError(ValueError)`; frozen
-  `SourceSnapshot(payload, sha256, st_dev, st_ino, st_size)`; protocol adds
-  `read_snapshot(path) -> SourceSnapshot` (ValueError on symlink or
-  non-regular: `path is not a regular non-symlink file: {path}`) and
-  `replace_verified(source, destination, expected) -> None` (re-reads
-  destination; raises `SourceChangedError` when sha256 or (st_dev, st_ino)
-  differ; otherwise the same atomic replace as `replace`).
-- `launch_agent_store.py` (each raises ValueError
-  `path is outside the LaunchAgent root: {path}` when `path.parent != root`):
-  `read_external(path) -> SourceSnapshot`; `stage_external(path, payload) -> Path`
-  (sibling `{name}.staged.{attempt}`, 1001 attempts); `backup_external(path) -> Path`
-  (sibling `{name}.backup.{attempt}`, 1001 attempts); `activate_external(staged, destination, expected)`
-  (containment check both paths → `replace_verified` → remove staged).
-- `launchctl.py`: `bootstrap_path(label, path) -> LaunchctlResult` —
-  `validate_label(label)` + direct-child containment check, argv
-  `["/bin/launchctl", "bootstrap", "gui/<uid>", str(path)]`. Reuses existing
-  `bootout(label)`.
-- `platform/macos/__init__.py`: export `SourceSnapshot`, `SourceChangedError`.
-- `tests/fakes.py` (Lane B owns this file exclusively this increment):
-  `FakeFilesystem` gains `symlinks: set[str]` / `directories: set[str]`
-  rejection sets and an identity registry `(st_dev, st_ino)` per name;
-  `read_snapshot` (FileNotFoundError when absent; ValueError for the two
-  rejection sets; sha256 via hashlib) and `replace_verified`
-  (FileNotFoundError when source absent; SourceChangedError when destination
-  absent or snapshot differs; copy otherwise). `FakeProcessRunner` /
-  `FakeTaskWorld` unchanged otherwise.
-
-**Service (Lane C owns `application/task_command_service.py`):**
-- `preview_external_plist_edit(path) -> ExternalEditPreview` — read-only;
-  eligibility (each a ValueError): not a direct child of the store root
-  (`path is not a direct child of the LaunchAgent root: {path}`); snapshot
-  read failure (propagated); parse of `snapshot.payload` not SUPPORTED or job
-  None (`cannot edit {path}: {detail}`); label already managed
-  (`label is already managed: {label}`); launchd status unknown
-  (`launchd status is unknown for {label}; direct editing is not safe`).
-  `nonce = uuid4().hex`, `sha256`/`identity` from the snapshot, `loaded` from
-  `backend.status(label).loaded`.
-- `commit_external_plist_edit(preview, edited_job, *, nonce) -> ExternalEditResult`
-  — rejections (ValueError, in order): nonce mismatch (`preview nonce does not
-  match the previewed source`); label changed (`label cannot change in an
-  external edit: {old} -> {new}`); fresh `read_external` mismatch vs preview
-  (sha256 or identity: `the source plist changed outside this application;
-  review it and preview again`); write-time `SourceChangedError` propagates.
-  Transaction per pinned order; phases named `bootout`/`bootstrap`;
-  `completed_phases` lists successful launchctl phases only; success keeps the
-  backup in `retained_artifacts`; bootout failure keeps the staged sibling with
-  `replaced=False`; bootstrap failure keeps the backup with
-  `replaced=True, reloaded=False`. No catalog writes, no history events.
-
-**GUI (Lane D owns):**
-- `MainWindow.edit_external_action = QAction("Edit External Plist...")` in the
-  File menu after the import action; enabled only when the selected listing is
-  DISCOVERED, not managed, `parsed.status is ParseSupport.SUPPORTED`,
-  `parsed.job is not None`, and no lifecycle/external worker is busy. Dynamic
-  tooltip carries the pinned unavailable-reason wording for partially
-  supported / invalid DISCOVERED rows.
-- Flow: Gate A → `preview_external_plist_edit` (main thread, like import) →
-  `JobEditor.open_external(source_path, job)` (external mode: title, banner
-  objectName `editor-external-banner`, read-only label field, read-only
-  source-path line objectName `editor-source-path`, save text per wording, XML
-  group label `Proposed replacement plist`) → on valid accept,
-  `EditorController.save_external(draft) -> JobDefinition` (validate + build,
-  **no catalog write**; editor exposes `edited_job`, `saved_path` stays
-  `None`) → Gate B → QThread worker (LifecycleWorker pattern) →
-  `commit_external_plist_edit` → result presentation (replaced/reloaded,
-  retained artifacts incl. backup path, "remains External") → `refresh()`
-  preserving selection by path.
-- `edit_task_action` enabled only for managed selections (pinned decision 9).
+### Test invariants (12, suite-level)
+1. Structured edit of a PARTIALLY_SUPPORTED plist with a representable job
+   rewrites only the dirty fields; unsupported keys (e.g. KeepAlive,
+   LimitLoadToSessionType) survive identically in the post-edit dict.
+2. No-op structured save (no dirty fields / merged result equals original)
+   → zero writes, zero launchctl, service raises `the edit produced no
+   changes`; GUI suppresses the save flow with `No changes to save.`.
+3. Raw edit of a decoded-but-unrepresentable plist rewrites the file; the
+   replacement's label is preserved (or required); canonical XML is written.
+4. Raw edit of an undecodable source via the base64 mode decodes the
+   replacement to a plist dict and commits it.
+5. Universal disable: label + loaded → disable + bootout phases; label + not
+   loaded → disable only; label + unknown → disable only with disclosed
+   result; no label → quarantine (file moved, no launchctl, original path
+   gone, destination bytes identical).
+6. Quarantine never claims a process stop; the result wording states
+   unverifiability.
+7. Universal remove: external label + loaded → backup + bootout + removal
+   (backup bytes == original bytes; source absent; catalog untouched); no
+   label → backup + removal, no launchctl.
+8. Source drift between open and commit (bytes and identity) → commit/remove
+   refused with the pinned message; write-time drift →
+   `SourceChangedError` surfaces.
+9. External operations never touch the managed catalog (no catalog JSON
+   created/updated/deleted; the listing is unchanged).
+10. GUI universal availability: Edit/Disable/Remove enabled for every row
+    class (managed saved/installed, external supported/partial/invalid,
+    with/without label); Enable/Run Now gated per the state matrix with the
+    pinned tooltips.
+11. All four parse states (SUPPORTED, PARTIALLY_SUPPORTED, INVALID decoded,
+    INVALID undecodable) produce an openable session (structured when a job
+    exists, raw otherwise) in the correct mode.
+12. Full `make check` green + 100% line coverage + ratio ≤ 75%.
 
 ### Lane map and wave order
-- **Wave 0 (build, serial):** Stage 0 DTOs + exports + model tests; this
-  plan/TODOS/PROJECT; plan commit.
+- **Stage 0 (build, serial):** `ExternalEditField` + exports; session/result
+  DTOs (narrow DTOs retained); DTO tests; this plan + TODOS/PROJECT; commit.
 - **Wave 1 (parallel, faster):**
-  - **Lane A** — `gui/models/agent_table_model.py` (header → `headerData`) +
-    `tests/unit/gui/test_agent_table_model.py` (assert via
-    `headerData(..., DisplayRole)`, incl. through the filter proxy). Stop: its
-    tests green; forbidden: `main_window.py`, `test_main_window.py`,
-    `tests/fakes.py`.
-  - **Lane B** — platform ops + fakes + platform tests. Stop: platform tests
-    green; forbidden: `application/*`, `gui/*`, `test_main_window.py`.
-  - **Lane C** — service methods + `tests/unit/application/test_external_edit_service.py`,
-    coding against the pinned platform/fake APIs. Stop: service tests green;
-    forbidden: `platform/*`, `tests/fakes.py`, `gui/*`.
-- **Integration (build, serial):** `make check`; review lane diffs vs.
-  contract; composition gates — no catalog writes on commit, exact-path
-  bootstrap argv, no real `launchctl`/LaunchAgents in unit tests, headers
-  render through the proxy.
-- **Wave 2 (parallel, faster):**
-  - **Lane D** — GUI (main_window, job_editor, editor_controller, new dialog,
-    GUI tests).
-  - **Lane E** — docs only (README, `docs/architecture.md`,
-    `docs/development.md`); no production edits.
-- **Closeout (build, serial):** `make check` + 100% whole-package coverage;
-  ratio enforcement (gate below); version 0.0.26 → 0.0.27 at all four
-  registry locations; stale-version grep; SUMMARY.md changelog; PROJECT/TODOS
-  status; commit + push.
+  - **Lane A** — platform: `remove_verified`, `backup_external_from_snapshot`,
+    `quarantine_external`, `remove_external_verified`, `merge_external_edit`,
+    fakes, platform tests. Stop: platform tests green. Forbidden:
+    `application/*`, `gui/*`.
+  - **Lane B** — service: universal API (session, structured/raw commit,
+    disable/enable/run_now/remove external, remove_saved_job), deletes the
+    narrow preview/commit + narrow service tests, new
+    `tests/unit/application/test_external_control_service.py`. Stop: service
+    tests green. Forbidden: `platform/*`, `gui/*`, `tests/fakes.py`.
+  - **Lane C** — GUI: main_window, lifecycle_controller, job_editor,
+    editor_controller, raw_plist_editor (new), external_control_dialog
+    (new), external_control_worker (new), all GUI test rewrites. Stop: GUI
+    tests green. Forbidden: `platform/*`, `application/*`.
+- **Integration (build, serial):** `make check`; review lane diffs vs. the
+  pinned contracts; composition gates — no catalog writes on any external op;
+  quarantine is a byte-identical move; bootout-before-activate order on
+  loaded rows; no real `launchctl`/LaunchAgents in unit tests.
+- **Wave 2 (parallel, faster):** **Lane D** — docs only (README,
+  `docs/architecture.md`, `docs/development.md`): universal controls +
+  preservation contract, replacing the narrow external-edit sections.
+- **Closeout (build, serial):** ratio trim to ≤ 75%; version 0.0.26 → 0.0.27
+  at all four registry locations; stale-version grep; SUMMARY.md changelog;
+  PROJECT/TODOS status; commit + push.
 
 ### Shared-surface inventory (ownership, exclusive)
 | Surface | Owner |
 |---|---|
-| `application/external_edit_models.py` + `application/__init__.py` | Stage 0 (pinned; no lane edits) |
-| `gui/models/agent_table_model.py` + its test file | Lane A |
-| `platform/macos/filesystem.py`, `launch_agent_store.py`, `launchctl.py`, `platform/macos/__init__.py`, `tests/fakes.py` | Lane B |
-| `application/task_command_service.py` + service tests | Lane C |
-| `gui/main_window.py`, `gui/widgets/job_editor.py`, `gui/controllers/editor_controller.py`, new dialog widget, GUI tests | Lane D |
-| README, `docs/architecture.md`, `docs/development.md` | Lane E |
+| `platform/macos/plist_models.py` (`ExternalEditField`), `application/external_edit_models.py` (DTOs), `application/__init__.py` | Stage 0 (pinned; no lane edits) |
+| `platform/macos/filesystem.py`, `launch_agent_store.py`, `plist_codec.py` (merge), `platform/macos/__init__.py`, `tests/fakes.py` | Lane A |
+| `application/task_command_service.py` + `tests/unit/application/test_external_control_service.py` (+ deletes the old narrow service tests) | Lane B |
+| `gui/main_window.py`, `gui/controllers/lifecycle_controller.py`, `gui/widgets/job_editor.py`, `gui/controllers/editor_controller.py`, `gui/widgets/raw_plist_editor.py` (new), `gui/widgets/external_control_dialog.py` (new), `gui/controllers/external_control_worker.py` (new), GUI tests | Lane C |
+| README, `docs/architecture.md`, `docs/development.md` | Lane D |
 
-### Test gates
-- Lane A: `headerData` returns `COLUMNS` for the five horizontal sections on
-  the source model and through `AgentFilterProxyModel`; vertical headers
-  unchanged; no regression in existing model tests.
-- Lane B: symlink/non-regular/outside-root rejection; stage/backup sibling
-  naming; verified replace on match; `SourceChangedError` on byte or identity
-  drift; `bootstrap_path` argv + containment; LocalFilesystem behavior against
-  `tmp_path` (no launchctl).
-- Lane C: eligibility rejections (partial, invalid, unrepresentable, managed,
-  outside root, symlink, status-unknown) with zero writes and zero launchctl
-  calls; label-change and nonce rejections; TOCTOU rejections (bytes and
-  identity drift); loaded success order (stage → bootout → backup → activate →
-  bootstrap exact path) with backup retained; unloaded success (no launchctl
-  calls, `process=None`); bootout/bootstrap failure artifact states; catalog
-  untouched in every case; existing import/reinstall tests unchanged.
-- Lane D: action gating across all row classes; Gate A/B wording verbatim;
-  cancellations produce no writes/launchctl; external editor mode (banner,
-  read-only label/path, save text); success refresh + External classification +
-  path selection preserved; source-change conflict message; reload-failure
-  message with retained backup path; edit-action managed-only gating.
-- Whole suite: `make check` green, 100% line coverage, ruff + mypy strict.
-
-### Ratio closeout gate (hard constraint, measured 2026-09-10)
+### Ratio closeout gate (hard constraint, carried over from the 2026-09-10 plan)
 Current state: **8,304 test : 10,989 src = 75.56% — over the 75% cap** (the
 v0.0.25/26 usability fixes grew the suite past the cap; disclosed in SUMMARY
-at closeout). This increment adds roughly +650 src / +1,200 tests, so
-closeout must cut ~700+ existing test lines **coverage-preservingly**
-(consolidate redundancy, parametrize, drop test units whose covered lines are
-fully covered by survivors — the v0.0.20 coverage-kernel minimization
-approach) until `tests ≤ 0.75 × src`, with 100% line coverage held. Lanes must
-write compact tests (parametrize aggressively; no per-case fixture
-duplication) to minimize the cut. Cutting before green is forbidden; cutting
-happens only in the serial closeout.
+at closeout). This increment adds roughly +900 src / +1,800 tests (universal
+service + raw editor + universal GUI), so closeout must cut ~1,000+ existing
+test lines **coverage-preservingly** (consolidate redundancy, parametrize,
+drop test units whose covered lines are fully covered by survivors — the
+v0.0.20 coverage-kernel minimization approach) until `tests ≤ 0.75 × src`,
+with 100% line coverage held. Lanes must write compact tests (parametrize
+aggressively; no per-case fixture duplication) to minimize the cut. Cutting
+before green is forbidden; cutting happens only in the serial closeout.

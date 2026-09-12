@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import plistlib
 from pathlib import Path
 from uuid import UUID
 
@@ -14,6 +15,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QLabel,
     QLineEdit,
+    QMenu,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
@@ -24,7 +26,7 @@ from pytestqt.qtbot import QtBot
 from tests.fakes import FakeTaskWorld
 
 from conftest import make_job
-from task_scheduler.application import TaskCommandService
+from task_scheduler.application import ExternalEditPreview, TaskCommandService
 from task_scheduler.application.task_command_service import (
     ListingKind,
     TaskListing,
@@ -40,6 +42,7 @@ from task_scheduler.gui.controllers.diagnostics_controller import (
 from task_scheduler.gui.controllers.diagnostics_worker import DiagnosticsWorker
 from task_scheduler.gui.controllers.discovery_controller import DiscoveryController
 from task_scheduler.gui.controllers.editor_controller import EditorController
+from task_scheduler.gui.controllers.external_edit_worker import ExternalEditWorker
 from task_scheduler.gui.controllers.history_controller import (
     HistoryController,
 )
@@ -55,17 +58,25 @@ from task_scheduler.gui.controllers.lifecycle_controller import (
     LifecycleOutcome,
 )
 from task_scheduler.gui.controllers.lifecycle_worker import LifecycleWorker
-from task_scheduler.gui.main_window import MainWindow
+from task_scheduler.gui.main_window import (
+    EXTERNAL_EDIT_RELOAD_FAILED,
+    EXTERNAL_EDIT_SUCCESS_LOADED,
+    EXTERNAL_EDIT_SUCCESS_UNLOADED,
+    EXTERNAL_EDIT_UNAVAILABLE_INVALID,
+    EXTERNAL_EDIT_UNAVAILABLE_PARTIAL,
+    MainWindow,
+)
 from task_scheduler.gui.models.agent_table_model import AgentTableModel
 from task_scheduler.gui.presenters.agent_presenter import (
     format_name,
     shell_safe_command,
 )
 from task_scheduler.gui.widgets.agent_inspector import AgentInspector
+from task_scheduler.gui.widgets.external_edit_dialog import ExternalEditDialog
 from task_scheduler.gui.widgets.import_preview_dialog import ImportPreviewDialog
 from task_scheduler.gui.widgets.job_editor import JobEditor
 from task_scheduler.gui.widgets.lifecycle_result import LifecycleResultDialog
-from task_scheduler.platform.macos import ProcessResult, parse_path
+from task_scheduler.platform.macos import ParseSupport, ProcessResult, parse_path
 
 EXTERNAL_A_ID = UUID("11111111-1111-4111-8111-111111111111")
 EXTERNAL_B_ID = UUID("22222222-2222-4222-8222-222222222222")
@@ -1009,3 +1020,331 @@ class TestWave3Composition:
         monkeypatch.setattr(window, "_selected_listing", lambda: bare)
         window._on_copy_command()
         assert "No command available" in window.statusBar().currentMessage()
+
+# -- direct external edit ------------------------------------------------------
+
+EXTERNAL_EDIT_LABEL = "com.example.editable"
+EXTERNAL_EDIT_PATH = f"{EXTERNAL_EDIT_LABEL}.plist"
+
+
+def _seed_external(
+    tmp_path: Path, *, launches: list[ProcessResult] | None = None
+) -> FakeTaskWorld:
+    world = FakeTaskWorld(tmp_path, launches=launches)
+    world.store.write(make_job(label=EXTERNAL_EDIT_LABEL, name="External Editable"))
+    return world
+
+
+def _write_plist(world: FakeTaskWorld, label: str, raw: dict[str, object]) -> Path:
+    path = world.la_root / f"{label}.plist"
+    path.write_bytes(plistlib.dumps(raw))
+    return path
+
+
+def _fake_gates(
+    monkeypatch: pytest.MonkeyPatch, *, accept_gate_a: bool = True, accept_gate_b: bool = True
+) -> list[ExternalEditDialog]:
+    """Script both confirmation gates and record which ones were shown."""
+    gates: list[ExternalEditDialog] = []
+
+    def fake_exec(self: ExternalEditDialog) -> int:
+        gates.append(self)
+        if self.windowTitle() == "Edit External LaunchAgent?":
+            accepted = accept_gate_a
+        else:
+            accepted = accept_gate_b
+        return QDialog.DialogCode.Accepted if accepted else QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(ExternalEditDialog, "exec", fake_exec)
+    return gates
+
+
+def _fake_editor_save(
+    window: MainWindow, monkeypatch: pytest.MonkeyPatch, save: bool = True
+) -> None:
+    """Run the editor's save synchronously and return the scripted dialog result."""
+    editor = window._editor
+
+    def fake_exec(self: JobEditor) -> int:
+        if save:
+            self._on_save()
+            return QDialog.DialogCode.Accepted
+        return QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(editor, "exec", fake_exec)
+
+
+def _run_external_synchronously(
+    window: MainWindow, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _start(worker: ExternalEditWorker) -> None:
+        worker.finished.connect(window._on_external_finished)
+        worker.run()
+
+    monkeypatch.setattr(window, "_start_external_worker", _start)
+
+
+def _select_external_row(window: MainWindow, world: FakeTaskWorld) -> None:
+    path = world.store.destination_for(EXTERNAL_EDIT_LABEL)
+    row = _row_by_path(window.table.model(), path)
+    window.table.setCurrentIndex(window.table.model().index(row, 0))
+
+
+class TestEditExternalGating:
+    @pytest.mark.parametrize(
+        ("seed", "label", "enabled", "tooltip"),
+        [
+            ("none", None, False, ""),
+            ("managed", "io.github.macos-task-scheduler.user.daily-backup", False, ""),
+            ("saved", "com.example.saved-only", False, ""),
+            (EXTERNAL_EDIT_PATH, EXTERNAL_EDIT_LABEL, True, ""),
+            (
+                "com.example.partial.plist",
+                "com.example.partial",
+                False,
+                EXTERNAL_EDIT_UNAVAILABLE_PARTIAL,
+            ),
+            (
+                "com.example.invalid.plist",
+                "com.example.invalid",
+                False,
+                EXTERNAL_EDIT_UNAVAILABLE_INVALID,
+            ),
+        ],
+    )
+    def test_action_enabled_only_for_supported_external(
+        self,
+        qtbot: QtBot,
+        tmp_path: Path,
+        seed: str,
+        label: str | None,
+        enabled: bool,
+        tooltip: str,
+    ) -> None:
+        world = FakeTaskWorld(tmp_path)
+        if seed == "managed":
+            world.manage(make_job())
+        elif seed == "saved":
+            world.jobs.import_job(make_job(label="com.example.saved-only"))
+        elif seed == EXTERNAL_EDIT_PATH:
+            world.store.write(make_job(label=EXTERNAL_EDIT_LABEL))
+        elif seed == "com.example.partial.plist":
+            _write_plist(
+                world,
+                "com.example.partial",
+                {
+                    "Label": "com.example.partial",
+                    "ProgramArguments": ["/bin/sh", "-c", "echo partial"],
+                    "StartInterval": 60,
+                    "KeepAlive": True,
+                },
+            )
+        elif seed == "com.example.invalid.plist":
+            _write_plist(world, "com.example.invalid", {"Label": "com.example.invalid"})
+        window = _window_full(qtbot, DiscoveryController(world.services))
+        if label is not None:
+            _select_row = _row_by_path(window.table.model(), world.la_root / f"{label}.plist")
+            window.table.setCurrentIndex(window.table.model().index(_select_row, 0))
+        assert window.edit_external_action.isEnabled() is enabled
+        assert window.edit_external_action.toolTip() == tooltip
+
+    def test_action_disabled_while_external_busy(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world = _seed_external(tmp_path)
+        window = _window_full(qtbot, DiscoveryController(world.services))
+        _select_external_row(window, world)
+        assert window.edit_external_action.isEnabled()
+        assert window.edit_task_action.isEnabled() is False
+        window._external_busy = True
+        window._update_lifecycle_actions()
+        assert not window.edit_external_action.isEnabled()
+
+    def test_action_follows_import_in_file_menu(self, qtbot: QtBot, tmp_path: Path) -> None:
+        window = _window_full(
+            qtbot, DiscoveryController(FakeTaskWorld(tmp_path).services)
+        )
+        menus = window.menuBar().findChildren(QMenu)
+        file_menu = next(menu for menu in menus if menu.title() == "File")
+        texts = [action.text() for action in file_menu.actions()]
+        assert texts.index("Edit External Plist...") == (
+            texts.index("Import as Managed Job...") + 1
+        )
+
+
+class TestEditTaskGating:
+    def test_edit_task_enabled_only_for_managed_rows(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world, managed, external_a, _ = _seed_three(tmp_path)
+        window = _window_full(qtbot, DiscoveryController(world.services))
+        model = window.table.model()
+        managed_row = _row_by_path(model, world.store.destination_for(managed.label))
+        window.table.setCurrentIndex(model.index(managed_row, 0))
+        assert window.edit_task_action.isEnabled()
+        external_row = _row_by_path(model, world.store.destination_for(external_a.label))
+        window.table.setCurrentIndex(model.index(external_row, 0))
+        assert not window.edit_task_action.isEnabled()
+
+
+class TestExternalEditFlow:
+    def test_loaded_success_replaces_reloads_and_keeps_external(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        world = _seed_external(tmp_path)
+        window = _window_full(qtbot, DiscoveryController(world.services))
+        gates = _fake_gates(monkeypatch)
+        _fake_editor_save(window, monkeypatch)
+        _run_external_synchronously(window, monkeypatch)
+        _select_external_row(window, world)
+        window.edit_external_action.trigger()
+        assert [g.windowTitle() for g in gates] == [
+            "Edit External LaunchAgent?",
+            "Replace External LaunchAgent Plist?",
+        ]
+        path = world.store.destination_for(EXTERNAL_EDIT_LABEL)
+        assert parse_path(path).status is ParseSupport.SUPPORTED
+        assert parse_path(path).job is not None
+        backups = sorted(world.la_root.glob("*.backup.*"))
+        assert len(backups) == 1
+        assert world.jobs.list_jobs() == []
+        assert not window._external_busy
+        listing = window._selected_listing()
+        assert listing is not None and listing.kind is ListingKind.DISCOVERED
+        assert listing.managed is False and listing.job is None
+        assert window.table.currentIndex().row() == _row_by_path(
+            window.table.model(), path
+        )
+        assert window.statusBar().currentMessage() == EXTERNAL_EDIT_SUCCESS_LOADED
+        argvs = [spec.argv for spec in world.launch_runner.specs]
+        assert argvs.count(["/bin/launchctl", "bootout", f"gui/1000/{EXTERNAL_EDIT_LABEL}"]) == 1
+        assert argvs.count(["/bin/launchctl", "bootstrap", "gui/1000", str(path)]) == 1
+
+    def test_gate_a_cancel_writes_nothing(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        world = _seed_external(tmp_path)
+        window = _window_full(qtbot, DiscoveryController(world.services))
+        gates = _fake_gates(monkeypatch, accept_gate_a=False)
+        _fake_editor_save(window, monkeypatch)
+        _run_external_synchronously(window, monkeypatch)
+        path = world.store.destination_for(EXTERNAL_EDIT_LABEL)
+        before = path.read_bytes()
+        specs_before = len(world.launch_runner.specs)
+        _select_external_row(window, world)
+        window.edit_external_action.trigger()
+        assert [g.windowTitle() for g in gates] == ["Edit External LaunchAgent?"]
+        assert path.read_bytes() == before
+        assert world.launch_runner.specs[specs_before:] == []
+        assert list(world.la_root.iterdir()) == [path]
+        assert not window._external_busy
+
+    def test_gate_b_cancel_writes_nothing(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        world = _seed_external(tmp_path)
+        window = _window_full(qtbot, DiscoveryController(world.services))
+        gates = _fake_gates(monkeypatch, accept_gate_b=False)
+        _fake_editor_save(window, monkeypatch)
+        _run_external_synchronously(window, monkeypatch)
+        path = world.store.destination_for(EXTERNAL_EDIT_LABEL)
+        before = path.read_bytes()
+        specs_before = len(world.launch_runner.specs)
+        _select_external_row(window, world)
+        window.edit_external_action.trigger()
+        assert [g.windowTitle() for g in gates] == [
+            "Edit External LaunchAgent?",
+            "Replace External LaunchAgent Plist?",
+        ]
+        assert path.read_bytes() == before
+        assert all("print" in spec.argv for spec in world.launch_runner.specs[specs_before:])
+        assert not window._external_busy
+
+    def test_editor_reject_stops_before_gate_b(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        world = _seed_external(tmp_path)
+        window = _window_full(qtbot, DiscoveryController(world.services))
+        gates = _fake_gates(monkeypatch)
+        _fake_editor_save(window, monkeypatch, save=False)
+        _run_external_synchronously(window, monkeypatch)
+        path = world.store.destination_for(EXTERNAL_EDIT_LABEL)
+        before = path.read_bytes()
+        _select_external_row(window, world)
+        window.edit_external_action.trigger()
+        assert [g.windowTitle() for g in gates] == ["Edit External LaunchAgent?"]
+        assert path.read_bytes() == before
+        assert not window._external_busy
+
+    def test_source_changed_conflict_message(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        world = _seed_external(tmp_path)
+        window = _window_full(qtbot, DiscoveryController(world.services))
+        _fake_gates(monkeypatch)
+        _fake_editor_save(window, monkeypatch)
+        _run_external_synchronously(window, monkeypatch)
+        original = world.services.preview_external_plist_edit
+
+        def drift_then_preview(p: Path) -> ExternalEditPreview:
+            preview = original(p)
+            p.write_bytes(b"changed after preview")
+            return preview
+
+        monkeypatch.setattr(world.services, "preview_external_plist_edit", drift_then_preview)
+        _select_external_row(window, world)
+        window.edit_external_action.trigger()
+        assert window.statusBar().currentMessage() == (
+            "the source plist changed outside this application; review it and preview again"
+        )
+        assert world.jobs.list_jobs() == []
+
+    def test_bootstrap_failure_reports_retained_backup(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fail = ProcessResult(exit_code=1)
+        ok = ProcessResult(exit_code=0)
+        world = _seed_external(tmp_path, launches=[ok, ok, ok, fail])
+        window = _window_full(qtbot, DiscoveryController(world.services))
+        _fake_gates(monkeypatch)
+        _fake_editor_save(window, monkeypatch)
+        _run_external_synchronously(window, monkeypatch)
+        _select_external_row(window, world)
+        window.edit_external_action.trigger()
+        path = world.store.destination_for(EXTERNAL_EDIT_LABEL)
+        assert parse_path(path).status is ParseSupport.SUPPORTED
+        backups = sorted(world.la_root.glob("*.backup.*"))
+        assert len(backups) == 1
+        assert window.statusBar().currentMessage() == EXTERNAL_EDIT_RELOAD_FAILED.format(
+            backup=str(backups[0])
+        )
+
+    def test_unloaded_success_runs_no_launchctl(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        not_loaded = ProcessResult(exit_code=1)
+        world = _seed_external(tmp_path, launches=[not_loaded, not_loaded])
+        window = _window_full(qtbot, DiscoveryController(world.services))
+        _fake_gates(monkeypatch)
+        _fake_editor_save(window, monkeypatch)
+        _run_external_synchronously(window, monkeypatch)
+        _select_external_row(window, world)
+        window.edit_external_action.trigger()
+        path = world.store.destination_for(EXTERNAL_EDIT_LABEL)
+        assert parse_path(path).status is ParseSupport.SUPPORTED
+        assert window.statusBar().currentMessage() == EXTERNAL_EDIT_SUCCESS_UNLOADED
+        argvs = [spec.argv for spec in world.launch_runner.specs]
+        assert len(argvs) == 2
+        assert all("print" in argv for argv in argvs)
+
+    def test_unknown_status_refuses_preview(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        unknown = ProcessResult(exit_code=None)
+        world = _seed_external(tmp_path, launches=[unknown, unknown])
+        window = _window_full(qtbot, DiscoveryController(world.services))
+        gates = _fake_gates(monkeypatch)
+        _select_external_row(window, world)
+        window.edit_external_action.trigger()
+        assert [g.windowTitle() for g in gates] == ["Edit External LaunchAgent?"]
+        assert window.statusBar().currentMessage() == (
+            "Cannot edit: launchd status is unknown for "
+            f"{EXTERNAL_EDIT_LABEL}; direct editing is not safe"
+        )
+        assert world.jobs.list_jobs() == []
