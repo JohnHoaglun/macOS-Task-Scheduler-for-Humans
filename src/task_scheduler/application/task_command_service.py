@@ -9,6 +9,7 @@ returns structured results, never presentation text.
 
 from __future__ import annotations
 
+import plistlib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -33,8 +34,8 @@ from task_scheduler.application.diagnostic_service import (
 )
 from task_scheduler.application.external_edit_models import (
     ExternalEditPhase,
-    ExternalEditPreview,
     ExternalEditResult,
+    ExternalEditSession,
 )
 from task_scheduler.application.external_import import ExternalPlistImportPreview
 from task_scheduler.application.history_models import (
@@ -55,6 +56,7 @@ from task_scheduler.application.test_service import DirectTestResult, DirectTest
 from task_scheduler.domain import Command, JobDefinition, PythonCommand, Schedule
 from task_scheduler.platform.macos import (
     EnvironmentDifference,
+    ExternalEditField,
     FinderRevealer,
     LaunchAgentBackend,
     LaunchAgentStatus,
@@ -66,6 +68,7 @@ from task_scheduler.platform.macos import (
     ProcessResult,
     PythonDetectionResult,
     compare_environments,
+    merge_external_edit,
     parse_bytes,
     parse_path,
     validate_label,
@@ -772,91 +775,107 @@ class TaskCommandService:
                 return group.diagnostics
         return ()
 
-    # -- external plist edit ---------------------------------------------------
+    # -- universal task controls (external) --------------------------------------
 
-    def preview_external_plist_edit(self, path: Path) -> ExternalEditPreview:
-        """Preview editing an external LaunchAgent plist at *path*.
+    def open_external_edit_session(self, path: Path) -> ExternalEditSession:
+        """Open an edit session for the external LaunchAgent plist at *path*.
 
-        Read-only. Raises ``ValueError`` when the plist is ineligible
-        for direct editing (outside the root, unsupported, managed, or
-        has an unknown launchd status).
+        Root-contains, regular non-symlink file; snapshot + parse; usable
+        label check, managed-catalog guard, and launchd status check when
+        a label exists. Returns a session snapshot for commit / control ops.
         """
         root = self._store.root
         if path.parent != root:
             raise ValueError(f"path is not a direct child of the LaunchAgent root: {path}")
 
         snapshot = self._store.read_external(path)
-
         parsed = parse_bytes(snapshot.payload)
-        if parsed.status is not ParseSupport.SUPPORTED or parsed.job is None:
-            detail = "; ".join(parsed.warnings) if parsed.warnings else "not representable"
-            raise ValueError(f"cannot edit {path}: {detail}")
 
-        label = parsed.job.label
-        if self._jobs.find(label) is not None:
-            raise ValueError(f"label is already managed: {label}")
+        label: str | None = None
+        if "Label" in parsed.raw:
+            candidate = parsed.raw["Label"]
+            if isinstance(candidate, str) and candidate:
+                label = candidate
 
-        status = self._backend.status(label)
-        if status.loaded is None:
-            raise ValueError(f"launchd status is unknown for {label}; direct editing is not safe")
+        if label is not None:
+            if self._jobs.find(label) is not None:
+                raise ValueError(f"label is already managed: {label}")
+            try:
+                status = self._backend.status(label)
+                loaded_or_none: bool | None = status.loaded
+            except ValueError:
+                loaded_or_none = None
+        else:
+            loaded_or_none = None
 
-        return ExternalEditPreview(
+        return ExternalEditSession(
             source_path=path,
-            label=label,
-            candidate=parsed.job,
             sha256=snapshot.sha256,
             identity=(snapshot.st_dev, snapshot.st_ino),
-            loaded=status.loaded,
             nonce=uuid4().hex,
+            label=label,
+            loaded=loaded_or_none,
+            original=parsed.raw if parsed.raw else None,
+            status=parsed.status,
+            job=parsed.job,
         )
 
-    def commit_external_plist_edit(
+    def commit_structured_external_edit(
         self,
-        preview: ExternalEditPreview,
-        edited_job: JobDefinition,
-        *,
-        nonce: str,
+        session: ExternalEditSession,
+        job: JobDefinition,
+        dirty: frozenset[ExternalEditField],
     ) -> ExternalEditResult:
-        """Commit an external-plist edit transaction.
+        """Save a structured patch into an external plist, preserving other keys.
 
-        Raises ``ValueError`` when the nonce, label, or source identity
-        does not match the previewed state.  Returns the transaction result
-        describing every phase and its artifacts.
+        Raises ``ValueError`` when the session is invalid, the label changed,
+        no changes were produced, or the source drifted.
         """
-        if nonce != preview.nonce:
-            raise ValueError("preview nonce does not match the previewed source")
-        if edited_job.label != preview.label:
+        path = session.source_path
+        if session.job is None:
+            raise ValueError(f"cannot structurally edit {path}: no representable job")
+        if job.label != session.label:
             raise ValueError(
-                f"label cannot change in an external edit: {preview.label} -> {edited_job.label}"
+                f"label cannot change in an external edit: {session.label} -> {job.label}"
             )
+        if not dirty:
+            raise ValueError("the edit produced no changes")
 
-        fresh = self._store.read_external(preview.source_path)
-        if (
-            fresh.sha256 != preview.sha256
-            or (fresh.st_dev, fresh.st_ino) != preview.identity
-        ):
+        original = session.original
+        if original is None:
+            raise ValueError("the edit produced no changes")
+
+        merged = merge_external_edit(original, job, dirty=dirty)
+        if merged == original:
+            raise ValueError("the edit produced no changes")
+
+        # Source drift check
+        fresh = self._store.read_external(path)
+        if fresh.sha256 != session.sha256 or (fresh.st_dev, fresh.st_ino) != session.identity:
             raise ValueError(
                 "the source plist changed outside this application; "
-                "review it and preview again"
+                "review it and open it again"
             )
 
+        assert session.label is not None
+
+        # Transaction
         phases: list[ExternalEditPhase] = []
         completed: list[str] = []
-        retained: list[Path] = []
         last_process: ProcessResult | None = None
 
-        new_bytes = self._codec.encode_bytes(edited_job)
-        staged = self._store.stage_external(preview.source_path, new_bytes)
+        new_bytes = plistlib.dumps(merged, fmt=plistlib.FMT_XML)
+        staged = self._store.stage_external(path, new_bytes)
 
-        if preview.loaded:
-            bootout_result = self._backend.bootout(preview.label)
+        if session.loaded:
+            bootout_result = self._backend.bootout(session.label)
             bootout_phase = ExternalEditPhase("bootout", bootout_result.process)
             phases.append(bootout_phase)
             if bootout_result.process.exit_code != 0:
                 last_process = bootout_result.process
                 return ExternalEditResult(
-                    source_path=preview.source_path,
-                    label=preview.label,
+                    source_path=path,
+                    label=session.label,
                     process=last_process,
                     phases=tuple(phases),
                     completed_phases=(),
@@ -866,40 +885,361 @@ class TaskCommandService:
                 )
             completed.append("bootout")
 
-        backup = self._store.backup_external(preview.source_path)
-        retained.append(backup)
-
-        self._store.activate_external(staged, preview.source_path, fresh)
+        backup = self._store.backup_external_from_snapshot(path, fresh)
+        self._store.activate_external(staged, path, fresh)
 
         reloaded = False
-        if preview.loaded:
-            bootstrap_result = self._backend.bootstrap_path(preview.label, preview.source_path)
+        if session.loaded:
+            bootstrap_result = self._backend.bootstrap_path(session.label, path)
             bootstrap_phase = ExternalEditPhase("bootstrap", bootstrap_result.process)
             phases.append(bootstrap_phase)
             if bootstrap_result.process.exit_code == 0:
                 completed.append("bootstrap")
             reloaded = bootstrap_result.process.exit_code == 0
             last_process = bootstrap_result.process
-            retained_artifacts = tuple(retained)
-            return ExternalEditResult(
-                source_path=preview.source_path,
-                label=preview.label,
-                process=last_process,
-                phases=tuple(phases),
-                completed_phases=tuple(completed),
-                retained_artifacts=retained_artifacts,
-                replaced=True,
-                reloaded=reloaded,
+        else:
+            last_process = None
+
+        return ExternalEditResult(
+            source_path=path,
+            label=session.label,
+            process=last_process,
+            phases=tuple(phases),
+            completed_phases=tuple(completed),
+            retained_artifacts=(backup,),
+            replaced=True,
+            reloaded=reloaded,
+        )
+
+    def commit_raw_external_edit(
+        self,
+        session: ExternalEditSession,
+        replacement_text: str,
+    ) -> ExternalEditResult:
+        """Replace an external plist with canonical XML text.
+
+        Raises ``ValueError`` on invalid input, label mismatch, or source drift.
+        """
+        path = session.source_path
+        try:
+            parsed_replacement = plistlib.loads(replacement_text.encode("utf-8"))
+        except Exception:
+            raise ValueError("the replacement is not a valid plist") from None
+        if not isinstance(parsed_replacement, dict):
+            raise ValueError("the replacement is not a valid plist")
+
+        new_label: str | None = parsed_replacement.get("Label")
+        if not isinstance(new_label, str) or not new_label:
+            new_label = None
+
+        if session.label is not None and new_label is not None and new_label != session.label:
+            raise ValueError(
+                f"label cannot change in an external edit: {session.label} -> {new_label}"
+            )
+        if new_label is None:
+            raise ValueError("the replacement must contain a valid launchd label")
+
+        # No-change check: compare canonical bytes to current source
+        current_bytes = path.read_bytes()
+        replacement_canonical = plistlib.dumps(
+            parsed_replacement, fmt=plistlib.FMT_XML
+        )
+        if replacement_canonical == current_bytes:
+            raise ValueError("the edit produced no changes")
+
+        # Source drift
+        fresh = self._store.read_external(path)
+        if fresh.sha256 != session.sha256 or (fresh.st_dev, fresh.st_ino) != session.identity:
+            raise ValueError(
+                "the source plist changed outside this application; "
+                "review it and open it again"
             )
 
-        retained_artifacts = tuple(retained)
+        # Transaction
+        phases: list[ExternalEditPhase] = []
+        completed: list[str] = []
+        last_process: ProcessResult | None = None
+
+        assert session.label is not None
+
+        staged = self._store.stage_external(path, replacement_canonical)
+
+        if session.loaded:
+            bootout_result = self._backend.bootout(session.label)
+            bootout_phase = ExternalEditPhase("bootout", bootout_result.process)
+            phases.append(bootout_phase)
+            if bootout_result.process.exit_code != 0:
+                last_process = bootout_result.process
+                return ExternalEditResult(
+                    source_path=path,
+                    label=session.label,
+                    process=last_process,
+                    phases=tuple(phases),
+                    completed_phases=(),
+                    retained_artifacts=(staged,),
+                    replaced=False,
+                    reloaded=False,
+                )
+            completed.append("bootout")
+
+        backup = self._store.backup_external_from_snapshot(path, fresh)
+        self._store.activate_external(staged, path, fresh)
+
+        if session.loaded:
+            bootstrap_result = self._backend.bootstrap_path(session.label, path)
+            bootstrap_phase = ExternalEditPhase("bootstrap", bootstrap_result.process)
+            phases.append(bootstrap_phase)
+            if bootstrap_result.process.exit_code == 0:
+                completed.append("bootstrap")
+            last_process = bootstrap_result.process
+        else:
+            last_process = None
+
         return ExternalEditResult(
-            source_path=preview.source_path,
-            label=preview.label,
-            process=None,
-            phases=(),
-            completed_phases=(),
-            retained_artifacts=retained_artifacts,
+            source_path=path,
+            label=session.label,
+            process=last_process,
+            phases=tuple(phases),
+            completed_phases=tuple(completed),
+            retained_artifacts=(backup,),
             replaced=True,
+            reloaded=bool(
+                session.loaded
+                and last_process is not None
+                and last_process.exit_code == 0
+            ),
+        )
+
+    def disable_external(self, path: Path) -> ExternalEditResult:
+        """Disable an external LaunchAgent or quarantine if no label."""
+        root = self._store.root
+        if path.parent != root:
+            raise ValueError(f"path is outside the LaunchAgent root: {path}")
+
+        snapshot = self._store.read_external(path)
+        parsed = parse_bytes(snapshot.payload)
+
+        label: str | None = None
+        if "Label" in parsed.raw:
+            candidate = parsed.raw["Label"]
+            if isinstance(candidate, str) and candidate:
+                label = candidate
+
+        if label is None:
+            dest = self._store.quarantine_external(path)
+            return ExternalEditResult(
+                source_path=path,
+                label=None,
+                process=None,
+                phases=(),
+                completed_phases=(),
+                retained_artifacts=(),
+                replaced=False,
+                reloaded=False,
+                quarantined_path=dest,
+            )
+
+        # Has a label
+        try:
+            status = self._backend.status(label)
+            loaded = status.loaded
+        except ValueError:
+            loaded = None
+
+        phases: list[ExternalEditPhase] = []
+        completed: list[str] = []
+
+        disable_result = self._backend.disable(label)
+        disable_phase = ExternalEditPhase("disable", disable_result.process)
+        phases.append(disable_phase)
+        if disable_result.process.exit_code == 0:
+            completed.append("disable")
+
+        bootout_done = False
+        if loaded:
+            bootout_result = self._backend.bootout(label)
+            bootout_phase = ExternalEditPhase("bootout", bootout_result.process)
+            phases.append(bootout_phase)
+            if bootout_result.process.exit_code == 0:
+                completed.append("bootout")
+            bootout_done = True
+
+        last_process = bootout_result.process if bootout_done else disable_result.process
+
+        return ExternalEditResult(
+            source_path=path,
+            label=label,
+            process=last_process,
+            phases=tuple(phases),
+            completed_phases=tuple(completed),
+            retained_artifacts=(),
+            replaced=False,
             reloaded=False,
         )
+
+    def enable_external(self, path: Path) -> ExternalEditResult:
+        """Enable an external LaunchAgent and load it if needed."""
+        root = self._store.root
+        if path.parent != root:
+            raise ValueError(f"path is outside the LaunchAgent root: {path}")
+
+        snapshot = self._store.read_external(path)
+        parsed = parse_bytes(snapshot.payload)
+
+        label: str | None = None
+        if "Label" in parsed.raw:
+            candidate = parsed.raw["Label"]
+            if isinstance(candidate, str) and candidate:
+                label = candidate
+
+        if label is None:
+            raise ValueError(f"cannot enable {path}: no usable launchd label")
+
+        try:
+            status = self._backend.status(label)
+            loaded = status.loaded
+        except ValueError:
+            loaded = None
+
+        phases: list[ExternalEditPhase] = []
+        completed: list[str] = []
+
+        enable_result = self._backend.enable(label)
+        enable_phase = ExternalEditPhase("enable", enable_result.process)
+        phases.append(enable_phase)
+        if enable_result.process.exit_code == 0:
+            completed.append("enable")
+
+        reloaded = False
+        if loaded is False:
+            bootstrap_result = self._backend.bootstrap_path(label, path)
+            bootstrap_phase = ExternalEditPhase("bootstrap", bootstrap_result.process)
+            phases.append(bootstrap_phase)
+            if bootstrap_result.process.exit_code == 0:
+                completed.append("bootstrap")
+            reloaded = bootstrap_result.process.exit_code == 0
+
+        return ExternalEditResult(
+            source_path=path,
+            label=label,
+            process=bootstrap_result.process if loaded is False else enable_result.process,
+            phases=tuple(phases),
+            completed_phases=tuple(completed),
+            retained_artifacts=(),
+            replaced=False,
+            reloaded=reloaded,
+        )
+
+    def run_now_external(self, path: Path) -> ExternalEditResult:
+        """Ask launchd to run an external LaunchAgent now."""
+        root = self._store.root
+        if path.parent != root:
+            raise ValueError(f"path is outside the LaunchAgent root: {path}")
+
+        snapshot = self._store.read_external(path)
+        parsed = parse_bytes(snapshot.payload)
+
+        label: str | None = None
+        if "Label" in parsed.raw:
+            candidate = parsed.raw["Label"]
+            if isinstance(candidate, str) and candidate:
+                label = candidate
+
+        if label is None:
+            raise ValueError(f"cannot run {path} now: no usable launchd label")
+
+        try:
+            status = self._backend.status(label)
+        except ValueError:
+            status = LaunchAgentStatus(loaded=None, process=ProcessResult(exit_code=None))
+
+        if status.loaded is None:
+            raise ValueError(f"launchd status is unknown for {label}")
+        if not status.loaded:
+            raise ValueError(f"cannot run {path} now: it is not loaded in launchd")
+
+        phases: list[ExternalEditPhase] = []
+        completed: list[str] = []
+        trigger_result = self._backend.trigger(label)
+        trigger_phase = ExternalEditPhase("run", trigger_result.process)
+        phases.append(trigger_phase)
+        if trigger_result.process.exit_code == 0:
+            completed.append("run")
+
+        return ExternalEditResult(
+            source_path=path,
+            label=label,
+            process=trigger_result.process,
+            phases=tuple(phases),
+            completed_phases=tuple(completed),
+            retained_artifacts=(),
+            replaced=False,
+            reloaded=False,
+        )
+
+    def remove_external(self, path: Path) -> ExternalEditResult:
+        """Remove an external LaunchAgent plist with backup."""
+        root = self._store.root
+        if path.parent != root:
+            raise ValueError(f"path is outside the LaunchAgent root: {path}")
+
+        snapshot = self._store.read_external(path)
+        backup = self._store.backup_external_from_snapshot(path, snapshot)
+
+        parsed = parse_bytes(snapshot.payload)
+        label: str | None = None
+        loaded_flag = False
+        if "Label" in parsed.raw:
+            candidate = parsed.raw["Label"]
+            if isinstance(candidate, str) and candidate:
+                label = candidate
+                try:
+                    status = self._backend.status(label)
+                    loaded_flag = status.loaded is True
+                except ValueError:
+                    loaded_flag = False
+
+        phases: list[ExternalEditPhase] = []
+        completed: list[str] = []
+        bootout_result: ProcessResult | None = None
+        if label is not None and loaded_flag:
+            bo = self._backend.bootout(label)
+            bootout_phase = ExternalEditPhase("bootout", bo.process)
+            phases.append(bootout_phase)
+            if bo.process.exit_code == 0:
+                completed.append("bootout")
+            bootout_result = bo.process
+
+        # Re-verify
+        fresh = self._store.read_external(path)
+        if fresh.sha256 != snapshot.sha256 or (fresh.st_dev, fresh.st_ino) != (
+            snapshot.st_dev,
+            snapshot.st_ino,
+        ):
+            raise ValueError(
+                "the source plist changed outside this application; "
+                "review it and remove again"
+            )
+
+        self._store.remove_external_verified(path, snapshot)
+
+        return ExternalEditResult(
+            source_path=path,
+            label=label,
+            process=bootout_result,
+            phases=tuple(phases),
+            completed_phases=tuple(completed),
+            retained_artifacts=(backup,),
+            replaced=False,
+            reloaded=False,
+            removed=True,
+        )
+
+    def remove_saved_job(self, label: str) -> Path:
+        """Remove a saved managed job from the catalog (no plist/launchctl).
+
+        Returns the path of the deleted catalog JSON file.
+        """
+        job = self._require_managed(label)
+        self._jobs.remove(job.id)
+        return self._jobs.root / f"{job.id}.json"
