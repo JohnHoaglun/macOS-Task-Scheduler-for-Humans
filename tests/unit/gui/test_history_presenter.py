@@ -29,12 +29,13 @@ def _event(**overrides) -> HistoryEvent:
     kwargs.update(overrides)
     # Ensure job_id is UUID
     from uuid import UUID
+
     if isinstance(kwargs["job_id"], str):
         kwargs["job_id"] = UUID(kwargs["job_id"])
     return HistoryEvent(**kwargs)
 
-class TestFormatEventDetails:
 
+class TestFormatEventDetails:
     def test_loaded_true(self):
         event = _event(kind=HistoryEventKind.STATUS_OBSERVATION, loaded=True)
         result = format_event_details(event)

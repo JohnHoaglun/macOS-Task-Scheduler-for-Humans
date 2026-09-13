@@ -88,11 +88,7 @@ class ExecutionHistoryRepository:
         try:
             created_at = event.created_at.astimezone(UTC).isoformat()
             diagnostic_codes = json.dumps(list(event.diagnostic_codes))
-            loaded = (
-                1 if event.loaded is True else (
-                    0 if event.loaded is False else None
-                )
-            )
+            loaded = 1 if event.loaded is True else (0 if event.loaded is False else None)
 
             with contextlib.closing(_connect(self._path)) as db:
                 db.execute(
@@ -118,9 +114,7 @@ class ExecutionHistoryRepository:
         except (sqlite3.Error, OSError):
             pass
 
-    def read(
-        self, job_id: UUID, *, limit: int
-    ) -> HistoryReadResult:
+    def read(self, job_id: UUID, *, limit: int) -> HistoryReadResult:
         """Read the most recent events for *job_id*, newest first.
 
         Raises ``ValueError`` when *limit* is outside ``[1, 100]``.
@@ -151,9 +145,17 @@ class ExecutionHistoryRepository:
 
         events: list[HistoryEvent] = []
         for row in rows:
-            created_at_str, row_job_id, label, kind_str, outcome_str, \
-                exit_code, duration_seconds, loaded_int, \
-                diagnostic_codes_str = row
+            (
+                created_at_str,
+                row_job_id,
+                label,
+                kind_str,
+                outcome_str,
+                exit_code,
+                duration_seconds,
+                loaded_int,
+                diagnostic_codes_str,
+            ) = row
 
             try:
                 created_at = datetime.fromisoformat(created_at_str)

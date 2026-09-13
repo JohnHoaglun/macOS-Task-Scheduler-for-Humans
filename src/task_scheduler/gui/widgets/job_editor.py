@@ -38,6 +38,8 @@ from task_scheduler.gui.controllers.editor_controller import (
     IntervalUnit,
     JobDraft,
     ScheduleKind,
+    copy_draft,
+    external_dirty_fields,
 )
 from task_scheduler.gui.presenters.agent_presenter import (
     PREVIEW_DISCLOSURE,
@@ -54,6 +56,7 @@ from task_scheduler.gui.presenters.diagnostics_presenter import (
 from task_scheduler.gui.widgets.direct_test_dialog import DirectTestDialog
 from task_scheduler.gui.widgets.row_table import RowTable
 from task_scheduler.gui.widgets.time_row_editor import TimeRowEditor
+from task_scheduler.platform.macos import ExternalEditField
 
 __all__ = ["JobEditor"]
 
@@ -94,9 +97,23 @@ class JobEditor(QDialog):
         self._draft: JobDraft | None = None
         self._saved_path: Path | None = None
         self._saved_label: str | None = None
+        self._edited_job: JobDefinition | None = None
+        self._baseline: JobDraft | None = None
+        self._dirty_fields: frozenset[ExternalEditField] = frozenset()
+        self._external_mode = False
         self._working_dir_hint: Path | None = None
         content = QWidget()
+        self._external_banner = QLabel(content)
+        self._external_banner.setObjectName("editor-external-banner")
+        self._external_banner.setWordWrap(True)
+        self._external_banner.hide()
+        self._source_path = QLineEdit(content)
+        self._source_path.setObjectName("editor-source-path")
+        self._source_path.setReadOnly(True)
+        self._source_path.hide()
         content_layout = QVBoxLayout(content)
+        content_layout.addWidget(self._external_banner)
+        content_layout.addWidget(self._source_path)
         content_layout.addWidget(self._build_identity())
         content_layout.addWidget(self._build_command())
         content_layout.addWidget(self._build_schedule())
@@ -460,6 +477,7 @@ class JobEditor(QDialog):
     def _build_preview(self) -> QGroupBox:
         """The Preview group: read-only generated plist XML pane."""
         group = QGroupBox("Preview")
+        self._preview_group = group
         self._preview = QTextEdit(group)
         self._preview.setObjectName("editor-preview")
         self._preview.setReadOnly(True)
@@ -483,13 +501,49 @@ class JobEditor(QDialog):
         """Populate the dialog from a fresh draft and show it for a new job."""
         self._draft = self._controller.open_new()
         self.setWindowTitle("New Task")
+        self._reset_external_mode()
         self._load_draft()
 
     def open_existing(self, job: JobDefinition) -> None:
         """Populate the dialog from a stored job for editing."""
         self._draft = self._controller.open_existing(job)
         self.setWindowTitle("Edit Task")
+        self._reset_external_mode()
         self._load_draft()
+
+    def open_external(self, source_path: Path, job: JobDefinition) -> None:
+        """Populate the dialog in external mode for an in-place plist edit."""
+        self._reset_external_mode()
+        self._external_mode = True
+        self._draft = self._controller.open_existing(job)
+        self._baseline = copy_draft(self._draft)
+        self.setWindowTitle("Edit External LaunchAgent")
+        self._external_banner.setText(
+            "External plist — only the settings you change are rewritten; "
+            "every other setting in this file is preserved. "
+            "This task remains External and is not added to the task catalog."
+        )
+        self._external_banner.show()
+        self._source_path.setText(str(source_path))
+        self._source_path.show()
+        self._label.setReadOnly(True)
+        self._name.setReadOnly(True)
+        self._save_button.setText("Save External Plist…")
+        self._preview_group.setTitle("Proposed replacement plist")
+        self._load_draft()
+
+    def _reset_external_mode(self) -> None:
+        """Restore the managed-mode chrome before any open."""
+        self._external_mode = False
+        self._edited_job = None
+        self._baseline = None
+        self._dirty_fields = frozenset()
+        self._external_banner.hide()
+        self._source_path.hide()
+        self._label.setReadOnly(False)
+        self._name.setReadOnly(False)
+        self._save_button.setText("Save")
+        self._preview_group.setTitle("Preview")
 
     def _load_draft(self) -> None:
         """Fill every field from the current draft (setText never re-triggers the change slots)."""
@@ -600,9 +654,19 @@ class JobEditor(QDialog):
         dialog.exec()
 
     def _on_save(self) -> None:
-        """Save the draft to the catalog, or show any field errors."""
+        """Save the draft, or show any field errors."""
         self._collect()
         if self._draft is None:
+            return
+        if self._external_mode:
+            outcome = self._controller.validate(self._draft)
+            if not outcome.ok:
+                self._show_errors(outcome)
+                return
+            if self._baseline is not None:
+                self._dirty_fields = external_dirty_fields(self._baseline, self._draft)
+            self._edited_job = self._controller.save_external(self._draft)
+            self.accept()
             return
         outcome = self._controller.save(self._draft)
         if outcome.ok:
@@ -632,3 +696,13 @@ class JobEditor(QDialog):
     def saved_label(self) -> str | None:
         """The label assigned to the last successful Save, if any."""
         return self._saved_label
+
+    @property
+    def edited_job(self) -> JobDefinition | None:
+        """The validated job from an external save, if the dialog accepted one."""
+        return self._edited_job
+
+    @property
+    def dirty_fields(self) -> frozenset[ExternalEditField]:
+        """The ExternalEditField values changed relative to the opened draft."""
+        return self._dirty_fields

@@ -137,9 +137,7 @@ def format_diagnostics(diagnostics: list[Diagnostic]) -> str:
         return "none"
     lines: list[str] = []
     for diagnostic in diagnostics:
-        lines.append(
-            f"[{diagnostic.severity.value}] {diagnostic.code}: {diagnostic.title}"
-        )
+        lines.append(f"[{diagnostic.severity.value}] {diagnostic.code}: {diagnostic.title}")
         lines.append(f"    {diagnostic.description}")
         lines.append(f"    suggested: {diagnostic.suggested_action}")
     return "\n".join(lines)
@@ -160,9 +158,7 @@ def format_test(result: DirectTestResult) -> str:
     process = result.process
     if process.launch_failure is not None:
         failure = process.launch_failure
-        lines: list[str] = [
-            f"launch failed ({failure.kind.value}): {failure.message}"
-        ]
+        lines: list[str] = [f"launch failed ({failure.kind.value}): {failure.message}"]
     else:
         lines = [f"exit code: {process.exit_code}"]
     lines.append(f"duration: {format_duration(process.duration)}")
@@ -261,9 +257,7 @@ def format_import_disclosure(
     for key in preview.unsupported_keys:
         lines.append(f"unsupported key: {key}")
     if include_prompt and (preview.warnings or preview.unsupported_keys):
-        lines.append(
-            "Use --acknowledge-partial to import a partially supported plist."
-        )
+        lines.append("Use --acknowledge-partial to import a partially supported plist.")
     return "\n".join(lines)
 
 

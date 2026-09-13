@@ -117,6 +117,7 @@ def _jobs() -> list[JobDefinition]:
         ),
     ]
 
+
 def _assert_round_trip(original: JobDefinition, parsed: JobDefinition) -> None:
     assert parsed.name == original.label
     assert parsed.label == original.label
@@ -127,6 +128,7 @@ def _assert_round_trip(original: JobDefinition, parsed: JobDefinition) -> None:
     assert parsed.working_directory == original.working_directory
     assert parsed.logging == original.logging
 
+
 def test_all_command_kinds_round_trip() -> None:
     codec = PlistCodec()
     for original in _jobs():
@@ -134,4 +136,3 @@ def test_all_command_kinds_round_trip() -> None:
         assert parsed_result.status is ParseSupport.SUPPORTED
         assert parsed_result.job is not None
         _assert_round_trip(original, parsed_result.job)
-

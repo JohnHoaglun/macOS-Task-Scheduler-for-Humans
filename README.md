@@ -531,6 +531,13 @@ saved in the task catalog but not yet installed (shown with the state
 **Saved, not installed**), and inspects the selected agent in a read-only
 detail panel:
 
+The table columns are: **Name**, **Command**, **Schedule**,
+**Classification** (Managed / External / Invalid), and **State**
+(Saved, not installed / Installed, configured enabled/disabled with
+loaded status, or Status unknown). Every discovered row supports
+**Edit**, **Disable**, and **Remove**, with **Enable** and **Run Now**
+for rows with a usable launchd label — details below.
+
 ## Standalone macOS .app Bundle
 
 Crawl Increment 13 added local packaging: a double-clickable
@@ -604,18 +611,22 @@ catalog), **External** (a valid plist outside the catalog), or **Invalid**
 (malformed or unsupported). The Refresh action (File menu, `Cmd+R`) re-runs
 discovery; the selected agent is preserved across refreshes when possible.
 
-The File menu also offers **New Task...** (`Cmd+N`) and **Edit Managed
-Task...**. Both open a modal editor dialog for a managed job:
+The **File** menu offers **New Task...** (`Cmd+N`), and the **Edit** menu
+offers **Edit Task…** (enabled for any selected row). Both open a modal
+editor for a job:
 
 * **New Task** starts blank — no command paths and no schedule — and is
-  invalid until the name, the command fields of the selected kind, and a
-  valid schedule are filled in: for Calendar, a valid `HH:MM` time row and
-  at least one weekday; for Interval, a whole number whose total is at
-  least 60 seconds.
-* **Edit Managed Task** works only for a selected row classified as
-  **Managed**, and resolves the catalog job by its launchd label. A
-  selection that cannot be parsed, or a label missing from the catalog,
-  surfaces as a status-bar hint instead of opening the dialog.
+   invalid until the name, the command fields of the selected kind, and a
+   valid schedule are filled in: for Calendar, a valid `HH:MM` time row and
+   at least one weekday; for Interval, a whole number whose total is at
+   least 60 seconds.
+* **Edit Task…** opens the editor for the selected row. A managed row, and
+   an external row whose plist parses into a representable job, open the
+   structured editor; an external row that cannot be represented (partially
+   supported, invalid, or undecodable) opens the **raw plist editor**. For
+   external jobs the structured editor applies the preservation contract —
+   only the settings you change are rewritten — and the task stays
+   **External** (it is never added to the managed catalog).
 
 The dialog is a scrollable form with the following sections:
 
@@ -689,11 +700,14 @@ managed task:
 * **Run Now** — asks launchd to start the task immediately
   (`kickstart -k`).
 
-Availability depends on the selection: a **Saved, not installed** row
-offers **Install** only; an installed managed row offers the other five
-actions; external, invalid, or unselected rows offer none. While an
-operation is running, all six lifecycle actions (and New Task / Edit
-Managed Task) are disabled.
+Availability depends on the selection: a **Saved, not installed** managed
+row offers **Install** (and **Remove** from the catalog); an installed
+managed row offers **Reinstall**, **Uninstall**, **Enable**, **Disable**,
+and **Run Now**; every external row (supported, partially supported, or
+invalid) offers **Edit**, **Disable**, and **Remove**, plus **Enable**
+and **Run Now** when the row has a usable launchd label; an unselected
+row offers no action. While an operation is running, all actions are
+disabled.
 
 **Reinstall** and **Uninstall** ask for confirmation first, naming the
 task and its exact label and noting that the operation affects the current
@@ -730,10 +744,39 @@ current user's LaunchAgents in `~/Library/LaunchAgents` (launchd domain
 the application services refuse lifecycle operations for any label that is
 not a managed catalog job.
 
-**Read-only external-job policy:** the GUI discovers and displays external
-and invalid agents but never modifies them. No edit, install, enable,
-disable, or removal controls exist for agents the application does not
-manage.
+**Edit an external job.** If the plist parses into a representable job,
+a structured editor opens (label read-only, source path shown) with a
+**Preservation Contract**: only the settings you change are rewritten;
+every other key in the file (KeepAlive, LimitLoadToSessionType, unknown
+keys, etc.) is preserved unchanged; the label is never rewritten; a no-op
+save writes nothing and calls no launchctl. If the plist cannot be
+represented (partially supported / invalid / undecodable), a **Raw Plist
+Editor** opens instead (XML text for UTF-8 sources, base64 for binary);
+saving requires a valid plist with a valid label. Save replaces the
+LaunchAgent directly at the shown path and the task **stays External** —
+it is never added to the managed catalog. Gate confirmations: Gate A
+(replace directly at the shown path, stays external, not added to the
+catalog) and Gate B (replace and reload, or replace-only when not loaded).
+If the plist changed outside the app between preview and commit, the write
+is refused.
+
+**Disable an external job.** With a usable label: `launchctl disable`
+(and bootout only if currently loaded). Without a usable label: the plist
+is **quarantined** — atomically moved to
+`~/Library/LaunchAgents/.task-scheduler-disabled/` (no launchctl) — with a
+disclosure that a running instance may stop but cannot be verified.
+
+**Remove an external job.** A byte-identical backup sibling is preserved,
+the label is booted out (only if loaded), and the plist is removed (the
+removal is refused if the file changed outside the app); the backup is
+retained on success.
+
+**Enable / Run Now** are available for external rows with a usable launchd
+label; when the label is missing or launchd's load state is unknown, the
+actions are disabled with a descriptive tooltip.
+
+Safety boundary and ownership: external operations never touch the managed
+task catalog.
 
 **Diagnostics and logs.** The Diagnostics menu's **Test** action runs the
 selected managed task's command directly — using its configured executable,
@@ -816,13 +859,20 @@ Current implementation scope:
 * application services (job service, log service, task command service)
 * `mactask` CLI (list, inspect, validate, generate, install, uninstall,
   enable, disable, status, run, test, logs)
-* read-only PySide6 GUI discovery browser (`mactask-gui`) with
-  managed/external/invalid classification and detail inspector
-* GUI job editor (`mactask-gui`): New Task / Edit Managed Task dialog with
-  validation, plist preview, and catalog-only save
+* PySide6 GUI discovery browser (`mactask-gui`) with
+   managed/external/invalid classification, detail inspector, and
+   universal task controls
+* GUI job editor (`mactask-gui`): New Task / Edit Task dialog (structured
+   editor for managed and representable external jobs, raw plist editor for
+   unrepresentable ones) with validation and plist preview; managed saves
+   are catalog-only, external saves replace the plist directly (staying
+   External)
 * GUI lifecycle controls (`mactask-gui`): install, reinstall, uninstall,
-  enable, disable, and run now; saved (not-installed) jobs listed with the
-  managed jobs; staged reinstall transaction with retained artifacts
+   enable, disable, and run now; saved (not-installed) jobs listed with the
+   managed jobs; staged reinstall transaction with retained artifacts;
+   edit external via structured editor (preservation contract) or raw
+   plist editor, disable external incl. quarantine, remove external with
+   retained backup, enable/run now for labeled external rows
 * GUI diagnostics and logs (`mactask-gui`): direct tests of managed tasks
   and validated editor drafts with structured diagnostics, direct and
   persisted stdout/stderr with Refresh, name-only environment comparison,

@@ -14,9 +14,11 @@ def make_editor(qtbot: QtBot) -> TimeRowEditor:
     qtbot.addWidget(editor)
     return editor
 
+
 def row_edits(editor: TimeRowEditor) -> list[QLineEdit]:
     """The row edits in row order, keyed by object name."""
     return sorted(editor.findChildren(QLineEdit), key=lambda edit: edit.objectName())
+
 
 def spy(editor: TimeRowEditor) -> list[int]:
     """A list that gains one entry per rowsChanged emission."""
@@ -28,6 +30,7 @@ def spy(editor: TimeRowEditor) -> list[int]:
     editor.rowsChanged.connect(count)
     return emissions
 
+
 class _EmissionCounter:
     """Stand-in for rowsChanged that records emissions made during init."""
 
@@ -37,8 +40,8 @@ class _EmissionCounter:
     def emit(self, *args: object) -> None:
         self.count += 1
 
-class TestSetTimes:
 
+class TestSetTimes:
     def test_set_times_empty_keeps_one_blank_row(self, qtbot: QtBot) -> None:
         editor = make_editor(qtbot)
         editor.set_times(["07:30", "17:30"])
@@ -49,6 +52,7 @@ class TestSetTimes:
         assert rows[0].text() == ""
         assert rows[0].objectName() == "editor-time"
         assert len(emissions) == 1
+
 
 class TestAddButton:
     def test_add_appends_blank_row_with_new_name(self, qtbot: QtBot) -> None:
@@ -63,8 +67,8 @@ class TestAddButton:
         assert [edit.objectName() for edit in rows] == ["editor-time", "editor-time-1"]
         assert len(emissions) == 1
 
-class TestRemoveButton:
 
+class TestRemoveButton:
     def test_remove_with_single_row_clears_it(self, qtbot: QtBot) -> None:
         editor = make_editor(qtbot)
         editor.set_times(["07:30"])
@@ -92,4 +96,3 @@ class TestRemoveButton:
         rows = row_edits(editor)
         assert [edit.text() for edit in rows] == ["07:30", "09:00"]
         assert [edit.objectName() for edit in rows] == ["editor-time", "editor-time-1"]
-

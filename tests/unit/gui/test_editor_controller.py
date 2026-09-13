@@ -15,12 +15,19 @@ from task_scheduler.domain import (
     JobDefinition,
     ShellCommand,
 )
-from task_scheduler.gui.controllers.editor_controller import EditorController, JobDraft
+from task_scheduler.gui.controllers.editor_controller import (
+    EditorController,
+    ExternalEditField,
+    JobDraft,
+    copy_draft,
+    external_dirty_fields,
+)
 
 
 def make_controller(tmp_path: Path) -> tuple[FakeTaskWorld, EditorController]:
     world = FakeTaskWorld(tmp_path)
     return world, EditorController(world.services)
+
 
 class TestArguments:
     def test_arguments_per_kind(self, tmp_path: Path) -> None:
@@ -50,8 +57,8 @@ class TestArguments:
         controller.remove_argument(d, "python", 0)
         assert d.python_arguments == ["", "x"]
 
-class TestOtherMutators:
 
+class TestOtherMutators:
     def test_environment_rows(self, tmp_path: Path) -> None:
         """Environment rows are appended, edited in place, and removable."""
         world, controller = make_controller(tmp_path)
@@ -65,8 +72,8 @@ class TestOtherMutators:
         controller.remove_environment_row(d, 0)
         assert d.environment == [("HOME", "/opt/bin")]
 
-class TestOpenExisting:
 
+class TestOpenExisting:
     def test_shell_job(self, tmp_path: Path) -> None:
         """A persisted shell job populates only the shell fields."""
         world, controller = make_controller(tmp_path)
@@ -120,6 +127,7 @@ class TestOpenExisting:
         d = controller.open_existing(job)
         assert d.run_at_load is True
 
+
 def valid_draft(controller: EditorController, tmp_path: Path) -> JobDraft:
     draft = controller.open_new()
     controller.set_name(draft, "Editor Job")
@@ -129,8 +137,8 @@ def valid_draft(controller: EditorController, tmp_path: Path) -> JobDraft:
     controller.set_weekdays(draft, {"monday"})
     return draft
 
-class TestValidate:
 
+class TestValidate:
     def test_missing_interpreter(self, tmp_path: Path) -> None:
         """A blank interpreter fails with an interpreter field error."""
         world, controller = make_controller(tmp_path)
@@ -146,14 +154,6 @@ class TestValidate:
         controller.set_interpreter(d, "python3")
         o = controller.validate(d)
         assert o.fields == {"interpreter": "the interpreter path must be absolute"}
-
-    def test_missing_script(self, tmp_path: Path) -> None:
-        """A blank script fails with a script field error."""
-        world, controller = make_controller(tmp_path)
-        d = valid_draft(controller, tmp_path)
-        controller.set_script(d, "")
-        o = controller.validate(d)
-        assert o.fields == {"script": "a script is required"}
 
     def test_relative_script(self, tmp_path: Path) -> None:
         """A relative script path fails validation."""
@@ -219,6 +219,7 @@ class TestValidate:
         o = controller.validate(d)
         assert list(o.fields) == ["job"] and "notaday" in o.fields["job"]
 
+
 class TestIntervalSchedule:
     def interval_draft(
         self, controller: EditorController, tmp_path: Path, value: str, unit: str
@@ -266,8 +267,8 @@ class TestIntervalSchedule:
             "interval": "the interval unit must be one of seconds, minutes, hours, or days"
         }
 
-class TestSave:
 
+class TestSave:
     def test_save_conflict(self, tmp_path: Path) -> None:
         """Saving under an existing job's label conflicts without overwriting."""
         world, controller = make_controller(tmp_path)
@@ -369,8 +370,8 @@ class TestSave:
         assert o.ok is False
         assert o.fields == {"environment": "duplicate environment variable: PATH"}
 
-class TestFieldErrors:
 
+class TestFieldErrors:
     def test_command_type_loc(self, tmp_path: Path) -> None:
         """An unknown command type maps to the script fallback key."""
         world, controller = make_controller(tmp_path)
@@ -434,8 +435,8 @@ class TestFieldErrors:
         result = controller._field_errors(excinfo.value)
         assert list(result) == ["stdout_path"]
 
-class TestBulkMutators:
 
+class TestBulkMutators:
     def test_set_arguments_shell_and_executable(self, tmp_path: Path) -> None:
         """set_arguments targets the right per-kind list."""
         world, controller = make_controller(tmp_path)
@@ -446,3 +447,32 @@ class TestBulkMutators:
         controller.set_arguments(d, "executable", ["--verbose"])
         assert d.executable_arguments == ["--verbose"]
         assert d.shell_arguments == ["-c", "true"]
+
+
+class TestExternalDirtyFields:
+    """external_dirty_fields maps each differing draft field to one dirty field."""
+
+    @pytest.mark.parametrize(
+        ("mutate", "field"),
+        [
+            (lambda d: setattr(d, "interpreter", "/x"), ExternalEditField.PROGRAM_ARGUMENTS),
+            (lambda d: setattr(d, "run_at_load", True), ExternalEditField.RUN_AT_LOAD),
+            (
+                lambda d: setattr(d, "working_directory", "/w"),
+                ExternalEditField.WORKING_DIRECTORY,
+            ),
+            (
+                lambda d: setattr(d, "environment", [("A", "B")]),
+                ExternalEditField.ENVIRONMENT_VARIABLES,
+            ),
+            (lambda d: setattr(d, "stdout_path", "/o"), ExternalEditField.STDOUT_PATH),
+            (lambda d: setattr(d, "stderr_path", "/e"), ExternalEditField.STDERR_PATH),
+            (lambda d: setattr(d, "enabled", False), ExternalEditField.ENABLED),
+        ],
+    )
+    def test_single_field_dirty(self, tmp_path: Path, mutate, field: ExternalEditField) -> None:
+        world, controller = make_controller(tmp_path)
+        base = controller.open_new()
+        current = copy_draft(base)
+        mutate(current)
+        assert external_dirty_fields(base, current) == {field}

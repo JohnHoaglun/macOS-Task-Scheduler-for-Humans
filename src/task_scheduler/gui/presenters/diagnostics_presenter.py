@@ -197,9 +197,7 @@ def format_python_candidate(candidate: InterpreterCandidate) -> str:
     after a semicolon (``path (source; uv, poetry)``); core-only
     candidates keep the plain ``path (source)`` form.
     """
-    ecosystems = [
-        kind.value for kind in candidate.detectors if kind is not DetectorKind.CORE
-    ]
+    ecosystems = [kind.value for kind in candidate.detectors if kind is not DetectorKind.CORE]
     if not ecosystems:
         return f"{candidate.path} ({candidate.source.value})"
     return f"{candidate.path} ({candidate.source.value}; {', '.join(ecosystems)})"
@@ -210,9 +208,7 @@ def format_detection_notes(notes: Sequence[DetectionNote]) -> str:
     return "\n".join(note.message for note in notes)
 
 
-def format_python_detection(
-    job: JobDefinition, detection: PythonDetectionResult | None
-) -> str:
+def format_python_detection(job: JobDefinition, detection: PythonDetectionResult | None) -> str:
     """Detected interpreter candidates, a recommendation line, and notes."""
     command = job.command
     if not isinstance(command, PythonCommand):
@@ -228,9 +224,7 @@ def format_python_detection(
         if project is None:
             lines.append("No project environment detected.")
         elif project.path == command.interpreter:
-            lines.append(
-                "The configured interpreter matches the detected project interpreter."
-            )
+            lines.append("The configured interpreter matches the detected project interpreter.")
         else:
             lines.append(f"Recommended interpreter: {project.path}")
     notes = format_detection_notes(detection.notes)

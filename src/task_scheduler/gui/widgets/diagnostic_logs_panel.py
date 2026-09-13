@@ -67,12 +67,8 @@ class DiagnosticLogsPanel(QWidget):
 
         self._tabs = QTabWidget(diagnostics_content)
         self._tabs.setObjectName("diagnostics-tabs")
-        self._direct_stdout = self._add_tab(
-            "Direct stdout", "diagnostics-direct-stdout"
-        )
-        self._direct_stderr = self._add_tab(
-            "Direct stderr", "diagnostics-direct-stderr"
-        )
+        self._direct_stdout = self._add_tab("Direct stdout", "diagnostics-direct-stdout")
+        self._direct_stderr = self._add_tab("Direct stderr", "diagnostics-direct-stderr")
 
         diagnostics_layout = QVBoxLayout(diagnostics_content)
         diagnostics_layout.addWidget(self._summary)
@@ -102,9 +98,7 @@ class DiagnosticLogsPanel(QWidget):
         persisted_layout.addLayout(refresh_row)
 
         self._environment_disclosure = QLabel(ENVIRONMENT_DISCLOSURE_TEXT, self)
-        self._environment_disclosure.setObjectName(
-            "diagnostics-environment-disclosure"
-        )
+        self._environment_disclosure.setObjectName("diagnostics-environment-disclosure")
         self._environment_disclosure.setWordWrap(True)
         self._environment_text = QLabel(self)
         self._environment_text.setObjectName("diagnostics-environment-text")
@@ -136,9 +130,7 @@ class DiagnosticLogsPanel(QWidget):
             self._collapsible_section("Python interpreter", "diagnostics-python", python_content)
         )
 
-    def _collapsible_section(
-        self, title: str, object_name: str, content: QWidget
-    ) -> QWidget:
+    def _collapsible_section(self, title: str, object_name: str, content: QWidget) -> QWidget:
         """Create a collapsed disclosure header and its hidden content."""
         section = QWidget(self)
         section.setObjectName(object_name)
@@ -192,17 +184,11 @@ class DiagnosticLogsPanel(QWidget):
         self._persisted_stdout.setPlainText(format_log_stream(outcome.logs.stdout))
         self._persisted_stderr.setPlainText(format_log_stream(outcome.logs.stderr))
         if outcome.diagnostics:
-            self._diagnostics_text.appendPlainText(
-                format_log_diagnostics(outcome.diagnostics)
-            )
+            self._diagnostics_text.appendPlainText(format_log_diagnostics(outcome.diagnostics))
 
     def show_environment_outcome(self, outcome: EnvironmentOutcome) -> None:
         """Render the environment comparison (names only, never values)."""
         if outcome.difference is None:
-            self._environment_text.setText(
-                f"Comparison unavailable: {outcome.error}"
-            )
+            self._environment_text.setText(f"Comparison unavailable: {outcome.error}")
             return
-        self._environment_text.setText(
-            format_environment_difference(outcome.difference)
-        )
+        self._environment_text.setText(format_environment_difference(outcome.difference))

@@ -135,18 +135,12 @@ class ImportPreviewDialog(QDialog):
         if label_label is not None:
             label_label.setText(job.label)
         if command_label is not None:
-            command_label.setText(
-                " ".join(command_argv(job.command))
-            )
+            command_label.setText(" ".join(command_argv(job.command)))
         if schedule_label is not None:
-            schedule_label.setText(
-                self._format_schedule(job)
-            )
+            schedule_label.setText(self._format_schedule(job))
         if env_label is not None:
             pairs = ", ".join(f"{k}={v}" for k, v in job.environment.variables.items())
-            env_label.setText(
-                pairs if pairs else "none configured"
-            )
+            env_label.setText(pairs if pairs else "none configured")
 
         # Warnings
         for warning in self._outcome.warnings:

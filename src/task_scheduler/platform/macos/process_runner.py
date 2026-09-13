@@ -101,9 +101,7 @@ class SubprocessRunner:
             duration=timedelta(seconds=self._clock() - started),
         )
 
-    def _failure(
-        self, kind: LaunchFailureKind, message: str, seconds: float
-    ) -> ProcessResult:
+    def _failure(self, kind: LaunchFailureKind, message: str, seconds: float) -> ProcessResult:
         return ProcessResult(
             exit_code=None,
             duration=timedelta(seconds=seconds),

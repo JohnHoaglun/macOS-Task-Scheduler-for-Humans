@@ -47,9 +47,7 @@ class DirectTestService:
     never writes log paths, and never calls subprocess directly.
     """
 
-    def __init__(
-        self, runner: ProcessRunner, *, probes: DiagnosticProbes | None = None
-    ) -> None:
+    def __init__(self, runner: ProcessRunner, *, probes: DiagnosticProbes | None = None) -> None:
         self._runner = runner
         self._probes = probes or LocalDiagnosticProbes()
 

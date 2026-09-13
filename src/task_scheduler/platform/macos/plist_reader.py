@@ -118,8 +118,10 @@ def _fatal_check(raw: dict[str, object]) -> str | tuple[str, list[str]]:
     if not isinstance(label, str) or not label:
         return "missing or invalid Label"
     args = raw.get("ProgramArguments")
-    if not isinstance(args, list) or not args or not all(
-        isinstance(arg, str) and arg for arg in args
+    if (
+        not isinstance(args, list)
+        or not args
+        or not all(isinstance(arg, str) and arg for arg in args)
     ):
         return "unusable ProgramArguments"
     return label, args
@@ -152,9 +154,9 @@ def _build_job(
     enabled = _parse_disabled(raw)
 
     unrepresentable_value = (
-        "WorkingDirectory" in raw and working_directory is None
-    ) or ("StandardOutPath" in raw and stdout_path is None) or (
-        "StandardErrorPath" in raw and stderr_path is None
+        ("WorkingDirectory" in raw and working_directory is None)
+        or ("StandardOutPath" in raw and stdout_path is None)
+        or ("StandardErrorPath" in raw and stderr_path is None)
     )
     if unrepresentable_value:
         return None, warnings, True
@@ -182,9 +184,7 @@ def _classify_command(args: list[str], warnings: list[str]) -> Command | None:
     head = args[0]
     if _is_python(head):
         if len(args) >= 2 and Path(args[1]).is_absolute():
-            return PythonCommand(
-                interpreter=Path(head), script=Path(args[1]), arguments=args[2:]
-            )
+            return PythonCommand(interpreter=Path(head), script=Path(args[1]), arguments=args[2:])
         warnings.append("python command without a usable absolute script path")
         return None
     if head in _SHELL_EXECUTABLES:
@@ -232,9 +232,7 @@ def _parse_run_at_load(raw: dict[str, object]) -> bool:
     return value
 
 
-def _parse_calendar(
-    value: object, warnings: list[str], run_at_load: bool
-) -> Schedule | None:
+def _parse_calendar(value: object, warnings: list[str], run_at_load: bool) -> Schedule | None:
     if (
         not isinstance(value, list)
         or not value

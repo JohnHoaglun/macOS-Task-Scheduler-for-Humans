@@ -59,6 +59,4 @@ class LogService:
         if path is None:
             return LogStream(name=name, path=None)
         result: LogReadResult = self._reader.read(path)
-        return LogStream(
-            name=name, path=path, content=result.content, error=result.error
-        )
+        return LogStream(name=name, path=path, content=result.content, error=result.error)

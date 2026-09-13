@@ -32,6 +32,7 @@ def _event(**overrides) -> HistoryEvent:
     kwargs.update(overrides)
     return HistoryEvent(**kwargs)
 
+
 @pytest.fixture
 def model(qtbot: QtBot) -> HistoryTableModel:
     m = HistoryTableModel()
@@ -42,6 +43,7 @@ def model(qtbot: QtBot) -> HistoryTableModel:
     m.set_events(events)
     return m
 
+
 class TestHeader:
     def test_horizontal_headers(self, model: HistoryTableModel):
         for i, expected in enumerate(COLUMNS):
@@ -51,8 +53,8 @@ class TestHeader:
         assert model.header(0, Qt.Orientation.Vertical) == "1"
         assert model.header(1, Qt.Orientation.Vertical) == "2"
 
-class TestData:
 
+class TestData:
     def test_second_row(self, model: HistoryTableModel):
         assert model.data(model.index(1, 1)) == "Manual run"
         assert model.data(model.index(1, 2)) == "Failed"
@@ -67,4 +69,3 @@ class TestData:
         idx = model.createIndex(0, 7)
         assert idx.isValid()
         assert model.data(idx) is None
-

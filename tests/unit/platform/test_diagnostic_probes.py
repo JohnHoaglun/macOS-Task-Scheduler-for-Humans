@@ -26,9 +26,11 @@ THIN_BE_MAGIC = 0xCEFAEDFE
 FAT_BE_MAGIC = 0xCAFEBABE
 FAT_LE_MAGIC = 0xBEBAFECA
 
+
 def _thin(cputype: int, magic: int = THIN_64_MAGIC, little_endian: bool = True) -> bytes:
     """Header bytes: magic read big-endian, cputype in *little_endian* order."""
     return struct.pack(">I", magic) + struct.pack("<I" if little_endian else ">I", cputype)
+
 
 def _fat(cputypes: list[int], little_endian: bool) -> bytes:
     """Fat header bytes.
@@ -47,13 +49,14 @@ def _fat(cputypes: list[int], little_endian: bool) -> bytes:
         parts.append(struct.pack(fmt, cputype) + b"\x00" * 16)
     return b"".join(parts)
 
+
 def _write(tmp_path: Path, data: bytes, name: str = "tool") -> Path:
     path = tmp_path / name
     path.write_bytes(data)
     return path
 
-class TestProbeProtectedPaths:
 
+class TestProbeProtectedPaths:
     def test_duplicate_inputs_deduplicated_preserving_order(self) -> None:
         home = Path("/Users/test")
         a = home / "Desktop" / "a.py"
@@ -61,8 +64,8 @@ class TestProbeProtectedPaths:
         findings = probe_protected_paths([a, a, b, a], home=home)
         assert [finding.path for finding in findings] == [a, b]
 
-class TestProbeExecutableArchitecture:
 
+class TestProbeExecutableArchitecture:
     def test_thin_be_magic(self, tmp_path: Path) -> None:
         executable = _write(tmp_path, _thin(X86_64, magic=THIN_BE_MAGIC, little_endian=False))
         finding = probe_executable_architecture(executable, machine="arm64")

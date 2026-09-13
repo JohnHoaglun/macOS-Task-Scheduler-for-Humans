@@ -26,6 +26,7 @@ class _EmptyServices:
     def inspect_discovered(self, path: Path) -> NoReturn:
         raise NotImplementedError
 
+
 class _FakeApp:
     """Stands in for QApplication: records the exec call, returns code 42."""
 
@@ -40,10 +41,12 @@ class _FakeApp:
     def primaryScreen(self) -> None:
         return None
 
+
 def test_create_main_window_returns_main_window(qtbot: QtBot) -> None:
     win = create_main_window(_EmptyServices())
     qtbot.addWidget(win)
     assert isinstance(win, MainWindow)
+
 
 class _FakeWindow:
     """Stands in for MainWindow: records show, creates no C++ widget."""
@@ -61,6 +64,7 @@ class _FakeWindow:
 def test_startup_window_size_is_bounded_to_usable_display() -> None:
     assert startup_window_size(QtCore.QSize(1600, 1000)) == QtCore.QSize(1280, 900)
     assert startup_window_size(QtCore.QSize(1100, 800)) == QtCore.QSize(1100, 800)
+
 
 def test_main_module_launcher_exits_with_return_code(
     qtbot: QtBot, monkeypatch: pytest.MonkeyPatch

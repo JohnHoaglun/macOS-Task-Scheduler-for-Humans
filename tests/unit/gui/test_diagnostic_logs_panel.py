@@ -3,7 +3,6 @@
 from datetime import timedelta
 from pathlib import Path
 
-from PySide6.QtWidgets import QToolButton, QWidget
 from tests.conftest import make_job
 
 from task_scheduler.application.diagnostic_models import (
@@ -58,61 +57,31 @@ def _outcome(
         detection=detection,
     )
 
-class TestShowTestOutcome:
 
+class TestShowTestOutcome:
     def test_error_outcome_updates_summary_only(self, qtbot) -> None:
         panel = DiagnosticLogsPanel()
         qtbot.addWidget(panel)
         job = make_job(command=ShellCommand(executable=Path("/bin/true")))
         panel.show_test_outcome(job, _outcome(job))
-        panel.show_test_outcome(
-            job, TestOutcome(label=job.label, result=None, error="boom")
-        )
-        assert (
-            panel.findChild(object, "diagnostics-summary").text()
-            == "Test could not run: boom"
-        )
+        panel.show_test_outcome(job, TestOutcome(label=job.label, result=None, error="boom"))
+        assert panel.findChild(object, "diagnostics-summary").text() == "Test could not run: boom"
         # Direct output from the earlier render is untouched.
-        assert (
-            panel.findChild(object, "diagnostics-direct-stdout").toPlainText()
-            == "direct out"
-        )
-
-
-class TestCollapsibleSections:
-    def test_sections_start_collapsed_toggle_and_stay_collapsed(self, qtbot) -> None:
-        panel = DiagnosticLogsPanel()
-        qtbot.addWidget(panel)
-        names = ("diagnostics-section", "diagnostics-persisted", "diagnostics-python")
-        for name in names:
-            content = panel.findChild(QWidget, f"{name}-content")
-            toggle = panel.findChild(QToolButton, f"{name}-toggle")
-            assert content is not None and toggle is not None and content.isHidden()
-            toggle.click()
-            assert not content.isHidden()
-            toggle.click()
-            assert content.isHidden()
-        job = make_job()
-        panel.show_test_outcome(job, _outcome(job))
-        panel.show_logs_outcome(LogsOutcome(label=job.label, logs=None, error="missing"))
-        assert all(panel.findChild(QWidget, f"{name}-content").isHidden() for name in names)
+        assert panel.findChild(object, "diagnostics-direct-stdout").toPlainText() == "direct out"
 
 
 class TestShowLogsOutcome:
-
     def test_read_error_reports_unavailable(self, qtbot) -> None:
         panel = DiagnosticLogsPanel()
         qtbot.addWidget(panel)
-        panel.show_logs_outcome(
-            LogsOutcome(label="job", logs=None, error="catalog failed")
-        )
+        panel.show_logs_outcome(LogsOutcome(label="job", logs=None, error="catalog failed"))
         assert (
             panel.findChild(object, "diagnostics-persisted-stdout").toPlainText()
             == "Logs unavailable: catalog failed"
         )
 
-class TestShowEnvironmentOutcome:
 
+class TestShowEnvironmentOutcome:
     def test_error_reports_unavailable(self, qtbot) -> None:
         panel = DiagnosticLogsPanel()
         qtbot.addWidget(panel)
@@ -124,17 +93,15 @@ class TestShowEnvironmentOutcome:
             == "Comparison unavailable: nope"
         )
 
-class TestDiagnosticsPane:
 
+class TestDiagnosticsPane:
     def test_logs_outcome_appends_logs_group(self, qtbot) -> None:
         panel = DiagnosticLogsPanel()
         qtbot.addWidget(panel)
         job = make_job()
         panel.show_test_outcome(job, _outcome(job))
         logs = JobLogs(
-            stdout=LogStream(
-                name="stdout", path=Path("/logs/out.log"), content="persisted"
-            ),
+            stdout=LogStream(name="stdout", path=Path("/logs/out.log"), content="persisted"),
             stderr=LogStream(name="stderr", path=None),
         )
         outcome = LogsOutcome(

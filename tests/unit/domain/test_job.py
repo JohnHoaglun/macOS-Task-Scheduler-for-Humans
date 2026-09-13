@@ -18,21 +18,24 @@ VALID_LABELS = [
 
 INVALID_LABELS = ["", "has space", "bad/label", "-lead", ".lead", "tab\there"]
 
+
 @pytest.mark.parametrize("label", INVALID_LABELS)
 def test_invalid_labels_rejected(label: str) -> None:
     with pytest.raises(ValidationError):
         make_job(label=label)
 
+
 def test_blank_name_rejected() -> None:
     with pytest.raises(ValidationError):
         make_job(name="   ")
+
 
 @pytest.mark.parametrize("version", [0, 1, 99])
 def test_unsupported_schema_versions_rejected(version: int) -> None:
     with pytest.raises(UnsupportedSchemaVersionError):
         make_job(schema_version=version)
 
+
 def test_relative_working_directory_rejected() -> None:
     with pytest.raises(ValidationError):
         make_job(working_directory=Path("relative/project"))
-

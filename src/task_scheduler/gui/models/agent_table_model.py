@@ -58,11 +58,7 @@ def _format_search_text(listing: TaskListing) -> str:
         cmd = listing.job.command
     else:
         cmd = None
-    quoted = (
-        "unknown"
-        if cmd is None
-        else " ".join(shlex.quote(arg) for arg in command_argv(cmd))
-    )
+    quoted = "unknown" if cmd is None else " ".join(shlex.quote(arg) for arg in command_argv(cmd))
     return f"{format_name(listing)} {format_label(listing)} {quoted}"
 
 
@@ -143,5 +139,3 @@ class AgentTableModel(QAbstractTableModel):
         if column == 4:
             return format_state(listing)
         return None
-
-

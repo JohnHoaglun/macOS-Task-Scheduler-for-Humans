@@ -60,9 +60,7 @@ class DiscoveryController:
             return InspectOutcome(report=None, error=None)
         try:
             report = self._services.inspect_discovered(listing.path)
-            diagnostics = self._services.inspection_diagnostics(
-                report.path, report.parsed
-            )
+            diagnostics = self._services.inspection_diagnostics(report.path, report.parsed)
         except (ValueError, OSError) as exc:
             return InspectOutcome(report=None, error=str(exc))
         return InspectOutcome(report=report, error=None, diagnostics=diagnostics)

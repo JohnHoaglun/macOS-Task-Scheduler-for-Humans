@@ -176,22 +176,14 @@ class FakeFilesystem:
             raise ValueError(f"path is not a regular non-symlink file: {path}")
         return self._snapshot_for(path.name)
 
-    def replace_verified(
-        self, source: Path, destination: Path, expected: SourceSnapshot
-    ) -> None:
+    def replace_verified(self, source: Path, destination: Path, expected: SourceSnapshot) -> None:
         if source.name not in self._files:
             raise FileNotFoundError(source.name)
         if destination.name not in self._files:
-            raise SourceChangedError(
-                f"destination {destination.name} not found in fake filesystem"
-            )
+            raise SourceChangedError(f"destination {destination.name} not found in fake filesystem")
         dev, ino = self._ensure_identity(destination.name)
         current_sha = hashlib.sha256(self._files[destination.name]).hexdigest()
-        if (
-            current_sha != expected.sha256
-            or dev != expected.st_dev
-            or ino != expected.st_ino
-        ):
+        if current_sha != expected.sha256 or dev != expected.st_dev or ino != expected.st_ino:
             raise SourceChangedError(
                 f"destination {destination.name} changed from expected snapshot"
             )
@@ -203,14 +195,8 @@ class FakeFilesystem:
             raise FileNotFoundError(path.name)
         dev, ino = self._ensure_identity(path.name)
         current_sha = hashlib.sha256(self._files[path.name]).hexdigest()
-        if (
-            current_sha != expected.sha256
-            or dev != expected.st_dev
-            or ino != expected.st_ino
-        ):
-            raise SourceChangedError(
-                f"{path.name} changed from expected snapshot"
-            )
+        if current_sha != expected.sha256 or dev != expected.st_dev or ino != expected.st_ino:
+            raise SourceChangedError(f"{path.name} changed from expected snapshot")
         del self._files[path.name]
         self.removed.append(path.name)
 
@@ -263,9 +249,7 @@ class FakeTaskWorld:
             self.launch_runner = FakeProcessRunner(result=launch or OK_PROCESS)
         self.test_runner = FakeProcessRunner(result=test or OK_PROCESS)
         self.backend = LaunchAgentBackend(self.store, self.launch_runner, uid=1000)
-        self.history_repo = ExecutionHistoryRepository(
-            self.history_root / "history.sqlite3"
-        )
+        self.history_repo = ExecutionHistoryRepository(self.history_root / "history.sqlite3")
         self.finder_revealer = FakeFinderRevealer()
         self.services = TaskCommandService(
             repository=JsonJobRepository(),

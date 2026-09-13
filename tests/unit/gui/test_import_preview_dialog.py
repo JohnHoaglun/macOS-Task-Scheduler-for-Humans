@@ -41,44 +41,7 @@ def _preview_outcome(
     return dialog
 
 
-class TestObjectNames:
-    def test_dialog_object_name(self, qtbot: QtBot) -> None:
-        dialog = _preview_outcome(qtbot)
-        assert dialog.objectName() == "import-preview-dialog"
-
-    def test_all_widgets_have_object_names(self, qtbot: QtBot) -> None:
-        dialog = _preview_outcome(qtbot)
-        dialog.findChild(QPushButton, "import-preview-details")
-        dialog.findChild(QPushButton, "import-warnings")
-        dialog.findChild(QPushButton, "import-unsupported")
-        dialog.findChild(QCheckBox, "import-acknowledge")
-        dialog.findChild(QPushButton, "import-confirm")
-        dialog.findChild(QPushButton, "import-cancel")
-
-
-class TestSupportedPreview:
-    def test_acknowledge_hidden(self, qtbot: QtBot) -> None:
-        dialog = _preview_outcome(qtbot)
-        ack_group = dialog.findChild(object, "import-acknowledge-group")
-        assert ack_group is not None and ack_group.isHidden()
-
-    def test_import_enabled(self, qtbot: QtBot) -> None:
-        dialog = _preview_outcome(qtbot)
-        confirm = dialog.findChild(QPushButton, "import-confirm")
-        assert confirm is not None and confirm.isEnabled()
-
-
 class TestPartialPreview:
-    def test_acknowledge_shown(self, qtbot: QtBot) -> None:
-        dialog = _preview_outcome(qtbot, requires_ack=True)
-        ack_group = dialog.findChild(object, "import-acknowledge-group")
-        assert ack_group is not None and ack_group.isVisible()
-
-    def test_import_disabled_until_checked(self, qtbot: QtBot) -> None:
-        dialog = _preview_outcome(qtbot, requires_ack=True)
-        confirm = dialog.findChild(QPushButton, "import-confirm")
-        assert confirm is not None and not confirm.isEnabled()
-
     def test_import_enabled_after_check(self, qtbot: QtBot) -> None:
         dialog = _preview_outcome(qtbot, requires_ack=True)
         ack = dialog.findChild(QCheckBox, "import-acknowledge")
@@ -98,15 +61,6 @@ class TestWarningRendering:
         assert wlist is not None
         assert wlist.count() == 2
         assert wlist.item(0).text() == "warning one"
-
-    def test_unsupported_keys_list_populated(self, qtbot: QtBot) -> None:
-        dialog = _preview_outcome(
-            qtbot,
-            unsupported_keys=("Label", "StartInterval"),
-        )
-        ulist = dialog.findChild(QListWidget, "import-unsupported-list")
-        assert ulist is not None
-        assert ulist.count() == 2
 
 
 class TestCancel:

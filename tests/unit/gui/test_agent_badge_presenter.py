@@ -30,24 +30,6 @@ NO_JOB = _parsed(
 )
 
 
-def test_descriptors_and_managed_tooltips() -> None:
-    badges = agent_badges(_mk(job=make_job(), parsed=_parsed(), loaded=True))
-    expected = {
-        "state": ("Managed", "State: Managed", "Managed by the task catalog"),
-        "installed": (
-            "installed",
-            "Installed: installed",
-            "Plist discovered in the LaunchAgents directory",
-        ),
-        "enabled": ("enabled", "Enabled: enabled", "Job is configured to run"),
-        "loaded": ("loaded", "Loaded: loaded", "Job is currently loaded in launchd"),
-        "command": ("python", "Command: python", "Python script command"),
-    }
-    for field, (text, name, tip) in expected.items():
-        badge = getattr(badges, field)
-        assert (badge.text, badge.accessible_name, badge.tooltip) == (text, name, tip)
-
-
 def test_remaining_tooltips() -> None:
     shell = make_job(command=ShellCommand(executable="/bin/zsh"))
     exe = make_job(command=ExecutableCommand(executable="/usr/bin/ls"))

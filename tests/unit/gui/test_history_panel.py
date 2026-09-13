@@ -35,8 +35,8 @@ def _event(**overrides) -> HistoryEvent:
     kwargs.update(overrides)
     return HistoryEvent(**kwargs)
 
-class TestShowHistoryEvents:
 
+class TestShowHistoryEvents:
     def test_panel_events_accessor(self, qtbot: QtBot):
         panel = HistoryPanel()
         qtbot.addWidget(panel)

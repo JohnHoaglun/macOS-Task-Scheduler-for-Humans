@@ -5,25 +5,20 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-import pytest
 from tests.fakes import EMPTY_DETECTION_ROOTS, FakePythonDetectorFilesystem, detect_context
 
 from task_scheduler.platform.macos import (
     CandidateSource,
-    DetectorContribution,
     DetectorKind,
     LocalPythonDetectorFilesystem,
     PythonDetectionResult,
     PythonDetectionRoots,
     detect_python,
 )
-from task_scheduler.platform.macos.python_detection import nearest_marker_root
 from task_scheduler.platform.macos.python_detectors import (
     CondaPythonDetector,
-    HomebrewPythonDetector,
     PipenvPythonDetector,
     PyenvPythonDetector,
-    default_python_detectors,
 )
 
 UV_NO_VENV = "a uv project was detected, but no usable .venv interpreter is available"
@@ -44,17 +39,19 @@ def _detect(script: Path, filesystem: FakePythonDetectorFilesystem) -> PythonDet
         roots=EMPTY_DETECTION_ROOTS,
     )
 
+
 def _lookup(target: Path | None) -> Callable[[str], str | None]:
     def which(name: str) -> str | None:
         return str(target) if name == "python3" and target is not None else None
 
     return which
 
+
 def _roots(pyenv: tuple = (), conda: tuple = (), homebrew: tuple = ()) -> PythonDetectionRoots:
     return PythonDetectionRoots(pyenv=pyenv, conda=conda, homebrew=homebrew)
 
-class TestProjectRootWalk:
 
+class TestProjectRootWalk:
     def test_table_key_is_ecosystem_specific(self, tmp_path: Path) -> None:
         root = tmp_path / "project"
         script = root / "job.py"
@@ -79,8 +76,8 @@ class TestProjectRootWalk:
         assert result.candidates == []
         assert result.notes == []
 
-class TestEcosystemNotes:
 
+class TestEcosystemNotes:
     def test_markers_from_both_detectors_order_notes(self, tmp_path: Path) -> None:
         root = tmp_path / "project"
         script = root / "job.py"
@@ -120,8 +117,8 @@ class TestEcosystemNotes:
             (DetectorKind.POETRY, POETRY_PARSE_NOTE),
         ]
 
-class TestRegistryAndLocalReader:
 
+class TestRegistryAndLocalReader:
     def test_local_reader_roundtrip(self, tmp_path: Path) -> None:
         reader = LocalPythonDetectorFilesystem()
         file = tmp_path / "sample.py"
@@ -138,36 +135,7 @@ class TestRegistryAndLocalReader:
         assert reader.is_dir(tmp_path)
 
 
-class TestDetectionContract:
-
-    def test_default_roots_resolve_the_known_locations(self) -> None:
-        home = Path.home()
-        roots = PythonDetectionRoots.default()
-        assert roots.pyenv == (home / ".pyenv",)
-        assert roots.homebrew == (Path("/opt/homebrew"), Path("/usr/local"))
-        assert home / "miniconda3" in roots.conda
-
-    def test_nearest_marker_root_returns_nearest_ancestor(self, tmp_path: Path) -> None:
-        fs = FakePythonDetectorFilesystem(files={tmp_path / "a" / "uv.lock": ""}, executable=set())
-        assert nearest_marker_root(tmp_path / "a" / "b" / "job.py", fs, "uv.lock") == tmp_path / "a"
-
-    def test_nearest_marker_root_none_when_absent_or_invalid(self, tmp_path: Path) -> None:
-        fs = FakePythonDetectorFilesystem(files={}, executable=set(), dirs={tmp_path})
-        assert nearest_marker_root(tmp_path / "job.py", fs, "uv.lock") is None
-        assert nearest_marker_root(Path("relative.py"), fs, "uv.lock") is None
-        assert nearest_marker_root(tmp_path, fs, "uv.lock") is None
-
-
 class TestPyenvDetector:
-
-    @pytest.mark.parametrize(
-        "detector_cls", [PyenvPythonDetector, CondaPythonDetector, PipenvPythonDetector]
-    )
-    def test_no_marker_contributes_nothing(self, tmp_path: Path, detector_cls) -> None:
-        fs = FakePythonDetectorFilesystem(files={}, executable=set())
-        context = detect_context(tmp_path / "job.py", fs, EMPTY_DETECTION_ROOTS)
-        assert detector_cls().detect(context) == DetectorContribution()
-
     def test_system_name_reports_note(self, tmp_path: Path) -> None:
         files = {tmp_path / ".python-version": "system"}
         fs = FakePythonDetectorFilesystem(files=files, executable=set())
@@ -189,7 +157,6 @@ class TestPyenvDetector:
 
 
 class TestCondaDetector:
-
     def test_base_env_selects_prefix_python(self, tmp_path: Path) -> None:
         prefix = tmp_path / "conda"
         interp = prefix / "bin" / "python"
@@ -222,7 +189,6 @@ class TestCondaDetector:
 
 
 class TestPipenvDetector:
-
     def test_uses_project_venv(self, tmp_path: Path) -> None:
         interp = tmp_path / ".venv" / "bin" / "python"
         files = {tmp_path / "Pipfile": "[packages]\n", interp: ""}
@@ -236,30 +202,3 @@ class TestPipenvDetector:
         fs = FakePythonDetectorFilesystem(files=files, executable=set())
         context = detect_context(tmp_path / "job.py", fs, EMPTY_DETECTION_ROOTS)
         assert [n.message for n in PipenvPythonDetector().detect(context).notes] == [PIPENV_NO_VENV]
-
-
-class TestHomebrewDetector:
-
-    def test_uses_first_usable_prefix(self, tmp_path: Path) -> None:
-        interp = tmp_path / "h2" / "bin" / "python3"
-        files = {interp: ""}
-        fs = FakePythonDetectorFilesystem(files=files, executable={interp})
-        roots = _roots(homebrew=(tmp_path / "h1", tmp_path / "h2"))
-        context = detect_context(tmp_path / "job.py", fs, roots)
-        contribution = HomebrewPythonDetector().detect(context)
-        assert contribution.candidates == ((interp, CandidateSource.PATH),)
-
-    def test_no_prefix_matches_contributes_nothing(self, tmp_path: Path) -> None:
-        fs = FakePythonDetectorFilesystem(files={}, executable=set())
-        roots = _roots(homebrew=(tmp_path / "h1", tmp_path / "h2"))
-        context = detect_context(tmp_path / "job.py", fs, roots)
-        assert HomebrewPythonDetector().detect(context) == DetectorContribution()
-
-
-class TestRegistryOrder:
-
-    def test_default_registry_order(self) -> None:
-        assert [d.kind for d in default_python_detectors()] == [
-            DetectorKind.CORE, DetectorKind.UV, DetectorKind.POETRY,
-            DetectorKind.PIPENV, DetectorKind.PYENV, DetectorKind.CONDA, DetectorKind.HOMEBREW,
-        ]

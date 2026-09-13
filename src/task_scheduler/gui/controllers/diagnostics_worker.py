@@ -21,9 +21,7 @@ class DiagnosticsWorker(QObject):
 
     finished = Signal(object)
 
-    def __init__(
-        self, controller: DiagnosticsController, parent: QObject | None = None
-    ) -> None:
+    def __init__(self, controller: DiagnosticsController, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._controller = controller
 

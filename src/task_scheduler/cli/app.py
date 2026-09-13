@@ -85,9 +85,7 @@ def create_app(services: TaskCommandService) -> typer.Typer:
             report = services.inspect(label)
         except JobNotFoundError as exc:
             _fail(str(exc), EXIT_USAGE)
-        diagnostics = services.inspection_diagnostics(
-            report.plist_path, report.plist
-        )
+        diagnostics = services.inspection_diagnostics(report.plist_path, report.plist)
         typer.echo(render.format_inspect(report, diagnostics))
 
     @app.command("validate")
@@ -141,9 +139,7 @@ def create_app(services: TaskCommandService) -> typer.Typer:
             )
             if result.process.stderr:
                 typer.secho(result.process.stderr.rstrip("\n"), err=True)
-            diagnostics = services.lifecycle_diagnostics(
-                result.job.label, "install", result
-            )
+            diagnostics = services.lifecycle_diagnostics(result.job.label, "install", result)
             if diagnostics:
                 typer.secho(
                     "\n" + render.format_diagnostics(list(diagnostics)),
@@ -308,9 +304,7 @@ def create_app(services: TaskCommandService) -> typer.Typer:
         if acknowledge_partial:
             typer.echo(render.format_import_disclosure(preview, include_prompt=False))
         try:
-            services.import_external_plist(
-                preview, acknowledge_partial=acknowledge_partial
-            )
+            services.import_external_plist(preview, acknowledge_partial=acknowledge_partial)
         except JobConflictError as exc:
             _fail(str(exc), EXIT_USAGE)
         typer.echo(render.format_import_success(preview.candidate.label))
@@ -340,9 +334,7 @@ def create_app(services: TaskCommandService) -> typer.Typer:
         except (StrictJsonDecodeError, ValueError, OSError) as exc:
             _fail(str(exc), EXIT_USAGE)
         if not preview.can_import:
-            typer.secho(
-                render.format_import_json_conflicts(preview), err=True
-            )
+            typer.secho(render.format_import_json_conflicts(preview), err=True)
             _fail("", EXIT_USAGE)
         try:
             services.import_managed_json(preview)

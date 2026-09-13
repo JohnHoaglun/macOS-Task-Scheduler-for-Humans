@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import plistlib
 from pathlib import Path
 
 from PySide6.QtCore import QItemSelection, QMetaObject, Qt, QThread
@@ -19,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from task_scheduler.application import ExternalEditResult, ExternalEditSession
 from task_scheduler.application.job_service import JobNotFoundError
 from task_scheduler.application.task_command_service import (
     ListingKind,
@@ -36,6 +39,11 @@ from task_scheduler.gui.controllers.diagnostics_controller import (
 from task_scheduler.gui.controllers.diagnostics_worker import DiagnosticsWorker
 from task_scheduler.gui.controllers.discovery_controller import DiscoveryController
 from task_scheduler.gui.controllers.editor_controller import EditorController
+from task_scheduler.gui.controllers.external_control_worker import (
+    ExternalControlKind,
+    ExternalControlRequest,
+    ExternalControlWorker,
+)
 from task_scheduler.gui.controllers.history_controller import (
     HistoryController,
     HistoryOutcome,
@@ -51,6 +59,7 @@ from task_scheduler.gui.controllers.lifecycle_controller import (
     LifecycleController,
     LifecycleOutcome,
     RequestVerdict,
+    usable_external_label,
 )
 from task_scheduler.gui.controllers.lifecycle_worker import LifecycleWorker
 from task_scheduler.gui.models.agent_filter_proxy_model import AgentFilterProxyModel
@@ -63,13 +72,80 @@ from task_scheduler.gui.widgets.agent_empty_state import AgentEmptyState
 from task_scheduler.gui.widgets.agent_filter_controls import AgentFilterControls
 from task_scheduler.gui.widgets.agent_inspector import AgentInspector
 from task_scheduler.gui.widgets.diagnostic_logs_panel import DiagnosticLogsPanel
+from task_scheduler.gui.widgets.external_control_dialog import (
+    ExternalDisableConfirmDialog,
+    ExternalEditGateDialog,
+    ExternalRemoveConfirmDialog,
+    ExternalReplaceGateDialog,
+    RemoveSavedJobConfirmDialog,
+)
 from task_scheduler.gui.widgets.history_panel import HistoryPanel
 from task_scheduler.gui.widgets.import_preview_dialog import ImportPreviewDialog
 from task_scheduler.gui.widgets.job_editor import JobEditor
 from task_scheduler.gui.widgets.json_transfer_dialog import JsonTransferDialog
 from task_scheduler.gui.widgets.lifecycle_result import LifecycleResultDialog
+from task_scheduler.gui.widgets.raw_plist_editor import RawPlistEditor
 
-__all__ = ["MainWindow"]
+__all__ = [
+    "MainWindow",
+    "EDIT_EXTERNAL_NO_CHANGES",
+    "EXTERNAL_EDIT_SUCCESS_LOADED",
+    "EXTERNAL_EDIT_SUCCESS_UNLOADED",
+    "EXTERNAL_EDIT_RELOAD_FAILED",
+    "EXTERNAL_EDIT_BOOTOUT_FAILED",
+    "EXTERNAL_DISABLE_LOADED",
+    "EXTERNAL_DISABLE_UNLOADED",
+    "EXTERNAL_DISABLE_UNKNOWN",
+    "EXTERNAL_QUARANTINE_RESULT",
+    "EXTERNAL_ENABLE_LOADED",
+    "EXTERNAL_ENABLE_UNLOADED",
+    "EXTERNAL_ENABLE_UNKNOWN",
+    "EXTERNAL_REMOVE_RESULT",
+    "EXTERNAL_REMOVE_UNLOADED_FIRST",
+    "REMOVED_SAVED_RESULT",
+    "RAW_REPLACEMENT_INVALID",
+]
+
+EDIT_EXTERNAL_NO_CHANGES = "No changes to save."
+EXTERNAL_EDIT_SUCCESS_LOADED = (
+    "Updated external LaunchAgent and reloaded it successfully. It remains External."
+)
+EXTERNAL_EDIT_SUCCESS_UNLOADED = "Updated external LaunchAgent. It remains External."
+EXTERNAL_EDIT_RELOAD_FAILED = (
+    "The plist was replaced, but launchd could not reload it. "
+    "The previous plist is retained at: {backup}"
+)
+EXTERNAL_EDIT_BOOTOUT_FAILED = (
+    "The LaunchAgent could not be unloaded, so the plist was not changed. "
+    "A staged copy is retained at: {staged}"
+)
+EXTERNAL_DISABLE_LOADED = (
+    "Disabled {label}. launchd will not restart it; the running instance was unloaded."
+)
+EXTERNAL_DISABLE_UNLOADED = "Disabled {label}. launchd will not start it."
+EXTERNAL_DISABLE_UNKNOWN = (
+    "Disabled {label}. The loaded state could not be determined, so no unload was attempted."
+)
+EXTERNAL_QUARANTINE_RESULT = (
+    "Quarantined {source} to {dest}. launchd will no longer load it from its original location."
+)
+EXTERNAL_ENABLE_LOADED = "Enabled {label}."
+EXTERNAL_ENABLE_UNLOADED = "Enabled {label} and loaded it."
+EXTERNAL_ENABLE_UNKNOWN = (
+    "Enabled {label}. It could not be verified that it is loaded; it will start at the next login."
+)
+EXTERNAL_REMOVE_RESULT = "Removed {path}. A backup is retained at: {backup}."
+EXTERNAL_REMOVE_UNLOADED_FIRST = " It was unloaded first."
+REMOVED_SAVED_RESULT = "Removed {name} from the catalog."
+RAW_REPLACEMENT_INVALID = "the replacement is not a valid plist"
+EXTERNAL_ENABLE_NO_LABEL_TOOLTIP = (
+    "This task has no usable launchd label, so it cannot be enabled through launchd. "
+    "Edit the plist to add a valid label, or remove the task."
+)
+EXTERNAL_RUN_NOW_NOT_LOADED_TOOLTIP = (
+    "This task is not currently loaded in launchd. Enable it first to load it."
+)
+EXTERNAL_RUN_NOW_NO_LABEL_TOOLTIP = "This task has no usable launchd label."
 
 
 class MainWindow(QMainWindow):
@@ -93,6 +169,10 @@ class MainWindow(QMainWindow):
         self._lifecycle_controller = lifecycle
         self._lifecycle_busy = False
         self._active_worker: LifecycleWorker | None = None
+        self._external_busy = False
+        self._active_external_worker: ExternalControlWorker | None = None
+        self._external_kind: ExternalControlKind | None = None
+        self._external_loaded: bool | None = None
         self._diagnostics_controller = diagnostics
         self._diagnostics_busy = False
         self._active_test_worker: DiagnosticsWorker | None = None
@@ -150,11 +230,13 @@ class MainWindow(QMainWindow):
         self.new_task_action = QAction("New Task...", self)
         self.new_task_action.setShortcut(QKeySequence.StandardKey.New)
         self.new_task_action.triggered.connect(self.new_task)
-        self.edit_task_action = QAction("Edit Managed Task...", self)
-        self.edit_task_action.triggered.connect(self.edit_managed_task)
+        self.edit_task_action = QAction("Edit Task…", self)
+        self.edit_task_action.triggered.connect(self.edit_task)
         self.import_action = QAction("Import as Managed Job...", self)
         self.import_action.setEnabled(False)
         self.import_action.triggered.connect(self._on_import_triggered)
+        self.remove_task_action = QAction("Remove Task…", self)
+        self.remove_task_action.triggered.connect(self._on_remove_task_triggered)
         self.export_json_action = QAction("Export JSON...", self)
         self.export_json_action.setEnabled(False)
         self.export_json_action.triggered.connect(self._on_export_json)
@@ -162,11 +244,13 @@ class MainWindow(QMainWindow):
         self.import_json_action.triggered.connect(self._on_import_json)
         file_menu = self.menuBar().addMenu("File")
         file_menu.addAction(self.new_task_action)
-        file_menu.addAction(self.edit_task_action)
         file_menu.addAction(self.import_action)
+        file_menu.addAction(self.remove_task_action)
         file_menu.addAction(self.export_json_action)
         file_menu.addAction(self.import_json_action)
         file_menu.addAction(self.refresh_action)
+        self.edit_menu = self.menuBar().addMenu("Edit")
+        self.edit_menu.addAction(self.edit_task_action)
         self.reveal_plist_action = QAction("Reveal Plist", self)
         self.reveal_plist_action.setEnabled(False)
         self.reveal_plist_action.triggered.connect(self._on_reveal_plist)
@@ -266,11 +350,21 @@ class MainWindow(QMainWindow):
         if self._editor.saved_path is not None:
             self.refresh()
 
-    def edit_managed_task(self) -> None:
-        """Open the editor for the selected managed task and refresh on save."""
-        listing = self._listing_at_table_row(self.table.currentIndex().row())
-        if listing is None or not listing.managed or listing.job is None:
-            self.statusBar().showMessage("Select a managed task to edit it.")
+    def edit_task(self) -> None:
+        """Open the editor for the selected task, managed or external."""
+        listing = self._selected_listing()
+        if listing is None:
+            self.statusBar().showMessage("Select a task to edit it.")
+            return
+        if listing.managed:
+            self._edit_managed_listing(listing)
+        else:
+            self._edit_external_listing(listing)
+
+    def _edit_managed_listing(self, listing: TaskListing) -> None:
+        """Resolve the managed job, open it in the editor, refresh on save."""
+        if listing.job is None:
+            self.statusBar().showMessage("Select a task to edit it.")
             return
         try:
             resolved = self._editor_controller.resolve(listing.job.label)
@@ -281,6 +375,59 @@ class MainWindow(QMainWindow):
         self._editor.exec()
         if self._editor.saved_path is not None:
             self.refresh()
+
+    def _edit_external_listing(self, listing: TaskListing) -> None:
+        """Gate A, open the edit session, then edit the external plist."""
+        services = self._services
+        path = listing.path
+        if services is None or path is None:
+            self.statusBar().showMessage("External editing is not available.")
+            return
+        if listing.parsed is not None and listing.parsed.job is not None:
+            gate = ExternalEditGateDialog.structured(str(path), self)
+        else:
+            gate = ExternalEditGateDialog.raw(str(path), usable_external_label(listing), self)
+        gate.exec()
+        if not gate.is_accepted:
+            return
+        try:
+            session = services.open_external_edit_session(path)
+        except ValueError as exc:
+            self.statusBar().showMessage(str(exc))
+            return
+        if session.job is None:
+            self._open_raw_editor(session)
+            return
+        self._editor.open_external(path, session.job)
+        if not self._editor.exec():
+            return
+        edited = self._editor.edited_job
+        if edited is None:
+            return
+        dirty = self._editor.dirty_fields
+        if not dirty:
+            self.statusBar().showMessage(EDIT_EXTERNAL_NO_CHANGES)
+            return
+        confirm = ExternalReplaceGateDialog(
+            mode="structured",
+            path=str(path),
+            loaded=session.loaded,
+            parent=self,
+        )
+        confirm.exec()
+        if not confirm.is_accepted:
+            return
+        self._start_external(
+            ExternalControlRequest(
+                kind=ExternalControlKind.STRUCTURED_EDIT,
+                path=path,
+                session=session,
+                job=edited,
+                dirty=dirty,
+            ),
+            session.loaded,
+            "Replacing external LaunchAgent...",
+        )
 
     def _selected_listing(self) -> TaskListing | None:
         """The currently selected row, or None when nothing is selected."""
@@ -339,19 +486,15 @@ class MainWindow(QMainWindow):
     def _update_lifecycle_actions(self) -> None:
         """Enable only the actions the selection allows, unless one is in flight."""
         listing = self._selected_listing()
-        allowed = (
-            frozenset()
-            if self._lifecycle_busy
-            else self._lifecycle_controller.enabled_actions(listing)
-        )
+        busy = self._lifecycle_busy or self._external_busy
+        allowed = frozenset() if busy else self._lifecycle_controller.enabled_actions(listing)
         self.install_action.setEnabled(LifecycleAction.INSTALL in allowed)
         self.reinstall_action.setEnabled(LifecycleAction.REINSTALL in allowed)
         self.uninstall_action.setEnabled(LifecycleAction.UNINSTALL in allowed)
         self.enable_action.setEnabled(LifecycleAction.ENABLE in allowed)
         self.disable_action.setEnabled(LifecycleAction.DISABLE in allowed)
         self.run_now_action.setEnabled(LifecycleAction.RUN_NOW in allowed)
-        self.new_task_action.setEnabled(not self._lifecycle_busy)
-        self.edit_task_action.setEnabled(not self._lifecycle_busy)
+        self.new_task_action.setEnabled(not busy)
         self.test_action.setEnabled(
             listing is not None
             and listing.managed
@@ -360,6 +503,33 @@ class MainWindow(QMainWindow):
         )
         self._update_import_action(listing)
         self._update_action_menu(listing)
+        self._update_edit_menu(listing)
+        self._update_lifecycle_tooltips(listing)
+
+    def _update_edit_menu(self, listing: TaskListing | None) -> None:
+        """Enable Edit menu actions based on the selection."""
+        busy = self._lifecycle_busy or self._external_busy
+        self.edit_task_action.setEnabled(listing is not None and not busy)
+        self.remove_task_action.setEnabled(
+            listing is not None
+            and self._lifecycle_controller.enabled_remove_action(listing)
+            and not busy
+        )
+
+    def _update_lifecycle_tooltips(self, listing: TaskListing | None) -> None:
+        """Explain why an external action is unavailable for the selection."""
+        if listing is None or listing.managed:
+            self.enable_action.setToolTip("")
+            self.run_now_action.setToolTip("")
+            return
+        label = usable_external_label(listing)
+        self.enable_action.setToolTip("" if label is not None else EXTERNAL_ENABLE_NO_LABEL_TOOLTIP)
+        if label is None:
+            self.run_now_action.setToolTip(EXTERNAL_RUN_NOW_NO_LABEL_TOOLTIP)
+        elif listing.loaded is not True:
+            self.run_now_action.setToolTip(EXTERNAL_RUN_NOW_NOT_LOADED_TOOLTIP)
+        else:
+            self.run_now_action.setToolTip("")
 
     def _update_action_menu(self, listing: TaskListing | None) -> None:
         """Enable reveal/copy/export actions based on the selection."""
@@ -459,6 +629,268 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"Import failed: {result.error}")
             return
         self.refresh()
+
+    # -- universal external controls -------------------------------------------
+
+    def _start_external(
+        self,
+        request: ExternalControlRequest,
+        loaded: bool | None,
+        message: str,
+    ) -> None:
+        """Dispatch an external-control worker under the single busy slot."""
+        services = self._services
+        if services is None:
+            self.statusBar().showMessage("External controls are not available.")
+            return
+        if self._external_busy or self._lifecycle_busy:
+            self.statusBar().showMessage("Another operation is in progress.")
+            return
+        self._external_busy = True
+        self._external_kind = request.kind
+        self._external_loaded = loaded
+        self._update_lifecycle_actions()
+        self.statusBar().showMessage(message)
+        worker = ExternalControlWorker(services, request)
+        self._active_external_worker = worker
+        self._start_external_worker(worker)
+
+    def _start_external_worker(self, worker: ExternalControlWorker) -> None:
+        """Run the external-control worker on a QThread and invoke it through the queue."""
+        thread = QThread(self)
+        worker.moveToThread(thread)
+        worker.finished.connect(self._on_external_finished)
+        worker.finished.connect(worker.deleteLater)
+        worker.finished.connect(thread.quit)
+        thread.finished.connect(thread.deleteLater)
+        thread.start()
+        QMetaObject.invokeMethod(worker, "run", Qt.ConnectionType.QueuedConnection)
+
+    def _on_external_finished(self, outcome: object) -> None:
+        """Restore the UI, present the pinned result message, and refresh."""
+        kind = self._external_kind
+        loaded = self._external_loaded
+        self._external_busy = False
+        self._active_external_worker = None
+        self._external_kind = None
+        self._external_loaded = None
+        if not isinstance(outcome, ExternalEditResult):
+            self.refresh()
+            if isinstance(outcome, Exception):
+                self.statusBar().showMessage(str(outcome))
+            self._update_lifecycle_actions()
+            return
+        self.refresh()
+        if outcome.removed or outcome.quarantined_path is not None:
+            self.table.clearSelection()
+        if kind is not None:
+            self._show_external_result(kind, outcome, loaded)
+        self._update_lifecycle_actions()
+
+    def _show_external_result(
+        self,
+        kind: ExternalControlKind,
+        outcome: ExternalEditResult,
+        loaded: bool | None,
+    ) -> None:
+        """Show the pinned status-bar message for a finished external operation."""
+        if kind in (ExternalControlKind.STRUCTURED_EDIT, ExternalControlKind.RAW_EDIT):
+            if outcome.replaced:
+                if loaded is True and not outcome.reloaded:
+                    backup = self._backup_artifact(outcome)
+                    self.statusBar().showMessage(EXTERNAL_EDIT_RELOAD_FAILED.format(backup=backup))
+                elif loaded is True:
+                    self.statusBar().showMessage(EXTERNAL_EDIT_SUCCESS_LOADED)
+                else:
+                    self.statusBar().showMessage(EXTERNAL_EDIT_SUCCESS_UNLOADED)
+            else:
+                staged = next(iter(outcome.retained_artifacts), "")
+                self.statusBar().showMessage(EXTERNAL_EDIT_BOOTOUT_FAILED.format(staged=staged))
+        elif kind is ExternalControlKind.DISABLE:
+            if outcome.quarantined_path is not None:
+                self.statusBar().showMessage(
+                    EXTERNAL_QUARANTINE_RESULT.format(
+                        source=outcome.source_path,
+                        dest=outcome.quarantined_path,
+                    )
+                )
+            else:
+                label = outcome.label or ""
+                if loaded is True:
+                    self.statusBar().showMessage(EXTERNAL_DISABLE_LOADED.format(label=label))
+                elif loaded is False:
+                    self.statusBar().showMessage(EXTERNAL_DISABLE_UNLOADED.format(label=label))
+                else:
+                    self.statusBar().showMessage(EXTERNAL_DISABLE_UNKNOWN.format(label=label))
+        elif kind is ExternalControlKind.ENABLE:
+            label = outcome.label or ""
+            if loaded is True:
+                self.statusBar().showMessage(EXTERNAL_ENABLE_LOADED.format(label=label))
+            elif loaded is False:
+                self.statusBar().showMessage(EXTERNAL_ENABLE_UNLOADED.format(label=label))
+            else:
+                self.statusBar().showMessage(EXTERNAL_ENABLE_UNKNOWN.format(label=label))
+        elif kind is ExternalControlKind.REMOVE:
+            message = EXTERNAL_REMOVE_RESULT.format(
+                path=outcome.source_path,
+                backup=self._backup_artifact(outcome),
+            )
+            if loaded is True:
+                message += EXTERNAL_REMOVE_UNLOADED_FIRST
+            self.statusBar().showMessage(message)
+
+    def _backup_artifact(self, outcome: ExternalEditResult) -> str:
+        """The retained .backup. sibling for *outcome*, or an empty string."""
+        return next(
+            (
+                str(artifact)
+                for artifact in outcome.retained_artifacts
+                if ".backup." in artifact.name
+            ),
+            "",
+        )
+
+    # -- external lifecycle and removal controls --------------------------------
+
+    def _run_external_lifecycle(self, action: LifecycleAction, listing: TaskListing) -> None:
+        """Dispatch disable / enable / run-now for an external row."""
+        path = listing.path
+        if path is None:
+            self.statusBar().showMessage("Select a task first.")
+            return
+        loaded = listing.loaded
+        if action is LifecycleAction.DISABLE:
+            dialog = ExternalDisableConfirmDialog(
+                label=usable_external_label(listing),
+                path=str(path),
+                loaded=loaded,
+                parent=self,
+            )
+            dialog.exec()
+            if not dialog.is_accepted:
+                return
+            kind = ExternalControlKind.DISABLE
+            message = "Disabling external LaunchAgent..."
+        elif action is LifecycleAction.ENABLE:
+            kind = ExternalControlKind.ENABLE
+            message = "Enabling external LaunchAgent..."
+        else:
+            kind = ExternalControlKind.RUN_NOW
+            message = "Running external LaunchAgent now..."
+        self._start_external(
+            ExternalControlRequest(kind=kind, path=path),
+            loaded,
+            message,
+        )
+
+    def _on_remove_task_triggered(self) -> None:
+        """Remove the selected task: uninstall, catalog delete, or external removal."""
+        listing = self._selected_listing()
+        if listing is None:
+            self.statusBar().showMessage("Select a task first.")
+            return
+        if listing.managed:
+            if listing.kind is ListingKind.SAVED:
+                self._remove_saved_listing(listing)
+            else:
+                self._on_lifecycle_triggered(LifecycleAction.UNINSTALL)
+            return
+        self._remove_external_listing(listing)
+
+    def _remove_saved_listing(self, listing: TaskListing) -> None:
+        """Remove a saved (not installed) managed job from the catalog."""
+        job = listing.job
+        if job is None:
+            self.statusBar().showMessage("Select a task first.")
+            return
+        dialog = RemoveSavedJobConfirmDialog(name=job.name, label=job.label, parent=self)
+        dialog.exec()
+        if not dialog.is_accepted:
+            return
+        result = self._lifecycle_controller.request_remove_saved(job.label)
+        if result is not None:
+            self.refresh()
+            self.table.clearSelection()
+            self.statusBar().showMessage(REMOVED_SAVED_RESULT.format(name=job.name))
+        else:
+            self.statusBar().showMessage("Failed to remove saved task.")
+
+    def _remove_external_listing(self, listing: TaskListing) -> None:
+        """Remove an external plist after confirmation (unloading first when loaded)."""
+        path = listing.path
+        if path is None:
+            self.statusBar().showMessage("Select a task first.")
+            return
+        loaded = listing.loaded
+        dialog = ExternalRemoveConfirmDialog(path=str(path), loaded=loaded, parent=self)
+        dialog.exec()
+        if not dialog.is_accepted:
+            return
+        self._start_external(
+            ExternalControlRequest(kind=ExternalControlKind.REMOVE, path=path),
+            loaded,
+            "Removing external LaunchAgent...",
+        )
+
+    def _open_raw_editor(self, session: ExternalEditSession) -> None:
+        """Open the raw plist editor for an external LaunchAgent plist."""
+        try:
+            data = session.source_path.read_bytes()
+        except OSError:
+            self.statusBar().showMessage("Cannot read external plist file.")
+            return
+        try:
+            text = data.decode("utf-8")
+            binary_mode = False
+        except UnicodeDecodeError:
+            text = base64.b64encode(data).decode("ascii")
+            binary_mode = True
+        editor = RawPlistEditor(self)
+        editor.open(
+            source_path=session.source_path,
+            text=text,
+            binary_mode=binary_mode,
+            label=session.label,
+        )
+        editor.exec()
+        replacement = editor.replacement_text()
+        if replacement is None:
+            return
+        if binary_mode:
+            replacement = self._canonicalize_raw_replacement(replacement)
+            if replacement is None:
+                return
+        gate = ExternalReplaceGateDialog(
+            mode="raw",
+            path=str(session.source_path),
+            loaded=session.loaded,
+            parent=self,
+        )
+        gate.exec()
+        if not gate.is_accepted:
+            return
+        self._start_external(
+            ExternalControlRequest(
+                kind=ExternalControlKind.RAW_EDIT,
+                path=session.source_path,
+                session=session,
+                raw_text=replacement,
+            ),
+            session.loaded,
+            "Replacing external LaunchAgent...",
+        )
+
+    def _canonicalize_raw_replacement(self, text: str) -> str | None:
+        """Decode a base64 replacement to canonical XML, or report the pinned error."""
+        try:
+            decoded = base64.b64decode(text.encode("ascii"), validate=True)
+            value = plistlib.loads(decoded)
+            if not isinstance(value, dict):
+                raise ValueError("not a plist dict")
+            return plistlib.dumps(value, fmt=plistlib.FMT_XML).decode("utf-8")
+        except Exception:
+            self.statusBar().showMessage(RAW_REPLACEMENT_INVALID)
+            return None
 
     # -- transfer and file actions -------------------------------------------
 
@@ -574,9 +1006,15 @@ class MainWindow(QMainWindow):
             badge.set_descriptor(descriptor)
 
     def _on_lifecycle_triggered(self, action: LifecycleAction) -> None:
-        """Confirm when required, request through the controller, dispatch a worker."""
+        """Route to the external controls or the managed lifecycle worker."""
         listing = self._selected_listing()
-        if listing is None or listing.job is None:
+        if listing is None:
+            self.statusBar().showMessage("Select a task first.")
+            return
+        if not listing.managed:
+            self._run_external_lifecycle(action, listing)
+            return
+        if listing.job is None:
             self.statusBar().showMessage("Select a task first.")
             return
         needs_confirm = action in (LifecycleAction.REINSTALL, LifecycleAction.UNINSTALL)

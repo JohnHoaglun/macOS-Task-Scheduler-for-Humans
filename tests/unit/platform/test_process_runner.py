@@ -20,15 +20,15 @@ def _spec(
 ) -> CommandSpec:
     return CommandSpec(argv=argv, environment=environment or {}, working_directory=cwd)
 
-class TestSuccessfulRuns:
 
+class TestSuccessfulRuns:
     def test_duration_from_injected_clock(self) -> None:
         runner = SubprocessRunner(clock=FakeClock(step=1.5))
         result = runner.run(_spec(["/bin/echo", "x"]))
         assert result.duration == timedelta(seconds=1.5)
 
-class TestLaunchFailures:
 
+class TestLaunchFailures:
     def test_permission_denied(self, tmp_path: Path) -> None:
         script = tmp_path / "noperm.sh"
         script.write_text("#!/bin/zsh\necho hi\n")
@@ -47,4 +47,3 @@ class TestLaunchFailures:
         assert result.exit_code is None
         assert result.launch_failure is not None
         assert result.launch_failure.kind is LaunchFailureKind.OS_ERROR
-

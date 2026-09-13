@@ -11,8 +11,10 @@ from task_scheduler.platform.macos import ParsedLaunchAgent, ParseSupport, parse
 
 FIXTURES = Path(__file__).resolve().parents[2] / "fixtures" / "plists"
 
+
 def _parse(name: str) -> ParsedLaunchAgent:
     return parse_path(FIXTURES / name)
+
 
 class TestInvalid:
     @pytest.mark.parametrize(
@@ -36,6 +38,7 @@ class TestInvalid:
         assert result.status is ParseSupport.INVALID
         assert result.job is None
         assert result.warnings
+
 
 class TestParseBytes:
     def test_non_dictionary_top_level(self) -> None:
@@ -64,6 +67,7 @@ class TestParseBytes:
         assert parsed.status is ParseSupport.PARTIALLY_SUPPORTED
         assert parsed.job is None
 
+
 _BASE = {
     "Label": "com.example.branch",
     "ProgramArguments": ["/bin/zsh", "/Users/example/scripts/x.sh"],
@@ -76,8 +80,10 @@ _INTERVAL_BASE = {
 }
 _INVALID = ParseSupport.INVALID
 
+
 def _entry(hour: object, minute: object) -> dict[str, object]:
     return {"Weekday": 1, "Hour": hour, "Minute": minute}
+
 
 class TestBranches:
     @pytest.mark.parametrize(
@@ -122,8 +128,8 @@ class TestBranches:
         assert parsed.status is ParseSupport.PARTIALLY_SUPPORTED
         assert parsed.job is None
 
-class TestScheduleBranches:
 
+class TestScheduleBranches:
     def test_interval_below_minimum_drops_job(self) -> None:
         payload = dict(_INTERVAL_BASE)
         payload["StartInterval"] = 30

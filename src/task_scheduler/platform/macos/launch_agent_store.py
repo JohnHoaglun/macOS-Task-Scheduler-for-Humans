@@ -47,9 +47,7 @@ def validate_label(label: str) -> None:
     check is enforced here, at the filesystem boundary.
     """
     if label in {".", ".."} or "/" in label or os.sep in label:
-        raise ValueError(
-            "Label must not be '.'/'..' or contain path separators: " f"{label!r}"
-        )
+        raise ValueError(f"Label must not be '.'/'..' or contain path separators: {label!r}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,9 +108,7 @@ class LaunchAgentStore:
         discovered: list[DiscoveredLaunchAgent] = []
         for path in self._filesystem.list_plist_files(self._root):
             payload = self._filesystem.read_plist_bytes(path)
-            discovered.append(
-                DiscoveredLaunchAgent(path=path, parsed=parse_bytes(payload))
-            )
+            discovered.append(DiscoveredLaunchAgent(path=path, parsed=parse_bytes(payload)))
         return discovered
 
     # -- staging (explicit replace/reload path) ------------------------------
@@ -194,9 +190,7 @@ class LaunchAgentStore:
                 return candidate
             except FileExistsError:
                 continue
-        raise RuntimeError(
-            f"could not allocate a unique staged sibling for {path.name!r}"
-        )
+        raise RuntimeError(f"could not allocate a unique staged sibling for {path.name!r}")
 
     def backup_external(self, path: Path) -> Path:
         """Preserve an external plist as a uniquely named backup sibling."""
@@ -213,13 +207,9 @@ class LaunchAgentStore:
                 return candidate
             except FileExistsError:
                 continue
-        raise RuntimeError(
-            f"could not allocate a unique backup sibling for {path.name!r}"
-        )
+        raise RuntimeError(f"could not allocate a unique backup sibling for {path.name!r}")
 
-    def activate_external(
-        self, staged: Path, destination: Path, expected: SourceSnapshot
-    ) -> None:
+    def activate_external(self, staged: Path, destination: Path, expected: SourceSnapshot) -> None:
         """Atomically replace ``destination`` with ``staged`` when it matches.
 
         Removes ``staged`` on success.
@@ -233,9 +223,7 @@ class LaunchAgentStore:
 
     # -- universal task controls (v0.0.27) -------------------------------------
 
-    def backup_external_from_snapshot(
-        self, path: Path, snapshot: SourceSnapshot
-    ) -> Path:
+    def backup_external_from_snapshot(self, path: Path, snapshot: SourceSnapshot) -> Path:
         """Preserve an external plist as a uniquely named backup sibling.
 
         Writes ``snapshot.payload`` (never re-reads the source). Returns the
@@ -250,9 +238,7 @@ class LaunchAgentStore:
                 return candidate
             except FileExistsError:
                 continue
-        raise RuntimeError(
-            f"could not allocate a unique backup sibling for {path.name!r}"
-        )
+        raise RuntimeError(f"could not allocate a unique backup sibling for {path.name!r}")
 
     def quarantine_external(self, path: Path) -> Path:
         """Move an external plist into a quarantine directory.
@@ -275,13 +261,9 @@ class LaunchAgentStore:
                 return candidate
             except FileExistsError:
                 continue
-        raise RuntimeError(
-            f"could not allocate a unique quarantine file for {path.name!r}"
-        )
+        raise RuntimeError(f"could not allocate a unique quarantine file for {path.name!r}")
 
-    def remove_external_verified(
-        self, path: Path, expected: SourceSnapshot
-    ) -> None:
+    def remove_external_verified(self, path: Path, expected: SourceSnapshot) -> None:
         """Remove an external plist only when it matches ``expected``."""
         if path.parent != self._root:
             raise ValueError(f"path is outside the LaunchAgent root: {path}")

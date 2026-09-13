@@ -94,9 +94,7 @@ class DiagnosticsController:
     compared.
     """
 
-    def __init__(
-        self, services: TaskCommandService, environment: Mapping[str, str]
-    ) -> None:
+    def __init__(self, services: TaskCommandService, environment: Mapping[str, str]) -> None:
         self._services = services
         self._environment: dict[str, str] = dict(environment)
         self._current: JobDefinition | None = None
@@ -140,9 +138,7 @@ class DiagnosticsController:
             result = self._services.test_job(job, detection=detection)
         except Exception as exc:
             return TestOutcome(label=job.label, result=None, error=str(exc))
-        return TestOutcome(
-            label=job.label, result=result, error=None, detection=detection
-        )
+        return TestOutcome(label=job.label, result=result, error=None, detection=detection)
 
     def finish(self) -> None:
         """Clear the busy state; called by the worker after ``execute()``."""
@@ -156,9 +152,7 @@ class DiagnosticsController:
             diagnostics = self._services.log_diagnostics_for(job, logs)
         except Exception as exc:
             return LogsOutcome(label=job.label, logs=None, error=str(exc))
-        return LogsOutcome(
-            label=job.label, logs=logs, error=None, diagnostics=diagnostics
-        )
+        return LogsOutcome(label=job.label, logs=logs, error=None, diagnostics=diagnostics)
 
     def compare_environment(self, job: JobDefinition) -> EnvironmentOutcome:
         """Compare the GUI process environment with the job's scheduled

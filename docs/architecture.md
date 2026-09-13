@@ -255,6 +255,223 @@ reported in `InstallResult.retained_artifacts` — the transaction never
    `ProcessResult`. Uninstall is the inverse order: bootout first, plist and
    catalog record removed only on success.
 
+## Universal Task Controls (v0.0.27)
+
+Increment 27 replaced the narrow in-place-edit policy with **universal task
+controls**: every row in the agent table now supports Edit, Disable, and
+Remove regardless of state.  Each task row — whether Managed (saved or
+installed) or External (supported / partial / invalid) — is operable.  A
+wider amendment to the read-only-external policy grants the application the
+ability to modify, disable, and remove external user LaunchAgents; managed
+lifecycle paths are unchanged.  No CLI surface exists for any of this.
+
+### Application Services (`TaskCommandService`)
+
+**`open_external_edit_session(path)`** — read-only eligibility pipeline:
+(1) path must be a direct child of the LaunchAgent store root
+(`path is not a direct child of the LaunchAgent root: {path}`); (2)
+`store.read_external(path)` returns a `SourceSnapshot` (frozen
+`payload`/`sha256`/`(st_dev, st_ino)`); (3) parse the payload; (4) the
+label must not already be managed (`label is already managed: {label}`);
+(5) `backend.status(label)` must return a known loaded state when a label
+exists (`launchd status is unknown for {label}; ...`).  Returns an
+`ExternalEditSession` snapshot.
+
+**`commit_structured_external_edit(session, job, dirty)`** — validates
+(session has a representable job: `cannot structurally edit {path}: no
+representable job`; label unchanged: `label cannot change in an external
+edit: {old} -> {new}`; at least one dirty field: `the edit produced no
+changes`; merged result differs from original: `the edit produced no
+changes`); source drift check (`the source plist changed outside this
+application; review it and open it again`); then executes the shared
+transaction order: (a) `merge_external_edit(original, job, dirty=dirty)` —
+touches only the dirty plist keys and preserves all other keys; (b) encode
+to plist XML; (c) `stage_external(path, bytes)` → unique sibling
+`{name}.staged.{attempt}` (1001 attempts); (d) `bootout(label)` only when
+`session.loaded` — failure retains the staged sibling, `replaced=False`;
+(e) `backup_external_from_snapshot(path, fresh)` → unique sibling, retained
+on success; (f) `activate_external(staged, path, fresh)` —
+`replace_verified` re-reads destination, raises
+`SourceChangedError` on sha256/identity drift; (g) `bootstrap_path(label,
+path)` only when `session.loaded`. Success keeps the backup in
+`retained_artifacts`. The structured no-op save writes nothing and calls
+no `launchctl`.
+
+**`commit_raw_external_edit(session, replacement_text)`** — validates
+(replacement parses as a plist dict: `the replacement is not a valid
+plist`; contains a valid label: `the replacement must contain a valid
+launchd label`; label unchanged if both present; no-change:
+`the edit produced no changes` — canonical bytes compared to current
+source); source drift check; then the same shared transaction order as
+structured (stage → bootout → backup → activate → bootstrap).
+
+**`disable_external(path)`** — containment check (`path is outside the
+LaunchAgent root: {path}`); parses payload; if no usable label,
+`quarantine_external(path)` (move to `.task-scheduler-disabled`
+subdirectory); otherwise `backend.disable(label)` followed by
+`backend.bootout(label)` when loaded.  Returns result with
+`quarantined_path` set on quarantine.
+
+**`enable_external(path)`** — containment check; parses payload; raises
+`ValueError` when no usable label (`cannot enable {path}: no usable
+launchd label`); `backend.enable(label)`; if `loaded is False`,
+`bootstrap_path(label, path)`.
+
+**`run_now_external(path)`** — containment check; parses payload; raises
+when no usable label (`cannot run {path} now: no usable launchd label`);
+raises when status is unknown (`launchd status is unknown for {label}`);
+raises when not loaded (`cannot run {path} now: it is not loaded in
+launchd`); otherwise `backend.trigger(label)`.  Only fires when the task
+is confirmed loaded.
+
+**`remove_external(path)`** — containment check; `backup_external_from_snapshot`
+(backup retained on success); parses payload, checks loaded; if loaded,
+`bootout(label)`; re-verify source (source drift →
+`the source plist changed outside this application; review it and remove
+again`); `remove_external_verified(path, snapshot)`.  Removed rows clear
+selection.
+
+**`remove_saved_job(label)`** — resolves through the catalog (`_require_managed`);
+deletes the catalog JSON record (`JobService.remove(job.id)`); returns the
+deleted file path.  No plist or `launchctl` interaction.  Catalog-only.
+
+All methods accept a `Path` (the plist path) and are callable only for
+external rows.  No catalog writes or history events are recorded for any
+external operation.  The backup is retained on success — the transaction
+never claims a rollback.
+
+### Data-Transfer Objects
+
+**`ExternalEditField`** (`StrEnum`, 8 fields): `PROGRAM_ARGUMENTS`,
+`SCHEDULE`, `RUN_AT_LOAD`, `WORKING_DIRECTORY`, `ENVIRONMENT_VARIABLES`,
+`STDOUT_PATH`, `STDERR_PATH`, `ENABLED`.  These are the only plist keys a
+structured edit may touch; all other keys are preserved unchanged.
+
+**`ExternalEditSession`** (frozen, slots): `source_path: Path`,
+`sha256: str`, `identity: tuple[int, int]`, `nonce: str`,
+`label: str | None`, `loaded: bool | None`,
+`original: dict[str, object] | None`, `status: ParseSupport`,
+`job: JobDefinition | None`.  The `edit_mode()` method returns
+`"structured"` when `job is not None`, `"raw"` otherwise.
+
+**`ExternalEditResult`** (frozen, slots): `source_path: Path`,
+`label: str | None`, `process: ProcessResult | None`,
+`phases: tuple[ExternalEditPhase, ...]`,
+`completed_phases: tuple[str, ...]`,
+`retained_artifacts: tuple[Path, ...]`, `replaced: bool`,
+`reloaded: bool`, `quarantined_path: Path | None = None`,
+`removed: bool = False`.  `retained_artifacts` always includes the backup
+sibling on success (the transaction never claims a rollback) and, on
+failure, any staged sibling kept for diagnosis.
+
+**`ExternalEditPhase`** (frozen, slots): `name: str`,
+`process: ProcessResult` — records each `launchctl` phase in order.
+
+### GUI
+
+**`MainWindow`** — `edit_task_action` ("Edit Task…") in the Edit menu is
+enabled for **every** row (any non-None selection, not busy).  The action
+dispatches to `_edit_managed_listing` for managed rows and
+`_edit_external_listing` for external rows: structured Gate A →
+`open_external_edit_session()` → structured or raw editor depending on
+`session.job` → Gate B → `_start_external(STRUCTURED_EDIT / RAW_EDIT)`.
+`disable_action` ("Disable") and `remove_action` ("Remove") are enabled
+for **every** row (the remove gate checks `enabled_remove_action(listing)`
+which returns `True` for any selection).  Disable delegates to
+`_on_lifecycle_triggered(DISABLE)` for managed rows or
+`_start_external(DISABLE)` for external rows.  Remove delegates to
+`_remove_saved_listing` for managed rows,
+`_remove_external_listing` (Gate → `_start_external(REMOVE)`) for
+external rows.  `enable_action` and `run_now_action` are enabled only for
+external rows with a usable label: Enable when `label is not None` (tooltip
+when label is absent: "This task has no usable launchd label, so it cannot
+be enabled through launchd. Edit the plist to add a valid label, or remove
+the task."); Run Now when `label is not None` and `loaded is True`
+(tooltips: "no usable launchd label" or "This task is not currently loaded
+in launchd. Enable it first to load it.").
+
+**Structured-vs-raw routing** — external rows: when `listing.parsed` is
+not None and `listing.parsed.job is not None` (a not-managed job that
+parsed successfully and has a `JobDefinition`), the structured Gate A is
+shown; otherwise the raw Gate A is shown.  After session opening,
+`session.job is not None` → structured editor; `session.job is None` →
+raw editor.  Managed rows always use the structured editor (existing
+`open_existing` path).
+
+**`JobEditor.open_external`** — external mode: title "Edit External
+LaunchAgent"; banner with objectName `editor-external-banner` (preservation
+contract); label field set read-only; a read-only source-path line with
+objectName `editor-source-path`; save text changes to "Save External
+Plist…"; preview group title "Proposed replacement plist"; `saved_path`
+stays `None`; `edited_job` carries the validated draft.
+
+**`RawPlistEditor`** — opens with UTF-8 text for textual sources,
+base64-encoded text for binary sources (`binary_mode=True`).  Banner
+explains the mode; mode label shows "XML plist text" or
+"Base64-encoded plist (binary source)".  Save is always enabled (the
+service validates on commit; no change leaves Save disabled in the widget
+itself — the service's no-change check is in the transaction).
+
+**`external_control_dialog`** — `ExternalEditGateDialog` (Gate A:
+structured mode shows file path and preservation message; raw mode explains
+the raw editor and label requirements).
+`ExternalReplaceGateDialog` (Gate B: wording adapts to structured/raw and
+loaded state; accept button: "Replace and Reload" when loaded,
+"Replace Plist" when not).
+`ExternalDisableConfirmDialog` (label variant: "Disable" — launchd
+disable + bootout; no-label variant: "Move and Disable" — quarantine to
+`.task-scheduler-disabled`).
+`ExternalRemoveConfirmDialog` (path, loaded status, backup notice).
+`RemoveSavedJobConfirmDialog` (catalog-only removal, no launchd change).
+Cancel is the default button everywhere.
+
+**`external_control_worker.ExternalControlWorker`** — `QObject` moved onto
+a `QThread`; dispatched by `ExternalControlKind` enum
+(`STRUCTURED_EDIT`, `RAW_EDIT`, `DISABLE`, `ENABLE`, `RUN_NOW`, `REMOVE`);
+carries `ExternalControlRequest` (path, optional session/job/dirty/raw_text).
+`MainWindow._start_external` creates the worker, moves it to a new
+`QThread`, invokes via queued connection (`QMetaObject.invokeMethod`), and
+collects the result through `_on_external_finished` (presents the pinned
+status-bar message, clears selection on remove/quarantine, calls
+`refresh()`).
+
+### State Matrix
+
+| Row State | Edit | Disable | Remove | Enable | Run Now |
+|---|---|---|---|---|---|
+| **Managed (Saved, not installed)** | Structured editor (catalog save) | `disable()` + bootout (managed path) | Remove from catalog (catalog-only) | `enable()` (managed path) | Disabled (unknown state) |
+| **Managed (Installed)** | Structured editor (catalog save) | `disable()` + bootout | Uninstall (bootout + plist + catalog) | `enable()` | `run_now()` (only if loaded) |
+| **External (supported, usable label)** | Structured editor (dirty-field merge) | `disable()` + bootout-if-loaded | Backup + bootout-if-loaded + verified removal | `enable()` + bootstrap-if-needed | `trigger()` (only if loaded) |
+| **External (no usable label)** | Raw plist editor (full replacement) | Quarantine (move plist) | Backup + verified removal | Disabled (unknown state) | Disabled (unknown state) |
+| **External (partial or invalid)** | Raw plist editor (full replacement) | Quarantine (move plist) | Backup + verified removal | Disabled (unknown state) | Disabled (unknown state) |
+
+### Safety Invariants
+
+- **User-only boundary:** every external operation acts on a user-owned
+  LaunchAgent path under `~/Library/LaunchAgents`.  The platform layer
+  refuses paths outside the store root.
+- **Fail-closed on unknown launchd status:** `run_now_external` raises
+  when `status.loaded` is `None`; `open_external_edit_session` sets
+  `loaded=None` when `backend.status()` raises.  Unknown state is never
+  assumed.
+- **Fail-closed on source drift:** both edit commits re-read the source
+  plist and compare `sha256` + `(st_dev, st_ino)` against the session
+  fingerprint.  Any drift aborts the transaction.
+- **Label-less disable quarantines:** when a plist has no usable label,
+  disable moves it to `.task-scheduler-disabled` (no `launchctl` call
+  possible without a label).
+- **Ownership separation:** external operations never touch the managed
+  catalog.  `remove_saved_job` is catalog-only (deletes the catalog JSON,
+  no plist, no `launchctl`).  `open_external_edit_session` raises if the
+  label is already managed.
+- **Backup retained on success:** edit and remove transactions always keep
+  a byte-identical backup sibling (`{name}.backup.{n}`) in
+  `retained_artifacts`.  The transaction never claims a rollback.
+- **No history events:** external operations record nothing in execution
+  history.
+- **No CLI surface:** these operations are exclusively available through
+  the GUI.
+
 ## Diagnostics and Log Contracts (Increment 12)
 
 The GUI's diagnostics and logs path (test a managed task or a validated

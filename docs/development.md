@@ -256,6 +256,107 @@ tests never touch the host database (the real
   is exactly one new `.json` file, the LaunchAgents root is absent/new, and
   all call logs (launchctl + direct-test) are empty.
 
+## Universal Task Controls Test Conventions (v0.0.27)
+
+* `FakeFilesystem` tracks `(st_dev, st_ino)` per-name (auto-assigned,
+  survives replace via `replace` and `create_exclusive`).
+  `read_snapshot` raises `FileNotFoundError` when absent and
+  `ValueError` with the pinned message `path is not a regular non-symlink
+  file: …` for symlinks and directories; `replace_verified` raises
+  `SourceChangedError` when source is absent, destination is absent, or the
+  current sha256 or `(st_dev, st_ino)` differs from the expected snapshot;
+  `remove_verified` follows the same contract — rejects on drift or absence,
+  otherwise unlinks.
+* Service-level tests use `FakeTaskWorld` (real `JobService`,
+  `LaunchAgentStore`, `LaunchAgentBackend` over a scripted `FakeProcessRunner`,
+  `DirectTestService`, `PlistCodec`, `ExecutionHistoryRepository` — all rooted
+  at `tmp_path`) so the full transaction, including every `launchctl` argv,
+  is asserted without touching real `launchctl` or
+  `~/Library/LaunchAgents`. The fake process runner exposes
+  `world.launch_runner.specs` as a list of `CommandSpec` objects, so a test
+  can assert that a particular operation issued zero or exactly the expected
+  subcommands.
+* `open_external_edit_session` rejects with pinned `ValueError` text
+  verbatim: `path is not a direct child of the LaunchAgent root: …`
+  (outside root containment); `label is already managed: …` (decoded label
+  resolves to a catalog job); `launchd status is unknown for …; editing is
+  not safe` (usable label, `loaded` is `None`). No usable label →
+  `label=None, loaded=None`, no status call. Source-only branches: missing
+  file propagates the platform's regular-file error.
+* `commit_structured_external_edit` rejects in order: `cannot structurally
+  edit …: no representable job` (`session.job` is `None`); `label cannot
+  change in an external edit: …` (old → new); `the edit produced no changes`
+  (dirty empty or merged dict equals original); `the source plist changed
+  outside this application; review it and open it again` (fresh snapshot
+  sha256/identity ≠ session). Transaction (pinned order via
+  `FakeProcessRunner.specs`): stage → `bootout` (only when `session.loaded`
+  is `True`) → backup (from fresh snapshot payload) → `replace_verified`
+  → `bootstrap` of the exact source path (only when `session.loaded` is
+  `True`). Bootout failure: `replaced=False`, staged sibling retained.
+  Bootstrap failure: `replaced=True, reloaded=False`, backup retained.
+  No catalog writes, no history events.
+* `commit_raw_external_edit` rejects: `the replacement is not a valid
+  plist` (parse failure or not a dict); `label cannot change in an external
+  edit: …` (session label differs); `the replacement must contain a valid
+  launchd label` (no session label or replacement label invalid);
+  `the edit produced no changes` (canonical bytes equal source); drift
+  (same message as structured). Payload is canonical XML. Same transaction
+  contract.
+* `disable_external` — usable label: phase `disable` (`launchctl disable`);
+  phase `bootout` only when `loaded` is `True` (`None` → skip, result
+  discloses unknown). No usable label: quarantine — `create_root` for
+  `.task-scheduler-disabled`, unique destination file, `replace` from source;
+  `quarantined_path` set, `process=None`.
+* `enable_external` — no usable label: pinned `ValueError`; phase `enable`;
+  phase `bootstrap` only when `loaded` is `False` (`None` → skip).
+* `run_now_external` — no usable label: pinned `ValueError`; `loaded` is
+  `None`: `launchd status is unknown for …`; `loaded` is `False`:
+  `cannot run … now: it is not loaded in launchd`. Phase `run` (kickstart
+  `-k`).
+* `remove_external` — fresh snapshot; backup from snapshot payload; phase
+  `bootout` when label exists and `loaded` is `True`;
+  `remove_external_verified` (drift → `review it and remove again`);
+  `removed=True`; backup in `retained_artifacts`.
+* `remove_saved_job` — `_require_managed`; `self._jobs.remove(job.id)`
+  (idempotent); returns catalog path. No plist/launchctl.
+* The managed catalog is never touched by any external operation (no new
+  catalog JSON created/updated/deleted). No history events are recorded for
+  external edits, disables, enables, run-now, or removes.
+* GUI tests drive the offscreen window with `FakeTaskWorld` and
+  `DiscoveryController`, scripting modal dialogs via
+  `monkeypatch.setattr(Dialog, "exec", ...)`. Universal action gating:
+  Edit/Disable/Remove enabled for every selected row (managed installed,
+  managed saved, external with/without label, all parse states); Enable/Run
+  Now gated per the state matrix — Enable requires a usable label; Run Now
+  requires a usable label and `loaded` known `True`. Unavailable controls
+  carry pinned tooltips: `EXTERNAL_ENABLE_NO_LABEL_TOOLTIP`,
+  `EXTERNAL_RUN_NOW_NO_LABEL_TOOLTIP`, `EXTERNAL_RUN_NOW_NOT_LOADED_TOOLTIP`.
+* Structured preservation: saving in the `JobEditor` external structured
+  mode rewrites only the dirty fields into the original decoded plist; every
+  other key survives identically. A no-op save (no dirty fields) suppresses
+  the service call and shows `No changes to save.`.
+* Raw plist editor (`RawPlistEditor`): XML text for UTF-8 sources, base64
+  for binary. The replacement is decoded and canonicalized to XML before
+  commit. Unchanged content leaves Save disabled; invalid or label-less
+  content leaves Save disabled; a rejected exec resets the replacement.
+* Gate A (`Edit External LaunchAgent?`) and Gate B
+  (`Replace External LaunchAgent Plist?`) confirmation wording is asserted
+  verbatim via `titles = _script_external_dialogs(monkeypatch)`. Cancellation
+  at either gate produces zero writes, zero launchctl calls.
+* Disable confirmations: label variant (`Disable External LaunchAgent?`) and
+  quarantine variant (discloses file move, no launchctl). Remove
+  (`Remove External LaunchAgent?`) and saved-job remove
+  (`Remove Saved Task?`) are tested with accepted and declined flows.
+* After external control ops, `refresh()` preserves selection by path;
+  remove/quarantine clears selection. Source-drift and reload-failure paths
+  report pinned status-bar messages with exact backup paths.
+* The three remove kinds are tested end-to-end: managed installed (existing
+  uninstall flow), managed saved (`Remove-from-Catalog` with catalog removal
+  only), external (backup + optional bootout + verified removal).
+* A note on the coverage-kernel ratio gate: tests must stay within the
+  75% of production-line cap, and redundant edge-case tests were trimmed to
+  keep the ratio under the cap.
+
 ## Opt-in System Integration Tests
 
 The `tests/integration/` tests exercise the real
@@ -367,14 +468,18 @@ Crawl increments 0–13 establish:
   `TaskCommandService` facade
 - `mactask` CLI (Typer): list, inspect, validate, generate, install,
   uninstall, enable, disable, status, run, test, logs
-- read-only PySide6 GUI discovery browser (`mactask-gui`) over the shared
-  `TaskCommandService` facade
-- GUI job editor (`mactask-gui`): New Task / Edit Managed Task dialog with
-  validation, plist preview, and catalog-only save
+- PySide6 GUI discovery browser (`mactask-gui`) over the shared
+  `TaskCommandService` facade, with universal task controls
+- GUI job editor (`mactask-gui`): New Task / Edit Task dialog (structured
+  editor for managed and representable external jobs, raw plist editor for
+  unrepresentable ones) with validation and plist preview; managed saves are
+  catalog-only, external saves replace the plist directly (staying External)
 - GUI lifecycle controls (`mactask-gui`): install, reinstall, uninstall,
   enable, disable, run now over a Qt-free controller and `QThread` worker;
   saved jobs listed as `Saved, not installed`; staged reinstall transaction
-  with retained artifacts on failure
+  with retained artifacts on failure; universal external controls (edit
+  structured/raw, disable incl. quarantine, remove with retained backup,
+  enable/run now for labeled external rows)
 - GUI diagnostics and logs (`mactask-gui`): direct tests of managed tasks
   and validated editor drafts (job-based façade contracts, `Test Draft`
   persists nothing), structured diagnostics, direct/persisted stdout/stderr

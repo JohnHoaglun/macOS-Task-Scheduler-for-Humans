@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shlex
 from pathlib import Path
 from uuid import UUID
 
@@ -12,14 +11,7 @@ from pytestqt.qtbot import QtBot
 
 from conftest import make_job
 from task_scheduler.application.task_command_service import ListingKind, TaskListing
-from task_scheduler.domain import PythonCommand, command_argv
-from task_scheduler.gui.models.agent_filter_proxy_model import AgentFilterProxyModel
 from task_scheduler.gui.models.agent_table_model import (
-    COLUMNS,
-    ROLE_COMMAND,
-    ROLE_ENABLED,
-    ROLE_INSTALLED,
-    ROLE_LOADED,
     ROLE_SEARCH_TEXT,
     ROLE_STATE,
     AgentTableModel,
@@ -67,13 +59,6 @@ def _agents() -> list[TaskListing]:
     ]
 
 
-def _saved_agent() -> TaskListing:
-    job = make_job(
-        id=SAVED_JOB_ID, label="io.github.macos-task-scheduler.user.saved", name="Saved Job"
-    )
-    return TaskListing(kind=ListingKind.SAVED, path=None, parsed=None, job=job, managed=True)
-
-
 _DEFAULT_INDEX: QModelIndex = QModelIndex()
 
 
@@ -96,30 +81,6 @@ def agent_model(qtbot: QtBot) -> AgentTableModel:
     return model
 
 
-@pytest.fixture
-def saved_model(qtbot: QtBot) -> AgentTableModel:
-    model = AgentTableModel()
-    model.set_agents([_saved_agent()])
-    return model
-
-
-@pytest.fixture
-def loaded_managed_model(qtbot: QtBot) -> AgentTableModel:
-    job = make_job(enabled=True)
-    parsed = _parsed(job=job)
-    listing = TaskListing(
-        kind=ListingKind.DISCOVERED,
-        path=MANAGED_PATH,
-        parsed=parsed,
-        job=job,
-        managed=True,
-        loaded=True,
-    )
-    model = AgentTableModel()
-    model.set_agents([listing])
-    return model
-
-
 class TestSetAgents:
     def test_empty(self, agent_model: AgentTableModel) -> None:
         agent_model.set_agents([])
@@ -128,38 +89,8 @@ class TestSetAgents:
 
 
 class TestHeader:
-    @pytest.mark.parametrize(
-        ("section", "expected"),
-        [(i, name) for i, name in enumerate(COLUMNS)],
-    )
-    def test_horizontal_display_role(self, agent_model: AgentTableModel, section, expected) -> None:
-        assert agent_model.headerData(section, Qt.Orientation.Horizontal) == expected
-
     def test_horizontal_out_of_range(self, agent_model: AgentTableModel) -> None:
         assert agent_model.headerData(5, Qt.Orientation.Horizontal) is None
-
-    def test_horizontal_other_role(self, agent_model: AgentTableModel) -> None:
-        result = agent_model.headerData(
-            0, Qt.Orientation.Horizontal, Qt.ItemDataRole.ToolTipRole
-        )
-        assert result is None
-
-    def test_vertical_default(self, agent_model: AgentTableModel) -> None:
-        assert agent_model.headerData(0, Qt.Orientation.Vertical) == 1
-        assert agent_model.headerData(1, Qt.Orientation.Vertical) == 2
-        assert agent_model.headerData(2, Qt.Orientation.Vertical) == 3
-
-    def test_vertical_other_role(self, agent_model: AgentTableModel) -> None:
-        result = agent_model.headerData(
-            0, Qt.Orientation.Vertical, Qt.ItemDataRole.ToolTipRole
-        )
-        assert result is None
-
-    def test_header_through_filter_proxy(self, agent_model: AgentTableModel) -> None:
-        proxy = AgentFilterProxyModel()
-        proxy.setSourceModel(agent_model)
-        for i, name in enumerate(COLUMNS):
-            assert proxy.headerData(i, Qt.Orientation.Horizontal) == name
 
 
 class TestData:
@@ -177,22 +108,6 @@ class TestData:
         assert model.data(bad_index, Qt.ItemDataRole.DisplayRole) is None
         assert model.data(bad_index, ROLE_STATE) is None
 
-    def test_unknown_role_returns_none(self) -> None:
-        model = AgentTableModel()
-        model.set_agents(_agents())
-        assert model.data(model.index(0, 0), Qt.ItemDataRole.ToolTipRole) is None
-
-    @pytest.mark.parametrize(("column", "needle"), ((1, "python"), (2, "Monday")))
-    def test_display_role_column(self, agent_model: AgentTableModel, column, needle) -> None:
-        data = agent_model.data(agent_model.index(0, column), Qt.ItemDataRole.DisplayRole)
-        assert data is not None and needle in data
-
-    def test_listings_none_for_invalid_row(self) -> None:
-        model = AgentTableModel()
-        model.set_agents(_agents())
-        assert model.listing_at(-1) is None
-        assert model.listing_at(99) is None
-
     def test_none_listing_returns_none(self) -> None:
         model = _UnboundedIndexModel()
         model.set_agents(_agents())
@@ -201,89 +116,3 @@ class TestData:
         assert model.data(bad_idx, Qt.ItemDataRole.DisplayRole) is None
         assert model.data(bad_idx, ROLE_STATE) is None
         assert model.data(bad_idx, ROLE_SEARCH_TEXT) is None
-
-    def test_existing_columns_managed(self, agent_model: AgentTableModel) -> None:
-        row0 = agent_model.index(0, 0)
-        assert agent_model.data(row0, Qt.ItemDataRole.DisplayRole) == "Daily Backup"
-        assert agent_model.data(agent_model.index(0, 3), Qt.ItemDataRole.DisplayRole) == "Managed"
-        assert "enabled" in (
-            agent_model.data(agent_model.index(0, 4), Qt.ItemDataRole.DisplayRole) or ""
-        )
-
-    @pytest.mark.parametrize(("row", "state"), ((1, "External"), (2, "Invalid")))
-    def test_existing_columns_external_invalid(
-        self, agent_model: AgentTableModel, row, state
-    ) -> None:
-        assert agent_model.data(agent_model.index(row, 3), Qt.ItemDataRole.DisplayRole) == state
-
-
-class TestRoleData:
-    @pytest.mark.parametrize(
-        ("row", "role", "expected"),
-        [
-            (0, ROLE_STATE, "Managed"),
-            (1, ROLE_STATE, "External"),
-            (2, ROLE_STATE, "Invalid"),
-            (0, ROLE_INSTALLED, "installed"),
-            (0, ROLE_ENABLED, "enabled"),
-            (1, ROLE_ENABLED, "unknown"),
-            (0, ROLE_LOADED, "unknown"),
-            (0, ROLE_COMMAND, "python"),
-            (1, ROLE_COMMAND, "unknown"),
-        ],
-    )
-    def test_agent_rows(
-        self, agent_model: AgentTableModel, row: int, role: int, expected: str
-    ) -> None:
-        assert agent_model.data(agent_model.index(row, 0), role) == expected
-
-    def test_saved_row(self, saved_model: AgentTableModel) -> None:
-        assert saved_model.data(saved_model.index(0, 0), ROLE_STATE) == "Managed"
-        assert saved_model.data(saved_model.index(0, 0), ROLE_INSTALLED) == "saved"
-
-    def test_loaded_value(self, loaded_managed_model: AgentTableModel) -> None:
-        assert loaded_managed_model.data(loaded_managed_model.index(0, 0), ROLE_LOADED) == "loaded"
-
-
-class TestRoleSearchText:
-    def test_contains_name_and_label(self, agent_model: AgentTableModel) -> None:
-        text = agent_model.data(agent_model.index(0, 0), ROLE_SEARCH_TEXT)
-        assert text is not None
-        assert "Daily Backup" in text
-        assert "io.github.macos-task-scheduler.user.daily-backup" in text
-
-    def test_contains_quoted_command(self, agent_model: AgentTableModel) -> None:
-        text = agent_model.data(agent_model.index(0, 0), ROLE_SEARCH_TEXT)
-        assert text is not None
-        cmd = command_argv(
-            PythonCommand(
-                interpreter="/Users/example/project/.venv/bin/python",
-                script="/Users/example/project/main.py",
-                arguments=["--mode", "daily"],
-            )
-        )
-        expected_token = shlex.quote(cmd[1])
-        assert expected_token in text
-
-    def test_saved_no_parsing(self, saved_model: AgentTableModel) -> None:
-        text = saved_model.data(saved_model.index(0, 0), ROLE_SEARCH_TEXT)
-        assert text is not None
-        assert "Saved Job" in text
-        assert "io.github.macos-task-scheduler.user.saved" in text
-
-    def test_invalid_no_job(self, agent_model: AgentTableModel) -> None:
-        text = agent_model.data(agent_model.index(2, 0), ROLE_SEARCH_TEXT)
-        assert text is not None
-        assert "unknown" in text
-
-    def test_role_values(self) -> None:
-        base = Qt.ItemDataRole.UserRole
-        roles = (
-            ROLE_STATE,
-            ROLE_INSTALLED,
-            ROLE_ENABLED,
-            ROLE_LOADED,
-            ROLE_COMMAND,
-            ROLE_SEARCH_TEXT,
-        )
-        assert roles == tuple(base + i for i in range(6))

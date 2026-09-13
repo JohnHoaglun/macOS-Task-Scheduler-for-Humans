@@ -18,10 +18,10 @@ from task_scheduler.platform.macos import ProcessResult
 
 JOB_LABEL = "io.github.macos-task-scheduler.user.daily-backup"
 
+
 def _shell_job() -> JobDefinition:
-    return make_job(
-        command=ShellCommand(executable=Path("/bin/zsh"), arguments=["-c", "true"])
-    )
+    return make_job(command=ShellCommand(executable=Path("/bin/zsh"), arguments=["-c", "true"]))
+
 
 def _broken(job: JobDefinition) -> JobDefinition:
     """A job whose label fails validation, bypassing the model's checks."""
@@ -29,8 +29,8 @@ def _broken(job: JobDefinition) -> JobDefinition:
     data["label"] = "bad label"
     return JobDefinition.model_construct(**data)
 
-class TestExecute:
 
+class TestExecute:
     def test_nonzero_exit_code_is_not_success(self, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path, test=ProcessResult(exit_code=2))
         controller = DiagnosticsController(world.services, {})
@@ -59,8 +59,8 @@ class TestExecute:
         controller.finish()
         assert not controller.busy
 
-class TestReadLogs:
 
+class TestReadLogs:
     def test_read_logs_invalid_job_is_error(self, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
         controller = DiagnosticsController(world.services, {})
@@ -69,8 +69,8 @@ class TestReadLogs:
         assert outcome.error is not None
         assert outcome.diagnostics == ()
 
-class TestCompareEnvironment:
 
+class TestCompareEnvironment:
     def test_snapshot_is_copied(self, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
         env = {"A": "1"}

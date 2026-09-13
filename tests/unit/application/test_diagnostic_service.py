@@ -43,13 +43,16 @@ def _healthy_job(tmp_path: Path) -> tuple[JobDefinition, Path, Path]:
     )
     return job, interpreter, script
 
+
 def _codes(result: list[object]) -> list[str]:
     return [diagnostic.code for diagnostic in result]
+
 
 def _launch_failure(kind: LaunchFailureKind, message: str = "boom") -> ProcessResult:
     return ProcessResult(
         exit_code=None, launch_failure=ProcessLaunchFailure(kind=kind, message=message)
     )
+
 
 def _install_result(job: JobDefinition, exit_code: int) -> InstallResult:
     process = ProcessResult(exit_code=exit_code, stderr="denied")
@@ -62,20 +65,18 @@ def _install_result(job: JobDefinition, exit_code: int) -> InstallResult:
         retained_artifacts=(),
     )
 
-class TestRuleCoverage:
 
+class TestRuleCoverage:
     def test_permission_denied_static_positive(self, tmp_path: Path) -> None:
         job, interpreter, _ = _healthy_job(tmp_path)
         interpreter.chmod(0o644)
         assert "permission_denied" in _codes(evaluate_diagnostics(job))
 
     def test_relative_executable_negative(self) -> None:
-        assert "relative_executable" not in _codes(
-            evaluate_diagnostics(spec_argv0="/usr/bin/tool")
-        )
+        assert "relative_executable" not in _codes(evaluate_diagnostics(spec_argv0="/usr/bin/tool"))
+
 
 class TestLifecycleRules:
-
     def test_other_phases_ignored(self) -> None:
         job = make_job()
         process = ProcessResult(exit_code=1, stderr="boom")
@@ -87,13 +88,11 @@ class TestLifecycleRules:
             completed_phases=(),
             retained_artifacts=(),
         )
-        report = evaluate_diagnostic_report(
-            LifecycleContext(job.label, "reinstall", result)
-        )
+        report = evaluate_diagnostic_report(LifecycleContext(job.label, "reinstall", result))
         assert report.groups == ()
 
-class TestPlistRules:
 
+class TestPlistRules:
     @pytest.mark.parametrize(
         ("raw", "title"),
         [
@@ -111,6 +110,7 @@ class TestPlistRules:
         (label,) = [d for d in report.all if d.code == "invalid_plist_label"]
         assert label.title == title
 
+
 class TestRuleOrder:
     def test_rules_emit_in_documented_order(self, tmp_path: Path) -> None:
         interpreter = tmp_path / "missing.py"
@@ -125,9 +125,7 @@ class TestRuleOrder:
             ),
             stderr="ModuleNotFoundError: boom",
         )
-        codes = _codes(
-            evaluate_diagnostics(job, process=process, spec_argv0="relative-tool")
-        )
+        codes = _codes(evaluate_diagnostics(job, process=process, spec_argv0="relative-tool"))
         assert codes == [
             "executable_missing",
             "script_missing",
@@ -140,8 +138,5 @@ class TestRuleOrder:
     def test_runtime_not_found_rule_follows_permission(self, tmp_path: Path) -> None:
         job, _, _ = _healthy_job(tmp_path)
         process = _launch_failure(LaunchFailureKind.NOT_FOUND, "gone")
-        codes = _codes(
-            evaluate_diagnostics(job, process=process, spec_argv0="relative-tool")
-        )
+        codes = _codes(evaluate_diagnostics(job, process=process, spec_argv0="relative-tool"))
         assert codes == ["executable_not_found_runtime", "relative_executable"]
-

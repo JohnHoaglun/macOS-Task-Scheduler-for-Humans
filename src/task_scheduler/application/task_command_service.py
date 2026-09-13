@@ -853,8 +853,7 @@ class TaskCommandService:
         fresh = self._store.read_external(path)
         if fresh.sha256 != session.sha256 or (fresh.st_dev, fresh.st_ino) != session.identity:
             raise ValueError(
-                "the source plist changed outside this application; "
-                "review it and open it again"
+                "the source plist changed outside this application; review it and open it again"
             )
 
         assert session.label is not None
@@ -941,9 +940,7 @@ class TaskCommandService:
 
         # No-change check: compare canonical bytes to current source
         current_bytes = path.read_bytes()
-        replacement_canonical = plistlib.dumps(
-            parsed_replacement, fmt=plistlib.FMT_XML
-        )
+        replacement_canonical = plistlib.dumps(parsed_replacement, fmt=plistlib.FMT_XML)
         if replacement_canonical == current_bytes:
             raise ValueError("the edit produced no changes")
 
@@ -951,8 +948,7 @@ class TaskCommandService:
         fresh = self._store.read_external(path)
         if fresh.sha256 != session.sha256 or (fresh.st_dev, fresh.st_ino) != session.identity:
             raise ValueError(
-                "the source plist changed outside this application; "
-                "review it and open it again"
+                "the source plist changed outside this application; review it and open it again"
             )
 
         # Transaction
@@ -1004,9 +1000,7 @@ class TaskCommandService:
             retained_artifacts=(backup,),
             replaced=True,
             reloaded=bool(
-                session.loaded
-                and last_process is not None
-                and last_process.exit_code == 0
+                session.loaded and last_process is not None and last_process.exit_code == 0
             ),
         )
 
@@ -1217,8 +1211,7 @@ class TaskCommandService:
             snapshot.st_ino,
         ):
             raise ValueError(
-                "the source plist changed outside this application; "
-                "review it and remove again"
+                "the source plist changed outside this application; review it and remove again"
             )
 
         self._store.remove_external_verified(path, snapshot)

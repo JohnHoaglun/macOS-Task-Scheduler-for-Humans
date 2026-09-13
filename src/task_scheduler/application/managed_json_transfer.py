@@ -120,15 +120,11 @@ def _parse_object(text: str) -> dict[str, Any]:
     return data
 
 
-def _reject_unknown(
-    mapping: dict[str, Any], allowed: frozenset[str], where: str
-) -> None:
+def _reject_unknown(mapping: dict[str, Any], allowed: frozenset[str], where: str) -> None:
     """Raise when *mapping* contains any key outside *allowed*."""
     unknown = sorted(set(mapping) - allowed)
     if unknown:
-        raise StrictJsonDecodeError(
-            f"unknown field(s) in {where}: {', '.join(unknown)}"
-        )
+        raise StrictJsonDecodeError(f"unknown field(s) in {where}: {', '.join(unknown)}")
 
 
 def _check_command(data: dict[str, Any]) -> None:
@@ -136,11 +132,7 @@ def _check_command(data: dict[str, Any]) -> None:
     if not isinstance(command, dict):
         return
     command_type = command.get("type")
-    allowed = (
-        _COMMAND_FIELDS_BY_TYPE.get(command_type)
-        if isinstance(command_type, str)
-        else None
-    )
+    allowed = _COMMAND_FIELDS_BY_TYPE.get(command_type) if isinstance(command_type, str) else None
     if allowed is not None:
         _reject_unknown(command, allowed, f"command (type={command_type!r})")
 
@@ -167,11 +159,7 @@ def _check_schedule_v2(data: dict[str, Any]) -> None:
     schedule = data.get("schedule")
     if isinstance(schedule, dict):
         kind = schedule.get("kind")
-        allowed = (
-            _SCHEDULE_FIELDS_V2_BY_KIND.get(kind)
-            if isinstance(kind, str)
-            else None
-        )
+        allowed = _SCHEDULE_FIELDS_V2_BY_KIND.get(kind) if isinstance(kind, str) else None
         if allowed is not None:
             _reject_unknown(schedule, allowed, f"schedule (kind={kind!r})")
 
@@ -182,6 +170,6 @@ def _format_validation_error(exc: ValidationError) -> str:
         location = ".".join(str(part) for part in error["loc"])
         message = str(error["msg"])
         if message.startswith("Value error, "):
-            message = message[len("Value error, "):]
+            message = message[len("Value error, ") :]
         problems.append(f"{location}: {message}")
     return "invalid job definition: " + "; ".join(problems)

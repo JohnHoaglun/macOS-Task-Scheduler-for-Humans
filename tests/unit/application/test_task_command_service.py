@@ -34,20 +34,22 @@ from task_scheduler.platform.macos import (
 
 OTHER_ID = UUID("87654321-4321-4321-4321-432143214321")
 
+
 def broken_job(job: JobDefinition) -> JobDefinition:
     """A job whose label fails validation, bypassing the model's checks."""
     data = job.model_dump()
     data["label"] = "bad label"
     return JobDefinition.model_construct(**data)
 
-class TestInspectDiscovered:
 
+class TestInspectDiscovered:
     def test_path_outside_root_raises(self, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
         outside = tmp_path / "outside.plist"
         outside.write_bytes(plistlib.dumps({"Label": "com.example.outside"}))
         with pytest.raises(ValueError):
             world.services.inspect_discovered(outside)
+
 
 class TestReinstall:
     def test_success_replaces_plist_and_retains_nothing(self, tmp_path: Path) -> None:
@@ -64,17 +66,20 @@ class TestReinstall:
         assert result.plist_path.read_bytes() == PlistCodec().encode_bytes(updated)
         assert [path.name for path in world.la_root.iterdir()] == [f"{job.label}.plist"]
         assert world.launch_runner.specs[0].argv == [
-            LAUNCHCTL_PATH, "bootout", f"gui/1000/{job.label}"
+            LAUNCHCTL_PATH,
+            "bootout",
+            f"gui/1000/{job.label}",
         ]
         assert world.launch_runner.specs[1].argv == [
-            LAUNCHCTL_PATH, "bootstrap", "gui/1000", str(result.plist_path)
+            LAUNCHCTL_PATH,
+            "bootstrap",
+            "gui/1000",
+            str(result.plist_path),
         ]
         assert world.jobs.find(job.label) is not None
 
     def test_failed_bootout_retains_staged_sibling(self, tmp_path: Path) -> None:
-        world = FakeTaskWorld(
-            tmp_path, launch=ProcessResult(exit_code=1, stderr="bootout failed")
-        )
+        world = FakeTaskWorld(tmp_path, launch=ProcessResult(exit_code=1, stderr="bootout failed"))
         job = make_job()
         world.manage(job)
         result = world.services.reinstall(job.label)
@@ -115,6 +120,7 @@ class TestReinstall:
             "bootstrap",
         ]
 
+
 class TestJobBasedFacade:
     @staticmethod
     def _venv_project(tmp_path: Path) -> tuple[Path, Path]:
@@ -127,10 +133,9 @@ class TestJobBasedFacade:
         script.write_text("print('ok')\n", encoding="utf-8")
         return venv_python, script
 
+
 class TestEditorFacade:
-    def test_new_managed_job_builds_in_memory_job_without_persisting(
-        self, tmp_path: Path
-    ) -> None:
+    def test_new_managed_job_builds_in_memory_job_without_persisting(self, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
         base = make_job()
         job = world.services.new_managed_job(
@@ -146,20 +151,16 @@ class TestEditorFacade:
         assert world.launch_runner.specs == []
         assert world.test_runner.specs == []
 
-class TestDiagnosticsFacade:
 
-    def test_diagnostic_report_for_includes_logs_and_python_groups(
-        self, tmp_path: Path
-    ) -> None:
+class TestDiagnosticsFacade:
+    def test_diagnostic_report_for_includes_logs_and_python_groups(self, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
         job = make_job()
         script = Path("/Users/example/project/main.py")
         detection = PythonDetectionResult(
             script=script,
             candidates=[
-                InterpreterCandidate(
-                    path=Path("/opt/other/python"), source=CandidateSource.VENV
-                )
+                InterpreterCandidate(path=Path("/opt/other/python"), source=CandidateSource.VENV)
             ],
         )
         logs = JobLogs(

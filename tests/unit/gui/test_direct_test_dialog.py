@@ -22,17 +22,20 @@ from task_scheduler.platform.macos import ProcessResult
 
 DEFAULT_SUMMARY = "Run Test to check this task directly."
 
+
 def _summary(dialog: DirectTestDialog) -> str:
     """The panel's summary line, asserted present."""
     label = dialog.panel.findChild(QLabel, "diagnostics-summary")
     assert label is not None
     return label.text()
 
+
 def _tab(dialog: DirectTestDialog, object_name: str) -> str:
     """A named log tab's content, asserted present."""
     tab = dialog.panel.findChild(QPlainTextEdit, object_name)
     assert tab is not None
     return tab.toPlainText()
+
 
 def _wait_rendered(qtbot: QtBot, dialog: DirectTestDialog) -> None:
     """Wait until the main thread has rendered the worker's outcome.
@@ -45,8 +48,8 @@ def _wait_rendered(qtbot: QtBot, dialog: DirectTestDialog) -> None:
     """
     qtbot.waitUntil(lambda: _summary(dialog) != DEFAULT_SUMMARY, timeout=5000)
 
-class TestDirectTestDialog:
 
+class TestDirectTestDialog:
     def test_invalid_job_request_shows_notice(
         self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -64,16 +67,12 @@ class TestDirectTestDialog:
         assert not controller.busy
         assert dialog._worker is None
 
-    def test_refresh_rereads_logs_after_change(
-        self, qtbot: QtBot, tmp_path: Path
-    ) -> None:
+    def test_refresh_rereads_logs_after_change(self, qtbot: QtBot, tmp_path: Path) -> None:
         """Refresh re-reads the persisted logs and environment comparison."""
         out = tmp_path / "out.log"
         out.write_text("first\n")
         job = make_job(logging=LoggingConfig(stdout_path=out, stderr_path=None))
-        world = FakeTaskWorld(
-            tmp_path, test=ProcessResult(exit_code=0, stdout="direct out")
-        )
+        world = FakeTaskWorld(tmp_path, test=ProcessResult(exit_code=0, stdout="direct out"))
         controller = DiagnosticsController(world.services, {})
         dialog = DirectTestDialog(controller, job)
         qtbot.addWidget(dialog)
@@ -94,9 +93,7 @@ class TestDirectTestDialog:
 
         def blocked(target: JobDefinition, *, detection: object = None) -> DirectTestResult:
             release.wait(timeout=5)
-            return DirectTestResult(
-                process=ProcessResult(exit_code=0, stdout="late")
-            )
+            return DirectTestResult(process=ProcessResult(exit_code=0, stdout="late"))
 
         monkeypatch.setattr(world.services, "test_job", blocked)
         dialog = DirectTestDialog(controller, job)

@@ -223,8 +223,7 @@ def _rule_interpreter_mismatch(
             f"project interpreter {project_candidate.path}."
         ),
         suggested_action=(
-            "Select the detected interpreter if the script relies on the "
-            "project environment."
+            "Select the detected interpreter if the script relies on the project environment."
         ),
     )
 
@@ -292,10 +291,7 @@ def _rule_log_path_unreadable(logs: JobLogs) -> tuple[Diagnostic, ...]:
             severity=DiagnosticSeverity.WARNING,
             code="log_path_unreadable",
             title="Log path is unreadable",
-            description=(
-                f"Could not read the {stream.name} log at {stream.path}: "
-                f"{stream.error}."
-            ),
+            description=(f"Could not read the {stream.name} log at {stream.path}: {stream.error}."),
             suggested_action="Check that the log path exists and is readable.",
         )
         for stream in (logs.stdout, logs.stderr)
@@ -320,8 +316,7 @@ def _rule_bootstrap_failure(label: str, action: str, result: object) -> Diagnost
                     f"code {phase.process.exit_code}."
                 ),
                 suggested_action=(
-                    "Check the installed plist and verify the executable can run "
-                    "on this machine."
+                    "Check the installed plist and verify the executable can run on this machine."
                 ),
             )
     return None
@@ -360,8 +355,7 @@ def _rule_invalid_plist_label(path: Path, parsed: ParsedLaunchAgent) -> Diagnost
             code="invalid_plist_label",
             title="Plist label invalid",
             description=(
-                f"The Label value {label!r} in the plist at {path} would be "
-                "rejected by launchd."
+                f"The Label value {label!r} in the plist at {path} would be rejected by launchd."
             ),
             suggested_action="Correct the Label key to a valid identifier.",
         )
@@ -434,9 +428,7 @@ def evaluate_diagnostics(
     or runtime failure; ``executable_not_found_runtime`` follows on a
     not-found launch failure when the executable exists on disk.
     """
-    permission = _rule_permission_denied_static(job) or _rule_permission_denied_runtime(
-        process
-    )
+    permission = _rule_permission_denied_static(job) or _rule_permission_denied_runtime(process)
     rules = (
         _rule_executable_missing(job),
         _rule_script_missing(job),
@@ -487,9 +479,7 @@ def evaluate_diagnostic_report(
 
     python_env = _first_of(contexts, PythonEnvironmentContext)
     if python_env is not None:
-        _add_group(
-            groups, DiagnosticSource.PYTHON_ENVIRONMENT, _evaluate_python_env(python_env)
-        )
+        _add_group(groups, DiagnosticSource.PYTHON_ENVIRONMENT, _evaluate_python_env(python_env))
 
     inspection = _first_of(contexts, InspectionContext)
     if inspection is not None:

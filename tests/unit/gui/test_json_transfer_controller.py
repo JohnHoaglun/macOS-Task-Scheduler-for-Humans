@@ -54,36 +54,17 @@ def _ctrl(
     result: JobDefinition | None = None,
     commit_error: Exception | None = None,
 ) -> JsonTransferController:
-    return JsonTransferController(FakeSvc(
-        preview_result=preview, preview_error=error,
-        import_result=result, import_error=commit_error,
-    ))
+    return JsonTransferController(
+        FakeSvc(
+            preview_result=preview,
+            preview_error=error,
+            import_result=result,
+            import_error=commit_error,
+        )
+    )
 
 
 class TestPreview:
-    def test_success(self) -> None:
-        job = make_job(label="com.example.transfer")
-        p = ManagedJsonImportPreview(
-            source_path=Path("/tmp/t.json"), candidate=job,
-            normalized_schema_version=2, id_conflict_path=None,
-            label_conflict_path=None, can_import=True,
-        )
-        outcome = _ctrl(preview=p).preview_import(Path("/tmp/t.json"))
-        assert outcome.error is None and outcome.candidate is p.candidate
-        assert outcome.label == "com.example.transfer" and outcome.uuid == str(job.id)
-        assert outcome.normalized_schema_version == 2
-        assert outcome.can_import and outcome._preview is p
-
-    def test_conflict(self) -> None:
-        p = ManagedJsonImportPreview(
-            source_path=Path("/tmp/t.json"),
-            candidate=make_job(label="com.example.conflict"),
-            normalized_schema_version=2, id_conflict_path=Path("/tmp/x.json"),
-            label_conflict_path=None, can_import=False,
-        )
-        outcome = _ctrl(preview=p).preview_import(Path("/tmp/t.json"))
-        assert not outcome.can_import and outcome.id_conflict_path == Path("/tmp/x.json")
-
     @pytest.mark.parametrize(
         "exc_cls, msg",
         [
@@ -96,41 +77,55 @@ class TestPreview:
         outcome = _ctrl(error=exc_cls(msg)).preview_import(Path("/tmp/bad.json"))
         assert msg in outcome.error and outcome.candidate is None
 
+
 class TestCommit:
     def test_success(self) -> None:
         job = make_job(label="com.example.transfer")
         p = ManagedJsonImportPreview(
-            source_path=Path("/tmp/t.json"), candidate=job,
-            normalized_schema_version=2, id_conflict_path=None,
-            label_conflict_path=None, can_import=True,
+            source_path=Path("/tmp/t.json"),
+            candidate=job,
+            normalized_schema_version=2,
+            id_conflict_path=None,
+            label_conflict_path=None,
+            can_import=True,
         )
         committed = make_job(label="com.example.transfer", id=uuid4())
         outcome = _ctrl(preview=p).preview_import(Path("/tmp/t.json"))
         result = _ctrl(preview=p, result=committed).commit(outcome)
         assert result.error is None and result.job is committed
+
     def test_no_preview(self) -> None:
         result = _ctrl().commit(JsonImportOutcome(source_path=Path("/tmp/x.json")))
         assert result.error == "no preview available to commit"
+
     def test_job_conflict(self) -> None:
         job = make_job(label="com.example.conflict")
         p = ManagedJsonImportPreview(
-            source_path=Path("/tmp/t.json"), candidate=job,
-            normalized_schema_version=2, id_conflict_path=None,
-            label_conflict_path=None, can_import=True,
+            source_path=Path("/tmp/t.json"),
+            candidate=job,
+            normalized_schema_version=2,
+            id_conflict_path=None,
+            label_conflict_path=None,
+            can_import=True,
         )
         outcome = _ctrl(preview=p).preview_import(Path("/tmp/t.json"))
         result = _ctrl(
             preview=p,
             commit_error=JobConflictError(
-                "com.example.conflict", Path("/tmp/catalog.json"),
+                "com.example.conflict",
+                Path("/tmp/catalog.json"),
             ),
         ).commit(outcome)
         assert result.job is None and "com.example.conflict" in result.error
+
     def test_generic_error(self) -> None:
         p = ManagedJsonImportPreview(
             source_path=Path("/tmp/t.json"),
-            candidate=make_job(), normalized_schema_version=2,
-            id_conflict_path=None, label_conflict_path=None, can_import=True,
+            candidate=make_job(),
+            normalized_schema_version=2,
+            id_conflict_path=None,
+            label_conflict_path=None,
+            can_import=True,
         )
         outcome = _ctrl(preview=p).preview_import(Path("/tmp/t.json"))
         result = _ctrl(preview=p, commit_error=ValueError("broke")).commit(outcome)

@@ -53,8 +53,8 @@ def _result(
     )
     return DirectTestResult(process=process, diagnostics=diagnostics or [])
 
-class TestFormatTestSummary:
 
+class TestFormatTestSummary:
     def test_launch_failure_reports_message_instead_of_exit_code(self) -> None:
         failure = ProcessLaunchFailure(
             kind=LaunchFailureKind.NOT_FOUND,
@@ -70,10 +70,11 @@ class TestFormatTestSummary:
             == "Failed to launch in 0.25s: executable not found: /missing/python"
         )
 
-class TestFormatDuration:
 
+class TestFormatDuration:
     def test_minute_and_up_uses_minutes_and_seconds(self) -> None:
         assert format_duration(timedelta(seconds=125)) == "2m 05.00s"
+
 
 class TestFormatDiagnostics:
     def test_empty_reports_no_diagnostics(self) -> None:
@@ -94,8 +95,8 @@ class TestFormatDiagnostics:
         assert "Values changed." in text
         assert "Suggested: Review the variables." in text
 
-class TestFormatLogStream:
 
+class TestFormatLogStream:
     def test_read_error(self) -> None:
         stream = LogStream(
             name="stdout",
@@ -110,8 +111,8 @@ class TestFormatLogStream:
         stream = LogStream(name="stdout", path=Path("/logs/stdout.log"), content="")
         assert format_log_stream(stream) == "(empty)"
 
-class TestFormatPythonDetection:
 
+class TestFormatPythonDetection:
     def test_mismatching_project_interpreter_recommends(self) -> None:
         job = make_job()
         other = Path("/Users/example/project/.venv-x/bin/python")
@@ -119,9 +120,7 @@ class TestFormatPythonDetection:
             script=job.command.script,
             candidates=[
                 InterpreterCandidate(path=other, source=CandidateSource.VENV),
-                InterpreterCandidate(
-                    path=Path("/usr/bin/python3"), source=CandidateSource.PATH
-                ),
+                InterpreterCandidate(path=Path("/usr/bin/python3"), source=CandidateSource.PATH),
             ],
         )
         text = format_python_detection(job, detection)
@@ -162,14 +161,9 @@ class TestFormatPythonDetection:
             "a uv project was detected, but no usable .venv interpreter is available"
         )
 
+
 class TestFormatEvidence:
     def test_each_state_has_its_suffix(self) -> None:
         assert format_evidence(EvidenceState.CONFIRMED) == "(evidence: confirmed)"
-        assert (
-            format_evidence(EvidenceState.NOT_PROVABLE)
-            == "(evidence: not provable)"
-        )
-        assert (
-            format_evidence(EvidenceState.UNAVAILABLE) == "(evidence: unavailable)"
-        )
-
+        assert format_evidence(EvidenceState.NOT_PROVABLE) == "(evidence: not provable)"
+        assert format_evidence(EvidenceState.UNAVAILABLE) == "(evidence: unavailable)"

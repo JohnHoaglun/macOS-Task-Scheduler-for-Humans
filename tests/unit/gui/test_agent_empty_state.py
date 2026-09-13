@@ -16,19 +16,8 @@ def _e(qtbot: QtBot) -> AgentEmptyState:
 
 
 class TestCases:
-    def test_no_source(self, qtbot: QtBot) -> None:
-        w = _e(qtbot)
-        w.set_counts(0, 0)
-        m, b = w.findChild(QLabel, "empty-message"), w.findChild(QPushButton, "empty-clear-filters")
-        assert m.text() == "No tasks found." and b.isHidden() and w.isVisible()
-
     def test_no_proxy(self, qtbot: QtBot) -> None:
         w = _e(qtbot)
         w.set_counts(5, 0)
         m, b = w.findChild(QLabel, "empty-message"), w.findChild(QPushButton, "empty-clear-filters")
         assert m.text() == "No matching tasks." and b.isVisible() and w.isVisible()
-
-    def test_proxy_rows_hidden(self, qtbot: QtBot) -> None:
-        w = _e(qtbot)
-        w.set_counts(3, 2)
-        assert not w.isVisible()

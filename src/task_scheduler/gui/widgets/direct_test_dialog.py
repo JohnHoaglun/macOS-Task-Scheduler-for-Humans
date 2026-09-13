@@ -91,9 +91,7 @@ class DirectTestDialog(QDialog):
     def _render_logs(self) -> None:
         """Fill the panel with synchronous log and environment reads."""
         self.panel.show_logs_outcome(self._controller.read_logs(self._job))
-        self.panel.show_environment_outcome(
-            self._controller.compare_environment(self._job)
-        )
+        self.panel.show_environment_outcome(self._controller.compare_environment(self._job))
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """Drop any outcome arriving after the dialog has closed."""

@@ -56,9 +56,7 @@ class LifecycleResultDialog(QDialog):
         self._diagnostics_text = QPlainTextEdit(self._diagnostics_box)
         self._diagnostics_text.setObjectName("lifecycle-result-diagnostics-text")
         self._diagnostics_text.setReadOnly(True)
-        self._diagnostics_text.setPlainText(
-            format_lifecycle_diagnostics(outcome.diagnostics)
-        )
+        self._diagnostics_text.setPlainText(format_lifecycle_diagnostics(outcome.diagnostics))
         if not outcome.diagnostics:
             self._diagnostics_box.hide()
         diagnostics_layout = QVBoxLayout(self._diagnostics_box)

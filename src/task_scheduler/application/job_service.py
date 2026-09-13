@@ -37,11 +37,7 @@ __all__ = [
 def default_job_catalog_root() -> Path:
     """Return the default managed-job catalog directory for this user."""
     return (
-        Path.home()
-        / "Library"
-        / "Application Support"
-        / "macOS Task Scheduler for Humans"
-        / "jobs"
+        Path.home() / "Library" / "Application Support" / "macOS Task Scheduler for Humans" / "jobs"
     )
 
 
@@ -126,9 +122,7 @@ class JobService:
             raise JobNotFoundError(label)
         return job
 
-    def transfer_conflicts(
-        self, job: JobDefinition
-    ) -> tuple[Path | None, Path | None]:
+    def transfer_conflicts(self, job: JobDefinition) -> tuple[Path | None, Path | None]:
         """Report import conflicts for ``job`` without writing.
 
         Returns ``(id_conflict_path, label_conflict_path)``. ``id_conflict_path``
@@ -138,9 +132,7 @@ class JobService:
         """
         owner = self.find(job.label)
         label_conflict = (
-            self._path_for(owner.id)
-            if owner is not None and owner.id != job.id
-            else None
+            self._path_for(owner.id) if owner is not None and owner.id != job.id else None
         )
         id_path = self._path_for(job.id)
         id_conflict = id_path if id_path.exists() else None
@@ -169,9 +161,7 @@ class JobService:
             command=command,
             schedule=schedule,
             environment=EnvironmentConfig(),
-            working_directory=command.script.parent
-            if isinstance(command, PythonCommand)
-            else None,
+            working_directory=command.script.parent if isinstance(command, PythonCommand) else None,
             logging=LoggingConfig(
                 stdout_path=default_job_logs_root() / id.hex / "stdout.log",
                 stderr_path=default_job_logs_root() / id.hex / "stderr.log",

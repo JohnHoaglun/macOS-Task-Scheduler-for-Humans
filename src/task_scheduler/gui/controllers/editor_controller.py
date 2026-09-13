@@ -26,28 +26,105 @@ from task_scheduler.domain import (
     ShellCommand,
     Weekday,
 )
-from task_scheduler.platform.macos import PythonDetectionResult
+from task_scheduler.platform.macos import ExternalEditField, PythonDetectionResult
 
 __all__ = [
     "CommandKind",
     "EditorController",
     "EditorOutcome",
+    "ExternalEditField",
     "IntervalUnit",
     "JobDraft",
     "PreviewOutcome",
     "SaveOutcome",
     "ScheduleKind",
+    "copy_draft",
+    "external_dirty_fields",
 ]
 
 CommandKind = Literal["python", "shell", "executable"]
 ScheduleKind = Literal["calendar", "interval"]
 IntervalUnit = Literal["seconds", "minutes", "hours", "days"]
-_UNIT_SECONDS: dict[IntervalUnit, int] = {
+UNIT_SECONDS: dict[IntervalUnit, int] = {
     "seconds": 1,
     "minutes": 60,
     "hours": 3600,
     "days": 86400,
 }
+
+
+def external_dirty_fields(loaded: JobDraft, current: JobDraft) -> frozenset[ExternalEditField]:
+    """The dirty ExternalEditField set when *current* replaces *loaded*.
+
+    Compares draft field values: command kind/interpreter/script/arguments
+    map to PROGRAM_ARGUMENTS; schedule kind/times/weekdays/interval map to
+    SCHEDULE; run_at_load to RUN_AT_LOAD; the working-directory value to
+    WORKING_DIRECTORY; environment rows to ENVIRONMENT_VARIABLES; the
+    stdout/stderr paths to STDOUT_PATH/STDERR_PATH; enabled to ENABLED.
+    The name and label are never dirty.
+    """
+    dirty: set[ExternalEditField] = set()
+    if (
+        loaded.command_kind != current.command_kind
+        or loaded.interpreter != current.interpreter
+        or loaded.script != current.script
+        or loaded.python_arguments != current.python_arguments
+        or loaded.shell_executable != current.shell_executable
+        or loaded.shell_arguments != current.shell_arguments
+        or loaded.executable_path != current.executable_path
+        or loaded.executable_arguments != current.executable_arguments
+    ):
+        dirty.add(ExternalEditField.PROGRAM_ARGUMENTS)
+    if (
+        loaded.schedule_kind != current.schedule_kind
+        or loaded.times != current.times
+        or loaded.weekdays != current.weekdays
+        or loaded.interval_value != current.interval_value
+        or loaded.interval_unit != current.interval_unit
+    ):
+        dirty.add(ExternalEditField.SCHEDULE)
+    if loaded.run_at_load != current.run_at_load:
+        dirty.add(ExternalEditField.RUN_AT_LOAD)
+    if loaded.working_directory != current.working_directory:
+        dirty.add(ExternalEditField.WORKING_DIRECTORY)
+    if loaded.environment != current.environment:
+        dirty.add(ExternalEditField.ENVIRONMENT_VARIABLES)
+    if loaded.stdout_path != current.stdout_path:
+        dirty.add(ExternalEditField.STDOUT_PATH)
+    if loaded.stderr_path != current.stderr_path:
+        dirty.add(ExternalEditField.STDERR_PATH)
+    if loaded.enabled != current.enabled:
+        dirty.add(ExternalEditField.ENABLED)
+    return frozenset(dirty)
+
+
+def copy_draft(draft: JobDraft) -> JobDraft:
+    """A deep copy of *draft* (mutable lists and sets are copied)."""
+    return JobDraft(
+        job_id=draft.job_id,
+        name=draft.name,
+        label=draft.label,
+        label_touched=draft.label_touched,
+        enabled=draft.enabled,
+        command_kind=draft.command_kind,
+        interpreter=draft.interpreter,
+        script=draft.script,
+        python_arguments=list(draft.python_arguments),
+        shell_executable=draft.shell_executable,
+        shell_arguments=list(draft.shell_arguments),
+        executable_path=draft.executable_path,
+        executable_arguments=list(draft.executable_arguments),
+        times=list(draft.times),
+        weekdays=set(draft.weekdays),
+        schedule_kind=draft.schedule_kind,
+        interval_value=draft.interval_value,
+        interval_unit=draft.interval_unit,
+        run_at_load=draft.run_at_load,
+        working_directory=draft.working_directory,
+        environment=list(draft.environment),
+        stdout_path=draft.stdout_path,
+        stderr_path=draft.stderr_path,
+    )
 
 
 @dataclass
@@ -352,6 +429,12 @@ class EditorController:
             return SaveOutcome(ok=False, message=str(exc), fields={"job": str(exc)})
         return SaveOutcome(ok=True, path=path, label=job.label)
 
+    def save_external(self, draft: JobDraft) -> JobDefinition:
+        """Validate and build the draft for an external edit; never writes the catalog."""
+        job = self.build_job(draft)
+        self._services.validate_job(job)
+        return job
+
     def _field_errors(self, exc: Exception) -> dict[str, str]:
         """Map a draft or model validation failure to per-field form errors."""
         if isinstance(exc, _DraftError):
@@ -469,7 +552,7 @@ class EditorController:
 
     def _build_interval_schedule(self, draft: JobDraft) -> IntervalSchedule:
         """Build the interval schedule from the draft's duration value and unit."""
-        if draft.interval_unit not in _UNIT_SECONDS:
+        if draft.interval_unit not in UNIT_SECONDS:
             raise _DraftError(
                 "interval", "the interval unit must be one of seconds, minutes, hours, or days"
             )
@@ -486,7 +569,7 @@ class EditorController:
             )
         try:
             return IntervalSchedule(
-                seconds=number * _UNIT_SECONDS[draft.interval_unit],
+                seconds=number * UNIT_SECONDS[draft.interval_unit],
                 run_at_load=draft.run_at_load,
             )
         except ValidationError as exc:

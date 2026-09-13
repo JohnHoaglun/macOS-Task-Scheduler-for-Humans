@@ -26,6 +26,7 @@ from task_scheduler.platform.macos import (
 
 # -- history() method --------------------------------------------------------
 
+
 def test_history_no_repo_returns_unavailable(tmp_path: Path) -> None:
     """When no history repo is wired, history() returns unavailable."""
     from task_scheduler.application.job_service import JobService
@@ -53,6 +54,7 @@ def test_history_no_repo_returns_unavailable(tmp_path: Path) -> None:
     # (this also exercises the early-return path in _record_event)
     service.test(job.label)
 
+
 # -- timestamp UTC-ness -----------------------------------------------------
 
 # -- lifecycle non-recording ------------------------------------------------
@@ -60,4 +62,3 @@ def test_history_no_repo_returns_unavailable(tmp_path: Path) -> None:
 # -- limit clamping through the façade ---------------------------------------
 
 # -- combined history: test + run + status -----------------------------------
-

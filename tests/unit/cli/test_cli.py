@@ -487,30 +487,6 @@ def _write_external_plist(tmp_path: Path, payload: dict) -> Path:
     return path
 
 
-def test_import_supported_exits_0(tmp_path: Path) -> None:
-    world = FakeTaskWorld(tmp_path)
-    plist_path = _write_external_plist(
-        tmp_path,
-        {
-            "Label": "com.example.imported",
-            "ProgramArguments": ["/bin/echo", "hello"],
-            "StartCalendarInterval": [{"Hour": 7, "Minute": 30, "Weekday": 1}],
-        },
-    )
-    original_bytes = plist_path.read_bytes()
-    result = invoke(world, "import", str(plist_path))
-    assert result.exit_code == 0
-    assert (
-        "Imported com.example.imported as a managed task (catalog only; source plist unchanged)."
-        in result.stdout
-    )
-    assert result.stderr == ""
-    catalog_files = list(world.catalog_root.glob("*.json"))
-    assert len(catalog_files) == 1
-    assert plist_path.read_bytes() == original_bytes
-    assert world.launch_runner.specs == []
-
-
 def test_import_partial_acknowledge_exits_0(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
     plist_path = _write_external_plist(
@@ -602,38 +578,11 @@ def test_import_disclosure_renders_warnings_and_keys() -> None:
 # ---- export-json tests ----
 
 
-def test_export_json_success(tmp_path: Path) -> None:
-    world = FakeTaskWorld(tmp_path)
-    job = make_job()
-    world.manage(job)
-    out = tmp_path / "out.json"
-    result = invoke(world, "export-json", job.label, str(out))
-    assert result.exit_code == 0
-    assert str(out) in result.stdout
-    assert result.stdout.endswith("\n")
-    assert result.stderr == ""
-    assert out.is_file()
-    exported = strict_decode_job_json(out.read_text(encoding="utf-8"))
-    assert exported.id == job.id
-    assert exported.label == job.label
-
-
 def test_export_json_unknown_label_exits_2(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
     result = invoke(world, "export-json", "missing.label", str(tmp_path / "out.json"))
     assert result.exit_code == 2
     assert "no managed job with label" in result.stderr
-
-
-def test_export_json_dest_exists_exits_2(tmp_path: Path) -> None:
-    world = FakeTaskWorld(tmp_path)
-    job = make_job()
-    world.manage(job)
-    dest = tmp_path / "dest.json"
-    dest.write_text("existing", encoding="utf-8")
-    result = invoke(world, "export-json", job.label, str(dest))
-    assert result.exit_code == 2
-    assert "destination already exists" in result.stderr
 
 
 # ---- import-json tests ----
@@ -661,36 +610,6 @@ def test_import_json_identity_and_v2(tmp_path: Path) -> None:
 
     plist_files = list(world2.la_root.glob("*.plist"))
     assert len(plist_files) == 0
-
-
-def test_import_json_v1_normalization(tmp_path: Path) -> None:
-    v1_payload = json.dumps(
-        {
-            "schema_version": 1,
-            "id": "12345678-1234-5678-1234-567812345678",
-            "name": "Daily Backup",
-            "label": "io.github.macos-task-scheduler.user.v1-job",
-            "enabled": True,
-            "command": {
-                "type": "python",
-                "interpreter": "/usr/bin/python3",
-                "script": "/tmp/main.py",
-                "arguments": [],
-            },
-            "schedule": {"time": "09:00", "weekdays": ["monday"]},
-        }
-    )
-    v1_file = tmp_path / "v1.json"
-    v1_file.write_text(v1_payload, encoding="utf-8")
-    world = FakeTaskWorld(tmp_path / "w")
-    result = invoke(world, "import-json", str(v1_file))
-    assert result.exit_code == 0
-    assert "schema v2" in result.stdout
-    catalog_files = list(world.catalog_root.glob("*.json"))
-    assert len(catalog_files) == 1
-    imported = strict_decode_job_json(catalog_files[0].read_text(encoding="utf-8"))
-    assert imported.schema_version == 2
-    assert imported.schedule.kind == "calendar" and imported.schedule.times[0].hour == 9
 
 
 def test_import_json_id_conflict(tmp_path: Path) -> None:

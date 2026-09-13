@@ -62,16 +62,13 @@ class LaunchAgentFilesystem(Protocol):
     def read_snapshot(self, path: Path) -> SourceSnapshot:
         """Return an immutable snapshot (bytes + hash + inode identity)."""
 
-    def replace_verified(
-        self, source: Path, destination: Path, expected: SourceSnapshot
-    ) -> None:
+    def replace_verified(self, source: Path, destination: Path, expected: SourceSnapshot) -> None:
         """Atomically replace ``destination`` with ``source`` only when
         ``destination`` still matches ``expected``.
         """
 
     def remove_verified(self, path: Path, expected: SourceSnapshot) -> None:
-        """Remove ``path`` only when it still matches ``expected``.
-        """
+        """Remove ``path`` only when it still matches ``expected``."""
 
 
 class LocalFilesystem:
@@ -82,18 +79,14 @@ class LocalFilesystem:
 
     def list_plist_files(self, root: Path) -> list[Path]:
         return sorted(
-            entry
-            for entry in root.iterdir()
-            if entry.name.endswith(".plist") and entry.is_file()
+            entry for entry in root.iterdir() if entry.name.endswith(".plist") and entry.is_file()
         )
 
     def create_root(self, root: Path) -> None:
         root.mkdir(parents=True, exist_ok=True)
 
     def create_exclusive(self, destination: Path, payload: bytes) -> None:
-        temporary = destination.with_name(
-            f"{destination.name}.{os.getpid()}.tmp"
-        )
+        temporary = destination.with_name(f"{destination.name}.{os.getpid()}.tmp")
         try:
             temporary.write_bytes(payload)
             os.link(temporary, destination)
@@ -108,9 +101,7 @@ class LocalFilesystem:
         return True
 
     def replace(self, source: Path, destination: Path) -> None:
-        temporary = destination.with_name(
-            f"{destination.name}.{os.getpid()}.tmp"
-        )
+        temporary = destination.with_name(f"{destination.name}.{os.getpid()}.tmp")
         try:
             temporary.write_bytes(source.read_bytes())
             os.replace(temporary, destination)
@@ -130,9 +121,7 @@ class LocalFilesystem:
             st_size=stat.st_size,
         )
 
-    def replace_verified(
-        self, source: Path, destination: Path, expected: SourceSnapshot
-    ) -> None:
+    def replace_verified(self, source: Path, destination: Path, expected: SourceSnapshot) -> None:
         try:
             current = self.read_snapshot(destination)
         except (FileNotFoundError, ValueError) as exc:
@@ -144,24 +133,18 @@ class LocalFilesystem:
             or current.st_dev != expected.st_dev
             or current.st_ino != expected.st_ino
         ):
-            raise SourceChangedError(
-                f"destination {destination} changed from expected snapshot"
-            )
+            raise SourceChangedError(f"destination {destination} changed from expected snapshot")
         self.replace(source, destination)
 
     def remove_verified(self, path: Path, expected: SourceSnapshot) -> None:
         try:
             current = self.read_snapshot(path)
         except (FileNotFoundError, ValueError) as exc:
-            raise SourceChangedError(
-                f"{path} not found or inaccessible"
-            ) from exc
+            raise SourceChangedError(f"{path} not found or inaccessible") from exc
         if (
             current.sha256 != expected.sha256
             or current.st_dev != expected.st_dev
             or current.st_ino != expected.st_ino
         ):
-            raise SourceChangedError(
-                f"{path} changed from expected snapshot"
-            )
+            raise SourceChangedError(f"{path} changed from expected snapshot")
         self.remove_file(path)

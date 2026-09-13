@@ -46,22 +46,26 @@ def _make_event(
         diagnostic_codes=diagnostic_codes,
     )
 
+
 # ── round-trip ──────────────────────────────────────────────────────────────
 
 # ── job isolation ───────────────────────────────────────────────────────────
 
 # ── limit ───────────────────────────────────────────────────────────────────
 
+
 def test_limit_over_100_raises(tmp_path: Path) -> None:
     repo = ExecutionHistoryRepository(tmp_path / "hist.db")
     with pytest.raises(ValueError):
         repo.read(uuid4(), limit=101)
+
 
 # ── healthy empty ───────────────────────────────────────────────────────────
 
 # ── corrupt file ────────────────────────────────────────────────────────────
 
 # ── unusable path ───────────────────────────────────────────────────────────
+
 
 def test_unusable_path(tmp_path: Path) -> None:
     bad_path = tmp_path / "no" / "such" / "dir.sqlite3"
@@ -74,20 +78,19 @@ def test_unusable_path(tmp_path: Path) -> None:
     assert result.events == ()
     assert result.error == HISTORY_UNAVAILABLE
 
+
 # ── default_history_path ────────────────────────────────────────────────────
 
 # ── loaded field round-trip ─────────────────────────────────────────────────
+
 
 def test_loaded_field_round_trip(tmp_path: Path) -> None:
     repo = ExecutionHistoryRepository(tmp_path / "hist.db")
     jid = uuid4()
 
-    e_true = _make_event(job_id=jid, loaded=True,
-                         created_at=datetime(2025, 1, 1, tzinfo=UTC))
-    e_false = _make_event(job_id=jid, loaded=False,
-                          created_at=datetime(2025, 1, 2, tzinfo=UTC))
-    e_none = _make_event(job_id=jid, loaded=None,
-                         created_at=datetime(2025, 1, 3, tzinfo=UTC))
+    e_true = _make_event(job_id=jid, loaded=True, created_at=datetime(2025, 1, 1, tzinfo=UTC))
+    e_false = _make_event(job_id=jid, loaded=False, created_at=datetime(2025, 1, 2, tzinfo=UTC))
+    e_none = _make_event(job_id=jid, loaded=None, created_at=datetime(2025, 1, 3, tzinfo=UTC))
 
     repo.append(e_true)
     repo.append(e_false)
@@ -101,6 +104,7 @@ def test_loaded_field_round_trip(tmp_path: Path) -> None:
     assert result.events[1].loaded is False
     assert result.events[2].loaded is True
 
+
 # ── kind and outcome decode ─────────────────────────────────────────────────
 
 # ── no events when job_id not found ─────────────────────────────────────────
@@ -109,9 +113,8 @@ def test_loaded_field_round_trip(tmp_path: Path) -> None:
 
 # ── sqlite3 error in append ─────────────────────────────────────────────────
 
-def test_append_sqlite_error_is_noop(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+
+def test_append_sqlite_error_is_noop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo = ExecutionHistoryRepository(tmp_path / "hist.db")
     jid = uuid4()
     repo.append(_make_event(job_id=jid))
@@ -126,7 +129,9 @@ def test_append_sqlite_error_is_noop(
 
     assert len(repo.read(jid, limit=10).events) == 1
 
+
 # ── sqlite3 error in read ───────────────────────────────────────────────────
+
 
 def test_read_sqlite_error_returns_unavailable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -142,13 +147,17 @@ def test_read_sqlite_error_returns_unavailable(
     assert result.events == ()
     assert result.error == HISTORY_UNAVAILABLE
 
+
 # ── malformed diagnostic_codes column (not a list) ──────────────────────────
+
 
 def test_diagnostic_codes_not_list_stored_raw(tmp_path: Path) -> None:
     db_path = tmp_path / "hist.db"
     ExecutionHistoryRepository(db_path)
-    cols = "created_at, job_id, label, kind, outcome, exit_code, " \
-           "duration_seconds, loaded, diagnostic_codes"
+    cols = (
+        "created_at, job_id, label, kind, outcome, exit_code, "
+        "duration_seconds, loaded, diagnostic_codes"
+    )
     with contextlib.closing(sqlite3.connect(str(db_path))) as db:
         db.execute(
             f"INSERT INTO execution_history ({cols}) "
@@ -165,7 +174,9 @@ def test_diagnostic_codes_not_list_stored_raw(tmp_path: Path) -> None:
     assert len(result.events) == 1
     assert result.events[0].diagnostic_codes == ()
 
+
 # ── malformed row (invalid kind string) is skipped ─────────────────────────
+
 
 def test_malformed_row_is_skipped(tmp_path: Path) -> None:
     db_path = tmp_path / "hist.db"
@@ -174,8 +185,10 @@ def test_malformed_row_is_skipped(tmp_path: Path) -> None:
     e = _make_event(job_id=jid)
     repo.append(e)
 
-    cols = "created_at, job_id, label, kind, outcome, exit_code, " \
-           "duration_seconds, loaded, diagnostic_codes"
+    cols = (
+        "created_at, job_id, label, kind, outcome, exit_code, "
+        "duration_seconds, loaded, diagnostic_codes"
+    )
     with contextlib.closing(sqlite3.connect(str(db_path))) as db:
         db.execute(
             f"INSERT INTO execution_history ({cols}) "
@@ -188,5 +201,6 @@ def test_malformed_row_is_skipped(tmp_path: Path) -> None:
     result = repo.read(jid, limit=10)
     assert len(result.events) == 1
     assert result.events[0].kind == e.kind
+
 
 # ── per-operation connections ───────────────────────────────────────────────
