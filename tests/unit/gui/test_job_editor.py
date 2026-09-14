@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
+from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -31,7 +32,10 @@ from task_scheduler.gui.presenters.agent_presenter import (
     PREVIEW_INCOMPLETE,
 )
 from task_scheduler.gui.widgets.direct_test_dialog import DirectTestDialog
-from task_scheduler.gui.widgets.job_editor import JobEditor
+from task_scheduler.gui.widgets.job_editor import (
+    _IDENTITY_FIELD_WIDTH_PROBE,
+    JobEditor,
+)
 from task_scheduler.platform.macos import (
     CandidateSource,
     DetectionNote,
@@ -186,6 +190,15 @@ class TestIdentity:
         assert editor._draft.label == label_field.text()
         assert editor._draft.label_touched is False
 
+    def test_name_is_forced_to_lowercase(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """Typing an uppercase name is rewritten to lowercase to match the label."""
+        _, editor, _ = make_editor(qtbot, tmp_path)
+        name_field = line_edit(editor, "editor-name")
+        name_field.textEdited.emit("Nightly Sync")
+        assert name_field.text() == "nightly sync"
+        assert editor._draft is not None
+        assert editor._draft.name == "nightly sync"
+
     def test_renaming_existing_job_keeps_label(self, qtbot: QtBot, tmp_path: Path) -> None:
         """Renaming a stored job leaves its fixed label in place."""
         job = make_job()
@@ -194,6 +207,16 @@ class TestIdentity:
         assert editor._draft is not None
         assert line_edit(editor, "editor-label").text() == job.label
         assert editor._draft.label == job.label
+
+    def test_identity_fields_are_widened(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """Name and Label get a font-scaled minimum width (~2x the cramped default)."""
+        _, editor, _ = make_editor(qtbot, tmp_path)
+        name = line_edit(editor, "editor-name")
+        label = line_edit(editor, "editor-label")
+        expected = QFontMetrics(name.font()).horizontalAdvance(_IDENTITY_FIELD_WIDTH_PROBE)
+        assert name.minimumWidth() == expected
+        assert label.minimumWidth() == expected
+        assert expected >= QFontMetrics(name.font()).horizontalAdvance("x" * 25)
 
 
 class TestPreview:

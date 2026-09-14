@@ -1,4 +1,13 @@
-# TODOS.md (v0.0.30)
+# TODOS.md (v0.0.31)
+
+## New-Task Identity Polish (DONE — v0.0.31)
+
+User-requested: (1) widen the New Task Identity Name/Label fields (~15 → ~30 chars), (2) force the name to lowercase so it matches the derived label.
+
+- [x] `job_editor.py`: `_on_name_edited` coerces the name to lowercase (caret preserved via `blockSignals` + `setText`/`setCursorPosition`) before `set_name`; `_build_identity` sets a `QFontMetrics`-derived `setMinimumWidth` (~30 chars, `_IDENTITY_FIELD_WIDTH_PROBE`) on both the Name and read-only Label fields.
+- [x] Tests: `test_job_editor.py` — added `test_name_is_forced_to_lowercase` (typing "Nightly Sync" → field + draft.name are "nightly sync") and `test_identity_fields_are_widened` (both fields' minimumWidth == font-metric width for the probe).
+- [x] Docs: README Identity section (lowercase + widened wording); `docs/architecture.md` (JobDraft dialog presentation notes the lowercase coercion).
+- [x] Closeout: `make check` (554 tests, 100% coverage), ratio 9,332:13,058 = 71.47% (under cap), version 0.0.30 → 0.0.31 (all 4 registry locations), commit + push.
 
 ## New-Task Identity Clarity (DONE — v0.0.30)
 

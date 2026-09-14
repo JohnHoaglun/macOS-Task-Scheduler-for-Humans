@@ -2,6 +2,12 @@
 
 ## Changelog
 
+### v0.0.31
+- New-task identity polish (user-requested): the `JobEditor` Identity **Name** field is now forced to lowercase as it is typed so it matches the (lowercase) derived label — `_on_name_edited` rewrites the field (caret preserved) before pushing through `set_name`. The **Name** and read-only **Label** fields are also widened from a cramped ~15 characters to ~30 (a `QFontMetrics`-derived minimum width, `_IDENTITY_FIELD_WIDTH_PROBE`) so names and derived labels read comfortably.
+- Files: `gui/widgets/job_editor.py` (lowercase coercion in `_on_name_edited`; `setMinimumWidth` on both identity fields), `tests/unit/gui/test_job_editor.py` (`test_name_is_forced_to_lowercase`, `test_identity_fields_are_widened`); README Identity section and `docs/architecture.md` (JobDraft dialog presentation) updated.
+- Verification: `make check` clean (ruff / mypy strict / 554 tests, 100% coverage held).
+- Test/code ratio 9,332 test : 13,058 src (71.47%, under the 75% cap — no cutting needed).
+
 ### v0.0.30
 - New-task identity clarity (user-reported: the New Task dialog's bare Name + Label fields were unclear, so people would copy/paste the same text into both): the `JobEditor` Identity section now presents one editable **Name** field; the **Label** is read-only and auto-fills from the name via the existing `managed_label` derivation (`io.github.macos-task-scheduler.user.<slug>-<8-hex>`). Typing the name updates the read-only label field live (`_on_name_edited` → `set_name` → sync); for an existing job the fixed label is shown and renaming does not change it; external mode is unchanged (both fields read-only). The dead `editor-label` `textEdited` wiring and `_on_label_edited` were removed; `set_label` remains a valid programmatic mutator.
 - Files: `gui/widgets/job_editor.py` (read-only label, `_on_name_edited`), `tests/unit/gui/test_job_editor.py` (replaced the stale label-edit test with `TestIdentity`: read-only invariant, live auto-fill, rename-keeps-label); README Identity section and `docs/architecture.md` (JobDraft derivation + dialog presentation) updated.

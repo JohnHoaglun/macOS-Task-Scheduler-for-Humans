@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import cast
 
 from pydantic import ValidationError
+from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -71,6 +72,10 @@ DAY_NAMES = (
 )
 DAY_LABELS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 _SCHEDULE_UNIT_SECONDS = (1, 60, 3600, 86400)
+# The Identity fields default to a cramped ~15 characters in the QFormLayout;
+# widen Name and Label to roughly double that so names and derived labels read.
+_IDENTITY_FIELD_WIDTH_CHARS = 30
+_IDENTITY_FIELD_WIDTH_PROBE = "x" * _IDENTITY_FIELD_WIDTH_CHARS
 
 
 class JobEditor(QDialog):
@@ -181,6 +186,9 @@ class JobEditor(QDialog):
         self._label = QLineEdit(group)
         self._label.setObjectName("editor-label")
         self._label.setReadOnly(True)
+        field_width = QFontMetrics(self._name.font()).horizontalAdvance(_IDENTITY_FIELD_WIDTH_PROBE)
+        self._name.setMinimumWidth(field_width)
+        self._label.setMinimumWidth(field_width)
         form = QFormLayout(group)
         form.addRow("Name", self._name)
         form.addRow("Label", self._label)
@@ -344,11 +352,19 @@ class JobEditor(QDialog):
             )
 
     def _on_name_edited(self, text: str) -> None:
-        """Push the name into the draft and refresh the read-only derived label."""
+        """Force the name to lowercase (to match the derived label), push it into the
+        draft, and refresh the read-only derived label."""
         if self._draft is None:
             self._on_draft_changed()
             return
-        self._controller.set_name(self._draft, text.strip())
+        lowered = text.lower()
+        if lowered != text:
+            cursor = self._name.cursorPosition()
+            self._name.blockSignals(True)
+            self._name.setText(lowered)
+            self._name.setCursorPosition(cursor)
+            self._name.blockSignals(False)
+        self._controller.set_name(self._draft, lowered.strip())
         self._label.setText(self._draft.label)
         self._on_draft_changed()
 

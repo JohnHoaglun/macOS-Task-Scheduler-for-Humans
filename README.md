@@ -631,12 +631,14 @@ editor for a job:
 
 The dialog is a scrollable form with the following sections:
 
-* **Identity** — the job name and the managed label. The label is
-  auto-derived from the name as
+* **Identity** — the job name and the managed label. The name is forced to
+  lowercase so it matches the derived label. The label is auto-derived from the
+  name as
   `io.github.macos-task-scheduler.user.<slug>-<8-hex>` (the name slug plus the
   first 8 hex characters of the job's UUID) and shown read-only: type the name
-  and the label fills itself in. For an existing job the label is fixed and is
-  shown, not editable.
+  and the label fills itself in. Both fields are sized for comfortable reading
+  (≈30 characters wide). For an existing job the label is fixed and is shown,
+  not editable.
 * **Command** — a Python / Shell / Executable selector with a page per
   kind, each with a row table of arguments. On the Python page, editing
   the script path runs interpreter detection: candidates are listed as
