@@ -21,6 +21,7 @@ from pytestqt.qtbot import QtBot
 from tests.conftest import make_job
 from tests.fakes import FakeTaskWorld
 
+from task_scheduler.application.job_service import managed_label
 from task_scheduler.domain import (
     JobDefinition,
 )
@@ -165,13 +166,34 @@ class TestValidation:
         assert not errors(editor).isVisible()
         assert button(editor, "editor-save").isEnabled()
 
-    def test_label_edit_updates_draft(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """Typing a label pushes it into the draft as a manual label."""
+
+class TestIdentity:
+    """The Identity group: one editable name, a read-only derived label."""
+
+    def test_label_field_is_read_only(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """The managed editor presents the label read-only, never editable."""
         _, editor, _ = make_editor(qtbot, tmp_path, job=make_job())
-        line_edit(editor, "editor-label").textEdited.emit("my.custom.label")
+        assert line_edit(editor, "editor-label").isReadOnly()
+
+    def test_name_edit_auto_fills_label(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """Typing a name derives the label into the read-only field live."""
+        _, editor, _ = make_editor(qtbot, tmp_path)
+        line_edit(editor, "editor-name").textEdited.emit("Nightly Sync")
         assert editor._draft is not None
-        assert editor._draft.label == "my.custom.label"
-        assert editor._draft.label_touched is True
+        label_field = line_edit(editor, "editor-label")
+        assert label_field.isReadOnly()
+        assert label_field.text() == managed_label("Nightly Sync", editor._draft.job_id)
+        assert editor._draft.label == label_field.text()
+        assert editor._draft.label_touched is False
+
+    def test_renaming_existing_job_keeps_label(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """Renaming a stored job leaves its fixed label in place."""
+        job = make_job()
+        _, editor, _ = make_editor(qtbot, tmp_path, job=job)
+        line_edit(editor, "editor-name").textEdited.emit("Renamed Backup")
+        assert editor._draft is not None
+        assert line_edit(editor, "editor-label").text() == job.label
+        assert editor._draft.label == job.label
 
 
 class TestPreview:

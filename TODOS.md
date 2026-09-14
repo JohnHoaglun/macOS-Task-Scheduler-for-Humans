@@ -1,4 +1,13 @@
-# TODOS.md (v0.0.29)
+# TODOS.md (v0.0.30)
+
+## New-Task Identity Clarity (DONE — v0.0.30)
+
+User-reported: the New Task dialog's Name + Label fields were unclear, so people would copy/paste the same text into both. User chose **one field**: Name is the single editable field; Label is read-only and auto-fills from the name.
+
+- [x] `job_editor.py`: label field `setReadOnly(True)` in the constructor; name `textEdited` → `_on_name_edited` (push the name via `set_name`, sync the read-only label field, then `_on_draft_changed`); removed the dead `editor-label` `textEdited` connection + `_on_label_edited`; external mode now toggles only the name's read-only.
+- [x] Tests: `test_job_editor.py` — replaced the stale `test_label_edit_updates_draft` with `TestIdentity` (label field is read-only; name edit live auto-fills the label via `managed_label`; renaming an existing job keeps the label).
+- [x] Docs: README Identity section; `docs/architecture.md` (JobDraft derivation + read-only dialog presentation).
+- [x] Closeout: `make check` (552 tests, 100% coverage), ratio 9,309:13,042 = 71.38% (under cap), version 0.0.29 → 0.0.30 (all 4 registry locations), commit + push.
 
 ## Durable External Enable/Disable (DONE — v0.0.29)
 

@@ -152,8 +152,7 @@ class JobEditor(QDialog):
         layout.addWidget(self._errors)
         layout.addLayout(buttons)
         close_button.clicked.connect(self.reject)
-        self._name.textEdited.connect(self._on_draft_changed)
-        self._label.textEdited.connect(self._on_label_edited)
+        self._name.textEdited.connect(self._on_name_edited)
         self._times.rowsChanged.connect(self._on_draft_changed)
         self._script.textEdited.connect(self._on_draft_changed)
         self._script.textChanged.connect(self._on_script_changed)
@@ -175,12 +174,13 @@ class JobEditor(QDialog):
         self._save_button.clicked.connect(self._on_save)
 
     def _build_identity(self) -> QGroupBox:
-        """The Identity group: editable name and label fields."""
+        """The Identity group: an editable name and the read-only derived label."""
         group = QGroupBox("Identity")
         self._name = QLineEdit(group)
         self._name.setObjectName("editor-name")
         self._label = QLineEdit(group)
         self._label.setObjectName("editor-label")
+        self._label.setReadOnly(True)
         form = QFormLayout(group)
         form.addRow("Name", self._name)
         form.addRow("Label", self._label)
@@ -343,11 +343,14 @@ class JobEditor(QDialog):
                 format_upcoming_occurrences(schedule, now=self._clock())
             )
 
-    def _on_label_edited(self, text: str) -> None:
-        """Push the edited label into the draft, stripped of surrounding whitespace."""
-        if self._draft is not None:
-            self._controller.set_label(self._draft, text.strip())
-        self._save_button.setEnabled(True)
+    def _on_name_edited(self, text: str) -> None:
+        """Push the name into the draft and refresh the read-only derived label."""
+        if self._draft is None:
+            self._on_draft_changed()
+            return
+        self._controller.set_name(self._draft, text.strip())
+        self._label.setText(self._draft.label)
+        self._on_draft_changed()
 
     def _path_row(
         self, line_edit_name: str, button_name: str, mode: str
@@ -526,7 +529,6 @@ class JobEditor(QDialog):
         self._external_banner.show()
         self._source_path.setText(str(source_path))
         self._source_path.show()
-        self._label.setReadOnly(True)
         self._name.setReadOnly(True)
         self._save_button.setText("Save External Plist…")
         self._preview_group.setTitle("Proposed replacement plist")
@@ -540,7 +542,6 @@ class JobEditor(QDialog):
         self._dirty_fields = frozenset()
         self._external_banner.hide()
         self._source_path.hide()
-        self._label.setReadOnly(False)
         self._name.setReadOnly(False)
         self._save_button.setText("Save")
         self._preview_group.setTitle("Preview")

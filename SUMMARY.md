@@ -2,6 +2,12 @@
 
 ## Changelog
 
+### v0.0.30
+- New-task identity clarity (user-reported: the New Task dialog's bare Name + Label fields were unclear, so people would copy/paste the same text into both): the `JobEditor` Identity section now presents one editable **Name** field; the **Label** is read-only and auto-fills from the name via the existing `managed_label` derivation (`io.github.macos-task-scheduler.user.<slug>-<8-hex>`). Typing the name updates the read-only label field live (`_on_name_edited` → `set_name` → sync); for an existing job the fixed label is shown and renaming does not change it; external mode is unchanged (both fields read-only). The dead `editor-label` `textEdited` wiring and `_on_label_edited` were removed; `set_label` remains a valid programmatic mutator.
+- Files: `gui/widgets/job_editor.py` (read-only label, `_on_name_edited`), `tests/unit/gui/test_job_editor.py` (replaced the stale label-edit test with `TestIdentity`: read-only invariant, live auto-fill, rename-keeps-label); README Identity section and `docs/architecture.md` (JobDraft derivation + dialog presentation) updated.
+- Verification: `make check` clean (ruff / mypy strict / 552 tests, 100% coverage held).
+- Test/code ratio 9,309 test : 13,042 src (71.38%, under the 75% cap — no cutting needed).
+
 ### v0.0.29
 - Durable external enable/disable (user-reported gap: external Disable/Enable only toggled launchd's opaque override store and never modified the plist — so the state was invisible in the file and the new State column showed "enabled" right after a Disable): `disable_external` now writes `Disabled = true` into the plist (the durable, human-visible source of truth) through the staged replace (stage → backup → `replace_verified` activation, fail-closed on drift, retaining a byte-identical backup), then aligns launchd (`launchctl disable` updates the override store; `bootout` only if currently loaded); the no-label path still quarantines. `enable_external` now removes the `Disabled` key the same way (matching the managed codec, which omits the key when enabled), then `launchctl enable` (clears the override store) and `bootstrap_path` when not currently loaded. When the plist is already in the desired state no file is written (no-op), but launchd is still aligned.
 - GUI: the Disable confirm dialog wording now states the plist is marked `Disabled` (backup retained, visible in the file, survives restarts) instead of "The plist file is not changed"; the enable/disable status-bar result messages now reflect the plist change.

@@ -150,8 +150,11 @@ job's `UUID` for its lifetime — `open_new()` generates a fresh id, and
 flag. While the flag is false the label is auto-derived from the name as
 `io.github.macos-task-scheduler.user.<slug>-<8-hex>` (the name slug plus
 the first 8 hex characters of the job id, via `managed_label`); an explicit
-label edit sets the flag and stops the derivation. Nothing in a draft is
-persisted until a save.
+label edit sets the flag and stops the derivation. In the `JobEditor` dialog
+the label is presented read-only and auto-fills from the name as it is typed
+(a stored job's fixed label is simply shown), so the dialog never exposes a
+manual label edit; the `set_label` mutator remains for programmatic drafts.
+Nothing in a draft is persisted until a save.
 
 The draft's calendar schedule is `times: list[str]` — the raw visible
 `HH:MM` rows, verbatim, in row order (a fresh draft holds one empty row) —
