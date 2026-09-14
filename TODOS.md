@@ -1,4 +1,16 @@
-# TODOS.md (v0.0.31)
+# TODOS.md (v0.0.32)
+
+## Application Debug Logging + Crash Diagnostics (DONE — v0.0.32)
+
+User-reported: the app has crashed multiple times with no way to diagnose (unhandled GUI errors print a traceback to stderr, which a macOS GUI app discards). User chose **log file + crash dialog**.
+
+- [x] `application/app_logging.py` (new, Qt-free): `app_log_path()` (`~/Library/Logs/macOS Task Scheduler for Humans/app.log`), idempotent `configure_logging(log_path=None) -> Path` (RotatingFileHandler DEBUG ~1 MB × 3), `install_crash_hooks(on_crash=None)` (wraps `sys.excepthook` + `sys.unraisablehook`, preserves prior hooks).
+- [x] `gui/qt_message_logging.py` (new, PySide6): `install_qt_message_handler()` (`qInstallMessageHandler`) forwards qWarning/qCritical/qFatal into the log; `qt_message_level` maps QtMsgType→logging level.
+- [x] `gui/app.py`: `_show_crash_dialog` (top-level `QMessageBox.critical`, names the log path), `_make_crash_callback` (show dialog + `app.quit()`); `main()` wires `configure_logging()` → `QApplication` → Qt handler → `install_crash_hooks(on_crash=...)`.
+- [x] `cli/app.py`: `main()` wires `configure_logging()` + `install_crash_hooks()` (no dialog).
+- [x] Tests: `test_app_logging.py` (new, 9), `test_qt_message_logging.py` (new, 4), `test_app.py` (crash-dialog + callback + entry-point patches), `test_cli.py` (entry-point logging patches).
+- [x] Docs: README "Logging and Crash Diagnostics" section; `docs/architecture.md` "Application Logging and Crash Capture".
+- [x] Closeout: `make check` (570 tests, 100% coverage), ratio 9,595:13,269 = 72.31% (under cap), version 0.0.31 → 0.0.32 (all 4 registry locations), commit + push.
 
 ## New-Task Identity Polish (DONE — v0.0.31)
 

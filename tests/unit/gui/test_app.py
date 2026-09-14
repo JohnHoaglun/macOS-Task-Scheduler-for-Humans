@@ -11,8 +11,11 @@ from PySide6 import QtCore, QtWidgets
 from pytestqt.qtbot import QtBot
 
 import task_scheduler.bootstrap as bootstrap
+from task_scheduler.application import app_logging as app_logging_mod
 from task_scheduler.application.task_command_service import TaskListing
+from task_scheduler.gui import app as gui_app
 from task_scheduler.gui import main_window
+from task_scheduler.gui import qt_message_logging as qt_msg_mod
 from task_scheduler.gui.app import create_main_window, startup_window_size
 from task_scheduler.gui.main_window import MainWindow
 
@@ -86,7 +89,60 @@ def test_main_module_launcher_exits_with_return_code(
     monkeypatch.setattr(bootstrap, "build_services", lambda: stub)
     monkeypatch.setattr(bootstrap, "gui_environment", lambda: {})
     monkeypatch.setattr(main_window, "MainWindow", _FakeWindow)
+    # Keep the entry point's logging/crash wiring out of the test's real env.
+    monkeypatch.setattr(app_logging_mod, "configure_logging", lambda log_path=None: Path("app.log"))
+    monkeypatch.setattr(app_logging_mod, "install_crash_hooks", lambda on_crash=None: None)
+    monkeypatch.setattr(qt_msg_mod, "install_qt_message_handler", lambda: None)
     app_file = Path(__file__).resolve().parents[3] / "src" / "task_scheduler" / "gui" / "app.py"
     with pytest.raises(SystemExit) as excinfo:
         runpy.run_path(str(app_file), run_name="__main__")
     assert excinfo.value.code == 42
+
+
+class _FakeMessageBox:
+    """Records QMessageBox.critical calls instead of showing a modal dialog."""
+
+    def __init__(self) -> None:
+        self.critical_calls: list[tuple[object, str, str]] = []
+
+    def critical(self, parent: object, title: str, text: str) -> int:
+        self.critical_calls.append((parent, title, text))
+        return 0
+
+
+def test_show_crash_dialog_displays_log_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = _FakeMessageBox()
+    monkeypatch.setattr(gui_app, "QMessageBox", fake)
+    gui_app._show_crash_dialog(Path("/tmp/app.log"))
+    assert len(fake.critical_calls) == 1
+    parent, title, text = fake.critical_calls[0]
+    assert parent is None  # top-level dialog (QApplication is not a QWidget parent)
+    assert title == "Unexpected error"
+    assert "/tmp/app.log" in text
+
+
+class _AppWithQuit:
+    def __init__(self) -> None:
+        self.quit_called = False
+
+    def quit(self) -> None:
+        self.quit_called = True
+
+
+def test_crash_callback_shows_dialog_and_quits(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = _FakeMessageBox()
+    monkeypatch.setattr(gui_app, "QMessageBox", fake)
+    app = _AppWithQuit()
+    gui_app._make_crash_callback(app, Path("/tmp/app.log"))()
+    assert len(fake.critical_calls) == 1
+    assert app.quit_called
+
+
+def test_crash_callback_without_quit_attribute_still_shows_dialog(
+    monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = _FakeMessageBox()
+    monkeypatch.setattr(gui_app, "QMessageBox", fake)
+    app = object()  # no ``quit`` attribute -> the callback must not call quit
+    gui_app._make_crash_callback(app, Path("/tmp/app.log"))()
+    assert len(fake.critical_calls) == 1

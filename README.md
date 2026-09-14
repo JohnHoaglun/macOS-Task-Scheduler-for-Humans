@@ -502,8 +502,30 @@ still works — history queries report "execution history unavailable".
 
 Disclosure:
 
-> Records only what this application observed (tests, manual runs, status
-> checks). It does not prove launchd ran the task on schedule.
+ > Records only what this application observed (tests, manual runs, status
+ > checks). It does not prove launchd ran the task on schedule.
+
+## Logging and Crash Diagnostics
+
+The application writes its own debug log so that crashes and unexpected
+behaviour can be diagnosed after the fact (previously an unhandled GUI error
+printed a traceback to stderr, which a macOS GUI app discards).
+
+* **Location:** `~/Library/Logs/macOS Task Scheduler for Humans/app.log`
+* **Level:** `DEBUG`, written to a size-rotating file (~1 MB per file, three
+  backups retained).
+* **Crash capture:** every unhandled Python exception is written to the log
+  with its full traceback. Background failures that cannot be raised
+  ("unraisable" exceptions) and Qt C++-side messages (`qWarning`, `qCritical`,
+  `qFatal`) are captured too.
+* **GUI:** when an unexpected error occurs, a dialog shows the log location and
+  the application exits. Open the named file to inspect the traceback.
+* **CLI:** `mactask` configures the same log; unhandled command failures are
+  recorded there as well (no dialog in the terminal).
+
+The log records application-level diagnostics only — it does not contain job
+stdout/stderr or environment values, which are stored in each job's own log
+paths.
 
 ## Graphical Interface
 

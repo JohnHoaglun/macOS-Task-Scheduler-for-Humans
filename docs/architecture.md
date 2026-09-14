@@ -135,7 +135,36 @@ gui/
   `platform.macos` types (the Python interpreter detection result and the
   LaunchAgent parse/status types); widgets import no `platform/`, `cli/`,
   or `storage/` modules. Nothing under `gui/` imports `subprocess` or
-  `os.environ`.
+   `os.environ`.
+
+## Application Logging and Crash Capture
+
+Both entry points configure an application-level debug log before building
+services, so crashes are diagnosable after the fact.
+
+* `application/app_logging.py` (Qt-free, importable without PySide6):
+  * `configure_logging(log_path=None) -> Path` — idempotently attaches a single
+    size-rotating file handler (~1 MB, three backups) at `DEBUG` to the root
+    logger and returns the log path. Defaults to `app_log_path()`.
+  * `app_log_path()` — `~/Library/Logs/macOS Task Scheduler for Humans/app.log`
+    (under `job_service.default_job_logs_root()`).
+  * `install_crash_hooks(on_crash=None)` — wraps `sys.excepthook` (writes the
+    full traceback, then invokes `on_crash` best-effort) and
+    `sys.unraisablehook` (background "unraisable" failures). The previous
+    hooks are preserved and still run.
+* `gui/qt_message_logging.py` (PySide6) — `install_qt_message_handler()`
+  installs a Qt message handler (`qInstallMessageHandler`) that forwards
+  `qDebug`/`qWarning`/`qCritical`/`qFatal` into the same log, so C++-side
+  failures that abort without raising a Python exception are captured.
+* `gui/app.py` wiring: `configure_logging()` → `QApplication` →
+  `install_qt_message_handler()` → `install_crash_hooks(on_crash=...)`. The
+  GUI `on_crash` shows a modal, top-level dialog naming the log file and then
+  quits. The dialog has no widget parent (a `QApplication` is not a
+  `QWidget`).
+* `cli/app.py` wiring: `configure_logging()` + `install_crash_hooks()` with no
+  dialog; unhandled command failures are recorded in the log.
+* The log records application-level diagnostics only; it never contains job
+  stdout/stderr or environment values (those live in each job's own log paths).
 
 ## Editor Contracts (Increment 10)
 

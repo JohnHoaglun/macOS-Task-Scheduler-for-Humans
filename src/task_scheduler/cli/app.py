@@ -20,6 +20,7 @@ from task_scheduler.application import (
     StrictJsonDecodeError,
     TaskCommandService,
 )
+from task_scheduler.application.app_logging import configure_logging, install_crash_hooks
 from task_scheduler.bootstrap import build_services
 from task_scheduler.cli import render
 from task_scheduler.platform.macos import ProcessResult
@@ -351,5 +352,11 @@ def create_app(services: TaskCommandService) -> typer.Typer:
 
 
 def main() -> None:
-    """Console-script entry point for ``mactask``."""
+    """Console-script entry point for ``mactask``.
+
+    Configures the app debug log and installs crash hooks first, so an
+    unexpected failure in any command is captured in the log file as well.
+    """
+    configure_logging()
+    install_crash_hooks()
     create_app(build_services())()

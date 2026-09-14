@@ -473,6 +473,9 @@ def test_logs_unknown_label_exits_usage(tmp_path: Path) -> None:
 
 def test_main_entrypoint_shows_help(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sys, "argv", ["mactask"])
+    # Keep the entry point's logging/crash wiring out of the test's real env.
+    monkeypatch.setattr(cli_app, "configure_logging", lambda: Path("app.log"))
+    monkeypatch.setattr(cli_app, "install_crash_hooks", lambda on_crash=None: None)
     with pytest.raises(SystemExit) as exc:
         main()
     assert exc.value.code == 2
