@@ -120,19 +120,23 @@ EXTERNAL_EDIT_BOOTOUT_FAILED = (
     "A staged copy is retained at: {staged}"
 )
 EXTERNAL_DISABLE_LOADED = (
-    "Disabled {label}. launchd will not restart it; the running instance was unloaded."
+    "Disabled {label}: the plist is marked disabled and the running instance was unloaded."
 )
-EXTERNAL_DISABLE_UNLOADED = "Disabled {label}. launchd will not start it."
+EXTERNAL_DISABLE_UNLOADED = (
+    "Disabled {label}: the plist is marked disabled, so launchd will not start it."
+)
 EXTERNAL_DISABLE_UNKNOWN = (
-    "Disabled {label}. The loaded state could not be determined, so no unload was attempted."
+    "Disabled {label}: the plist is marked disabled. The loaded state could not be "
+    "determined, so no unload was attempted."
 )
 EXTERNAL_QUARANTINE_RESULT = (
     "Quarantined {source} to {dest}. launchd will no longer load it from its original location."
 )
-EXTERNAL_ENABLE_LOADED = "Enabled {label}."
-EXTERNAL_ENABLE_UNLOADED = "Enabled {label} and loaded it."
+EXTERNAL_ENABLE_LOADED = "Enabled {label}: the plist no longer marks it disabled."
+EXTERNAL_ENABLE_UNLOADED = "Enabled {label}: the plist is cleared and the agent was loaded."
 EXTERNAL_ENABLE_UNKNOWN = (
-    "Enabled {label}. It could not be verified that it is loaded; it will start at the next login."
+    "Enabled {label}: the plist is cleared. It could not be verified that it is loaded; "
+    "it will start at the next login."
 )
 EXTERNAL_REMOVE_RESULT = "Removed {path}. A backup is retained at: {backup}."
 EXTERNAL_REMOVE_UNLOADED_FIRST = " It was unloaded first."

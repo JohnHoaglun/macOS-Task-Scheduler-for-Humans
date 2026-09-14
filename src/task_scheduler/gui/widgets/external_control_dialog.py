@@ -208,10 +208,13 @@ class ExternalDisableConfirmDialog(QDialog):
         if label is not None:
             self.setWindowTitle("Disable External LaunchAgent?")
             body = (
-                f"Tell launchd to stop starting {label}?\n\n"
-                "launchd will not start this agent at login. "
-                "If it is currently running, it will be unloaded now. "
-                "The plist file is not changed.\n\n"
+                f"Disable {label}?\n\n"
+                "This writes Disabled = true into the plist file, so launchd "
+                "will not start the agent at login. Because the change is "
+                "stored in the plist itself, it stays disabled across restarts "
+                "and is visible in the file. If the agent is currently running, "
+                "it will be unloaded now. A backup of the current plist is kept "
+                "alongside it.\n\n"
                 f"{path}"
             )
             accept_text = "Disable"

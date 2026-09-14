@@ -769,9 +769,15 @@ catalog) and Gate B (replace and reload, or replace-only when not loaded).
 If the plist changed outside the app between preview and commit, the write
 is refused.
 
-**Disable an external job.** With a usable label: `launchctl disable`
-(and bootout only if currently loaded). Without a usable label: the plist
-is **quarantined** — atomically moved to
+**Disable an external job.** With a usable label: the plist is marked
+`Disabled` — a durable, human-visible change written through the staged
+replace (a byte-identical backup sibling is preserved) — and launchd is
+aligned alongside: `launchctl disable` updates launchd's override store and
+the agent is booted out only if it is currently loaded. Because the change
+lives in the plist itself, the disabled state is visible in the file and
+survives restarts, and the **State** column (which reads the plist's
+`Disabled` key) shows **disabled**. Without a usable label: the plist is
+**quarantined** — atomically moved to
 `~/Library/LaunchAgents/.task-scheduler-disabled/` (no launchctl) — with a
 disclosure that a running instance may stop but cannot be verified.
 
@@ -780,9 +786,13 @@ the label is booted out (only if loaded), and the plist is removed (the
 removal is refused if the file changed outside the app); the backup is
 retained on success.
 
-**Enable / Run Now** are available for external rows with a usable launchd
-label; when the label is missing or launchd's load state is unknown, the
-actions are disabled with a descriptive tooltip.
+**Enable an external job.** With a usable label, **Enable** clears the
+`Disabled` key from the plist (the staged replace with backup) and aligns
+launchd: `launchctl enable` clears launchd's override store and the agent is
+bootstrapped when it is not currently loaded. **Run Now** asks launchd to
+start the agent immediately (`kickstart -k`). Both are available for external
+rows with a usable launchd label; when the label is missing or launchd's load
+state is unknown, the actions are disabled with a descriptive tooltip.
 
 Safety boundary and ownership: external operations never touch the managed
 task catalog.

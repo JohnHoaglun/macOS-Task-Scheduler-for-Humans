@@ -308,14 +308,25 @@ structured (stage → bootout → backup → activate → bootstrap).
 **`disable_external(path)`** — containment check (`path is outside the
 LaunchAgent root: {path}`); parses payload; if no usable label,
 `quarantine_external(path)` (move to `.task-scheduler-disabled`
-subdirectory); otherwise `backend.disable(label)` followed by
-`backend.bootout(label)` when loaded.  Returns result with
-`quarantined_path` set on quarantine.
+subdirectory); otherwise the plist's `Disabled` key is the durable,
+human-visible source of truth: when not already set, it is written to
+`true` through the staged replace (stage → backup → activate; a source
+drift raises `SourceChangedError`, a `ValueError`, before launchd is
+touched), then `backend.disable(label)` (updates launchd's override store)
+and `backend.bootout(label)` when loaded.  Returns a result with
+`quarantined_path` set on quarantine, `replaced` true when the plist was
+written, and the backup in `retained_artifacts`.
 
 **`enable_external(path)`** — containment check; parses payload; raises
 `ValueError` when no usable label (`cannot enable {path}: no usable
-launchd label`); `backend.enable(label)`; if `loaded is False`,
-`bootstrap_path(label, path)`.
+launchd label`); otherwise the plist without a `Disabled` key is the
+durable source of truth: when a `Disabled` key is present it is removed
+through the staged replace (stage → backup → activate; a source drift
+raises `SourceChangedError`, a `ValueError`, before launchd is touched),
+then `backend.enable(label)` (clears launchd's override store); if
+`loaded is False`, `bootstrap_path(label, path)`.  Returns a result with
+`replaced` true when the plist was written and the backup in
+`retained_artifacts`.
 
 **`run_now_external(path)`** — containment check; parses payload; raises
 when no usable label (`cannot run {path} now: no usable launchd label`);
@@ -418,7 +429,8 @@ the raw editor and label requirements).
 `ExternalReplaceGateDialog` (Gate B: wording adapts to structured/raw and
 loaded state; accept button: "Replace and Reload" when loaded,
 "Replace Plist" when not).
-`ExternalDisableConfirmDialog` (label variant: "Disable" — launchd
+`ExternalDisableConfirmDialog` (label variant: "Disable" — writes
+`Disabled` into the plist (staged replace + backup), then launchd
 disable + bootout; no-label variant: "Move and Disable" — quarantine to
 `.task-scheduler-disabled`).
 `ExternalRemoveConfirmDialog` (path, loaded status, backup notice).
@@ -441,7 +453,7 @@ status-bar message, clears selection on remove/quarantine, calls
 |---|---|---|---|---|---|
 | **Managed (Saved, not installed)** | Structured editor (catalog save) | `disable()` + bootout (managed path) | Remove from catalog (catalog-only) | `enable()` (managed path) | Disabled (unknown state) |
 | **Managed (Installed)** | Structured editor (catalog save) | `disable()` + bootout | Uninstall (bootout + plist + catalog) | `enable()` | `run_now()` (only if loaded) |
-| **External (supported, usable label)** | Structured editor (dirty-field merge) | `disable()` + bootout-if-loaded | Backup + bootout-if-loaded + verified removal | `enable()` + bootstrap-if-needed | `trigger()` (only if loaded) |
+| **External (supported, usable label)** | Structured editor (dirty-field merge) | Mark plist `Disabled` (staged) + `disable()` + bootout-if-loaded | Backup + bootout-if-loaded + verified removal | Clear plist `Disabled` (staged) + `enable()` + bootstrap-if-needed | `trigger()` (only if loaded) |
 | **External (no usable label)** | Raw plist editor (full replacement) | Quarantine (move plist) | Backup + verified removal | Disabled (unknown state) | Disabled (unknown state) |
 | **External (partial or invalid)** | Raw plist editor (full replacement) | Quarantine (move plist) | Backup + verified removal | Disabled (unknown state) | Disabled (unknown state) |
 
@@ -456,7 +468,11 @@ status-bar message, clears selection on remove/quarantine, calls
   assumed.
 - **Fail-closed on source drift:** both edit commits re-read the source
   plist and compare `sha256` + `(st_dev, st_ino)` against the session
-  fingerprint.  Any drift aborts the transaction.
+  fingerprint. External disable/enable rely on `activate_external`'s
+  `replace_verified`, which activates the staged plist only while the
+  on-disk file still matches the snapshot taken at the start of the
+  operation.  Any drift aborts the write (a `SourceChangedError`, a
+  `ValueError`) before launchd is touched.
 - **Label-less disable quarantines:** when a plist has no usable label,
   disable moves it to `.task-scheduler-disabled` (no `launchctl` call
   possible without a label).

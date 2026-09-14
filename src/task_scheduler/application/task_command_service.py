@@ -1005,7 +1005,12 @@ class TaskCommandService:
         )
 
     def disable_external(self, path: Path) -> ExternalEditResult:
-        """Disable an external LaunchAgent or quarantine if no label."""
+        """Disable an external LaunchAgent by marking its plist ``Disabled``.
+
+        The plist's ``Disabled`` key is the durable, human-visible source of
+        truth (written via the staged replace); launchd is aligned alongside
+        (``disable`` + ``bootout`` when loaded). A no-label plist is quarantined.
+        """
         root = self._store.root
         if path.parent != root:
             raise ValueError(f"path is outside the LaunchAgent root: {path}")
@@ -1033,46 +1038,60 @@ class TaskCommandService:
                 quarantined_path=dest,
             )
 
-        # Has a label
+        # Has a label: the plist's ``Disabled`` key is the durable,
+        # human-visible source of truth — write it first, then align launchd
+        # (the override store via ``disable`` and the runtime via ``bootout``).
+        new_raw = {**parsed.raw, "Disabled": True}
+        plist_changed = new_raw != parsed.raw
+
         try:
-            status = self._backend.status(label)
-            loaded = status.loaded
+            loaded = self._backend.status(label).loaded
         except ValueError:
             loaded = None
 
         phases: list[ExternalEditPhase] = []
         completed: list[str] = []
+        retained: list[Path] = []
+
+        replaced = False
+        if plist_changed:
+            new_bytes = plistlib.dumps(new_raw, fmt=plistlib.FMT_XML)
+            staged = self._store.stage_external(path, new_bytes)
+            backup = self._store.backup_external_from_snapshot(path, snapshot)
+            self._store.activate_external(staged, path, snapshot)
+            replaced = True
+            retained.append(backup)
 
         disable_result = self._backend.disable(label)
-        disable_phase = ExternalEditPhase("disable", disable_result.process)
-        phases.append(disable_phase)
+        phases.append(ExternalEditPhase("disable", disable_result.process))
         if disable_result.process.exit_code == 0:
             completed.append("disable")
 
-        bootout_done = False
         if loaded:
             bootout_result = self._backend.bootout(label)
-            bootout_phase = ExternalEditPhase("bootout", bootout_result.process)
-            phases.append(bootout_phase)
+            phases.append(ExternalEditPhase("bootout", bootout_result.process))
             if bootout_result.process.exit_code == 0:
                 completed.append("bootout")
-            bootout_done = True
-
-        last_process = bootout_result.process if bootout_done else disable_result.process
 
         return ExternalEditResult(
             source_path=path,
             label=label,
-            process=last_process,
+            process=phases[-1].process,
             phases=tuple(phases),
             completed_phases=tuple(completed),
-            retained_artifacts=(),
-            replaced=False,
+            retained_artifacts=tuple(retained),
+            replaced=replaced,
             reloaded=False,
         )
 
     def enable_external(self, path: Path) -> ExternalEditResult:
-        """Enable an external LaunchAgent and load it if needed."""
+        """Enable an external LaunchAgent by clearing ``Disabled`` from its plist.
+
+        The plist (without a ``Disabled`` key) is the durable source of truth
+        (written via the staged replace); launchd is aligned alongside (``enable``
+        + ``bootstrap`` when not loaded). Raises ``ValueError`` when no usable
+        label exists.
+        """
         root = self._store.root
         if path.parent != root:
             raise ValueError(f"path is outside the LaunchAgent root: {path}")
@@ -1089,26 +1108,39 @@ class TaskCommandService:
         if label is None:
             raise ValueError(f"cannot enable {path}: no usable launchd label")
 
+        # Has a label: clearing the plist's ``Disabled`` key is the durable,
+        # human-visible source of truth — write it first, then align launchd
+        # (the override store via ``enable`` and the runtime via ``bootstrap``).
+        new_raw = {key: value for key, value in parsed.raw.items() if key != "Disabled"}
+        plist_changed = new_raw != parsed.raw
+
         try:
-            status = self._backend.status(label)
-            loaded = status.loaded
+            loaded = self._backend.status(label).loaded
         except ValueError:
             loaded = None
 
         phases: list[ExternalEditPhase] = []
         completed: list[str] = []
+        retained: list[Path] = []
+
+        replaced = False
+        if plist_changed:
+            new_bytes = plistlib.dumps(new_raw, fmt=plistlib.FMT_XML)
+            staged = self._store.stage_external(path, new_bytes)
+            backup = self._store.backup_external_from_snapshot(path, snapshot)
+            self._store.activate_external(staged, path, snapshot)
+            replaced = True
+            retained.append(backup)
 
         enable_result = self._backend.enable(label)
-        enable_phase = ExternalEditPhase("enable", enable_result.process)
-        phases.append(enable_phase)
+        phases.append(ExternalEditPhase("enable", enable_result.process))
         if enable_result.process.exit_code == 0:
             completed.append("enable")
 
         reloaded = False
         if loaded is False:
             bootstrap_result = self._backend.bootstrap_path(label, path)
-            bootstrap_phase = ExternalEditPhase("bootstrap", bootstrap_result.process)
-            phases.append(bootstrap_phase)
+            phases.append(ExternalEditPhase("bootstrap", bootstrap_result.process))
             if bootstrap_result.process.exit_code == 0:
                 completed.append("bootstrap")
             reloaded = bootstrap_result.process.exit_code == 0
@@ -1116,11 +1148,11 @@ class TaskCommandService:
         return ExternalEditResult(
             source_path=path,
             label=label,
-            process=bootstrap_result.process if loaded is False else enable_result.process,
+            process=phases[-1].process,
             phases=tuple(phases),
             completed_phases=tuple(completed),
-            retained_artifacts=(),
-            replaced=False,
+            retained_artifacts=tuple(retained),
+            replaced=replaced,
             reloaded=reloaded,
         )
 

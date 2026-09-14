@@ -1,4 +1,14 @@
-# TODOS.md (v0.0.28)
+# TODOS.md (v0.0.29)
+
+## Durable External Enable/Disable (DONE — v0.0.29)
+
+User-reported gap: external Disable/Enable only toggled launchd's opaque override store and never modified the plist ("if the plist is not changed, how do you expect it to be disabled and remain disabled on system restart"). User chose **plist as source of truth**: Disable/Enable write the plist's `Disabled` key through the existing staged-replace transaction, plus launchctl calls for immediate runtime alignment. Solo build — one service-method rework (disable + enable) rippling to dialog wording, status messages, tests, and docs.
+
+- [x] `task_command_service.py`: `disable_external` writes `Disabled = true` (staged replace, retained backup) then `launchctl disable` + `bootout` if loaded; no-label still quarantines. `enable_external` removes the `Disabled` key (staged replace, retained backup) then `launchctl enable` + `bootstrap_path` if not loaded. No-op when the plist is already in the desired state (no file write); launchd still aligned. Drift is fail-closed via `activate_external` (`SourceChangedError`, a `ValueError`) before launchd is touched.
+- [x] GUI: Disable confirm dialog wording now states the plist is marked `Disabled` (backup retained, survives restarts) instead of "The plist file is not changed"; enable/disable status-bar result messages reflect the plist change.
+- [x] Tests: `test_external_control_service.py` +6 (disable marks plist when loaded / when unloaded / no-op; enable clears + bootstraps when unloaded / when loaded / no-op), canonical-byte assertions.
+- [x] Docs: README external disable/enable sections; `docs/architecture.md` (service contracts, dialog description, state matrix, drift invariant).
+- [x] Closeout: `make check` (550 tests, 100% coverage), ratio 9,287:13,041 = 71.21% (under cap), version 0.0.28 → 0.0.29 (all 4 registry locations), commit + push.
 
 ## Truthful Task State Display (DONE — v0.0.28)
 
