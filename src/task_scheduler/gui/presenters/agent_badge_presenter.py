@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from task_scheduler.application.task_command_service import ListingKind, TaskListing
 from task_scheduler.domain import JobDefinition
-from task_scheduler.gui.presenters.agent_presenter import classify
+from task_scheduler.gui.presenters.agent_presenter import classify, enabled_state
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,7 +50,7 @@ def dimensions(listing: TaskListing) -> AgentDimensions:
         job = parsed.job
     elif listing.job is not None:
         job = listing.job
-    enabled = "unknown" if job is None else ("enabled" if job.enabled else "disabled")
+    enabled = enabled_state(listing)
     loaded = (
         "loaded"
         if listing.loaded is True

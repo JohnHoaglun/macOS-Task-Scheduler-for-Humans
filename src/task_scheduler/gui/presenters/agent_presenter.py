@@ -38,6 +38,7 @@ __all__ = [
     "PREVIEW_INTERVAL_ANCHOR",
     "PREVIEW_UNAVAILABLE",
     "classify",
+    "enabled_state",
     "format_command",
     "format_enabled",
     "format_environment",
@@ -159,11 +160,22 @@ def format_schedule_value(schedule: Schedule) -> str:
 
 
 def format_schedule(listing: TaskListing) -> str:
-    """The schedule as 'at HH:MM:SS on Weekday, ...', or a dash when unparseable."""
+    """The schedule text, or the raw launchd trigger when no job exists.
+
+    A parsed job renders through the domain; a plist with no representable
+    job falls back to its raw schedule facts — ``at login`` for
+    ``RunAtLoad`` and ``not scheduled`` otherwise — and a dash when the
+    plist is invalid.
+    """
     job = _job_of(listing)
-    if job is None:
+    if job is not None:
+        return format_schedule_value(job.schedule)
+    parsed = listing.parsed
+    if parsed is None or parsed.status is ParseSupport.INVALID:
         return "—"
-    return format_schedule_value(job.schedule)
+    if parsed.raw.get("RunAtLoad") is True:
+        return "at login"
+    return "not scheduled"
 
 
 def format_upcoming_heading(listing: TaskListing) -> str:
@@ -206,29 +218,42 @@ def format_upcoming_occurrences_for(listing: TaskListing, *, now: datetime) -> s
     return format_upcoming_occurrences(schedule, now=now)
 
 
+def enabled_state(listing: TaskListing) -> str:
+    """The task's enabled state: 'enabled', 'disabled', or 'unknown'.
+
+    A parsed job's flag wins; otherwise the raw plist's ``Disabled`` key is
+    the launchd source of truth (launchd defaults to enabled when the key
+    is absent); otherwise the state is unknown.
+    """
+    job = _job_of(listing)
+    if job is not None:
+        return "enabled" if job.enabled else "disabled"
+    parsed = listing.parsed
+    if parsed is None or parsed.status is ParseSupport.INVALID:
+        return "unknown"
+    return "disabled" if parsed.raw.get("Disabled") is True else "enabled"
+
+
 def format_state(listing: TaskListing) -> str:
-    """The row's state: saved, installed-and-configured, or parse support level."""
+    """The row's state: saved, installed-and-configured, or enabled/disabled."""
     if listing.kind is ListingKind.SAVED:
         return "Saved, not installed"
     if listing.job is not None:
         return f"Installed, configured {'enabled' if listing.job.enabled else 'disabled'}"
     parsed = listing.parsed
     if parsed is None:
-        return "—"
-    return {
-        ParseSupport.SUPPORTED: "supported",
-        ParseSupport.PARTIALLY_SUPPORTED: "partially supported",
-        ParseSupport.INVALID: "invalid",
-    }[parsed.status]
+        return "unknown"
+    if parsed.status is ParseSupport.INVALID:
+        return "invalid"
+    return enabled_state(listing)
 
 
-def format_lifecycle_state(enabled: bool | None, loaded: bool | None) -> str:
+def format_lifecycle_state(enabled: str | None, loaded: bool | None) -> str:
     """The full installed state: configured plus loaded, or 'Status unknown'."""
-    if enabled is None or loaded is None:
+    if enabled not in ("enabled", "disabled") or loaded is None:
         return "Status unknown"
-    configured = "enabled" if enabled else "disabled"
     runtime = "loaded" if loaded else "not loaded"
-    return f"Installed, configured {configured} ({runtime})"
+    return f"Installed, configured {enabled} ({runtime})"
 
 
 def format_status(status: LaunchAgentStatus | None) -> str:
@@ -239,11 +264,8 @@ def format_status(status: LaunchAgentStatus | None) -> str:
 
 
 def format_enabled(listing: TaskListing) -> str:
-    """The job's enabled state, or a dash when the job was not parsed."""
-    job = _job_of(listing)
-    if job is None:
-        return "—"
-    return "enabled" if job.enabled else "disabled"
+    """The task's enabled state, or 'unknown' when it cannot be determined."""
+    return enabled_state(listing)
 
 
 def format_environment(listing: TaskListing) -> str:

@@ -24,6 +24,7 @@ from task_scheduler.application.task_command_service import (
 from task_scheduler.gui.presenters.agent_presenter import (
     PREVIEW_DISCLOSURE,
     classify,
+    enabled_state,
     format_command,
     format_enabled,
     format_environment,
@@ -157,8 +158,7 @@ class AgentInspector(QWidget):
         diagnostics: tuple[Diagnostic, ...] = (),
     ) -> None:
         """Fill every field for a discovered agent and reveal the form."""
-        job = agent.job
-        enabled = job.enabled if job is not None else None
+        enabled = enabled_state(agent)
         loaded = report.status.loaded if report.status is not None else None
         self._fill(
             agent,

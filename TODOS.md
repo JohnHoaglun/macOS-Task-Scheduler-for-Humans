@@ -1,4 +1,14 @@
-# TODOS.md (v0.0.27)
+# TODOS.md (v0.0.28)
+
+## Truthful Task State Display (DONE — v0.0.28)
+
+User-reported gap: the table **State** column and the Overview **Enabled** row showed "—" for external agents whose state is actually knowable (e.g. RunAtLoad-only autostart agents). Solo build — single display-contract change in one presenter module rippling to two consumers.
+
+- [x] `agent_presenter.py`: new `enabled_state(listing)` (job flag → raw `Disabled` key → unknown; INVALID/missing parse never infers); `format_state` (managed unchanged, external enabled/disabled, invalid, unknown); `format_enabled` via `enabled_state`; `format_lifecycle_state` takes the resolved string; `format_schedule` raw fallback (**at login** / **not scheduled**)
+- [x] Consumers: `agent_inspector.py` `show_agent` (Overview State via `enabled_state`), `agent_badge_presenter.py` `dimensions()` enabled dimension
+- [x] Tests: fixed pinned em-dash (`"—"` → `"unknown"`), +12 `test_agent_presenter.py` cases (enabled_state precedence/raw/invalid/missing, schedule raw fallback, state, lifecycle strings, format_enabled), badge raw-Disabled case + corrected pinned tooltip
+- [x] Docs: README table-column + state sections, `docs/architecture.md` filter contract (Enabled resolution order)
+- [x] Closeout: `make check` (544 tests, 100% coverage), ratio 9,177:13,002 = 70.58% (under cap), version 0.0.27 → 0.0.28 (all 4 registry locations), commit + push
 
 ## Universal Task Controls (DONE — v0.0.27)
 

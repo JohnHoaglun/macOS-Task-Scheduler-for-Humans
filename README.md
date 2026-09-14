@@ -533,8 +533,9 @@ detail panel:
 
 The table columns are: **Name**, **Command**, **Schedule**,
 **Classification** (Managed / External / Invalid), and **State**
-(Saved, not installed / Installed, configured enabled/disabled with
-loaded status, or Status unknown). Every discovered row supports
+(saved, installed-and-configured, enabled/disabled, invalid, or unknown).
+Agents that only run at login show **at login** in **Schedule**; agents
+with no schedule at all show **not scheduled**. Every discovered row supports
 **Edit**, **Disable**, and **Remove**, with **Enable** and **Run Now**
 for rows with a usable launchd label — details below.
 
@@ -728,11 +729,19 @@ The **State** column and the inspector's Overview show the task's state:
 **Installed, configured enabled (loaded)**,
 **Installed, configured enabled (not loaded)**,
 **Installed, configured disabled (loaded)**, and
-**Installed, configured disabled (not loaded)** for installed jobs, where
-"configured" is the job's definition and "loaded" is launchd's actual load
-state; **Status unknown** when either side cannot be determined. The table
-column shows the configured part only; the full combined state is in the
-inspector.
+**Installed, configured disabled (not loaded)** in the inspector's
+Overview, where "configured" is the job's definition and "loaded" is
+launchd's actual load state; **Status unknown** when either side cannot be
+determined. The table column shows the configured part only:
+**Installed, configured enabled/disabled** for managed rows, and
+**enabled**/**disabled** for external agents — resolved from the job's
+definition when one exists, otherwise from the plist's `Disabled` key
+(launchd treats an absent key as enabled), with **unknown** when nothing
+can be determined and **invalid** for unparseable rows. The Overview's
+**Enabled** row resolves the same way, so login-only and other unscheduled
+agents show **enabled** or **disabled** instead of a dash, and the
+**Schedule** column shows **at login** for agents that only run at login
+and **not scheduled** for agents with no schedule.
 
 After a successful operation the list refreshes and a result dialog shows
 the headline (succeeded/failed), the launchd exit code, the raw stdout and

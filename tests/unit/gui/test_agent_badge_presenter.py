@@ -54,6 +54,16 @@ def test_remaining_tooltips() -> None:
     }
     for key, tip in expected.items():
         assert tips[key].tooltip == tip
-    assert unknowns.enabled.tooltip == "Enabled state could not be determined"
+    assert unknowns.enabled.tooltip == "Job is configured to run"
     assert unknowns.loaded.tooltip == "Load status is unknown"
     assert unknowns.command.tooltip == "Command type could not be determined"
+
+
+def test_enabled_from_raw_disabled_key() -> None:
+    parsed = _parsed(
+        status=ParseSupport.PARTIALLY_SUPPORTED,
+        raw={"ProgramArguments": ["/bin/zsh", "-c", "echo"], "Disabled": True},
+    )
+    badges = agent_badges(_mk(managed=False, parsed=parsed))
+    assert badges.enabled.text == "disabled"
+    assert badges.enabled.tooltip == "Job is configured but disabled"

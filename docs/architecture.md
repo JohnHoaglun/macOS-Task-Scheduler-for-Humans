@@ -869,7 +869,8 @@ implements search plus the five pinned filter groups:
 
 1. **State** — Managed / External / Invalid (from `classify()`)
 2. **Installed** — Installed / Saved-only (from `ListingKind`)
-3. **Enabled** — enabled / disabled / unknown (from job `enabled` flag)
+3. **Enabled** — enabled / disabled / unknown (job `enabled` flag first,
+   then the plist's `Disabled` key, then unknown)
 4. **Loaded** — loaded / not loaded / unknown (from `TaskListing.loaded`)
 5. **Command type** — Python / Shell / Executable / unknown
 
