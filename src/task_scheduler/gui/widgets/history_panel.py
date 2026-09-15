@@ -53,6 +53,10 @@ class HistoryPanel(QWidget):
         self._table_view.horizontalHeader().setSortIndicatorShown(False)
         self._table_model = HistoryTableModel(self._table_view)
         self._table_view.setModel(self._table_model)
+        self._table_view.setColumnWidth(0, 140)
+        self._table_view.setColumnWidth(1, 100)
+        self._table_view.setColumnWidth(2, 90)
+        self._table_view.setMinimumHeight(160)
 
         self._state_label = QLabel(self)
         self._state_label.setObjectName("history-state-text")

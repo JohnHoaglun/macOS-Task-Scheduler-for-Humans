@@ -6,7 +6,8 @@ import threading
 from pathlib import Path
 
 import pytest
-from PySide6.QtWidgets import QLabel, QPlainTextEdit
+from PySide6.QtCore import QSize
+from PySide6.QtWidgets import QApplication, QLabel, QPlainTextEdit
 from pytestqt.qtbot import QtBot
 from tests.conftest import make_job
 from tests.fakes import FakeTaskWorld
@@ -17,6 +18,7 @@ from task_scheduler.gui.controllers.diagnostics_controller import (
     DiagnosticsController,
     TestOutcome,
 )
+from task_scheduler.gui.dialog_sizing import bounded_preferred_size
 from task_scheduler.gui.widgets.direct_test_dialog import DirectTestDialog
 from task_scheduler.platform.macos import ProcessResult
 
@@ -67,6 +69,18 @@ class TestDirectTestDialog:
         assert not controller.busy
         assert dialog._worker is None
 
+    def test_initial_size_is_bounded_to_the_primary_screen(
+        self, qtbot: QtBot, tmp_path: Path
+    ) -> None:
+        world = FakeTaskWorld(tmp_path)
+        dialog = DirectTestDialog(DiagnosticsController(world.services, {}), make_job())
+        qtbot.addWidget(dialog)
+        screen = QApplication.primaryScreen()
+        available_size = screen.availableGeometry().size() if screen is not None else None
+        assert dialog.size() == bounded_preferred_size(QSize(760, 560), available_size)
+        dialog.close()
+        qtbot.waitUntil(lambda: dialog not in DirectTestDialog._closing_dialogs)
+
     def test_refresh_rereads_logs_after_change(self, qtbot: QtBot, tmp_path: Path) -> None:
         """Refresh re-reads the persisted logs and environment comparison."""
         out = tmp_path / "out.log"
@@ -99,8 +113,13 @@ class TestDirectTestDialog:
         dialog = DirectTestDialog(controller, job)
         qtbot.addWidget(dialog)
         dialog.close()
+        assert dialog in DirectTestDialog._closing_dialogs
         dialog._on_finished(TestOutcome(label=job.label, result=None, error="late"))
         assert _summary(dialog) == DEFAULT_SUMMARY
         release.set()
-        qtbot.waitUntil(lambda: not controller.busy, timeout=5000)
-        qtbot.wait(50)
+        qtbot.waitUntil(
+            lambda: not controller.busy and dialog not in DirectTestDialog._closing_dialogs,
+            timeout=5000,
+        )
+        assert dialog._worker is None
+        assert dialog._thread is None

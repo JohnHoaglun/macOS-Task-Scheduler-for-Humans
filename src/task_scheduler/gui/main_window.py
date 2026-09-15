@@ -5,9 +5,10 @@ from __future__ import annotations
 import base64
 import plistlib
 from pathlib import Path
+from time import monotonic
 
 from PySide6.QtCore import QItemSelection, QMetaObject, Qt, QThread
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -155,6 +156,8 @@ EXTERNAL_RUN_NOW_NO_LABEL_TOOLTIP = "This task has no usable launchd label."
 class MainWindow(QMainWindow):
     """Main window: a discovered-agent table on the left, an inspector on the right."""
 
+    WORKER_THREAD_WAIT_MS = 10_000
+
     def __init__(
         self,
         controller: DiscoveryController,
@@ -180,6 +183,7 @@ class MainWindow(QMainWindow):
         self._diagnostics_controller = diagnostics
         self._diagnostics_busy = False
         self._active_test_worker: DiagnosticsWorker | None = None
+        self._worker_threads: set[QThread] = set()
         self._history_controller = history
         self._import_controller = import_ctrl
         self._services = services
@@ -213,10 +217,13 @@ class MainWindow(QMainWindow):
         right_layout = QVBoxLayout(right_pane)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.addWidget(self._badge_strip)
-        right_layout.addWidget(self.inspector, 1)
-        right_layout.addWidget(self.panel)
         self.history_panel = HistoryPanel()
-        right_layout.addWidget(self.history_panel)
+        self._right_splitter = QSplitter(Qt.Orientation.Vertical, right_pane)
+        self._right_splitter.addWidget(self.inspector)
+        self._right_splitter.addWidget(self.panel)
+        self._right_splitter.addWidget(self.history_panel)
+        self._right_splitter.setSizes([320, 240, 200])
+        right_layout.addWidget(self._right_splitter, 1)
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self.table)
         splitter.addWidget(right_pane)
@@ -667,6 +674,7 @@ class MainWindow(QMainWindow):
         worker.finished.connect(worker.deleteLater)
         worker.finished.connect(thread.quit)
         thread.finished.connect(thread.deleteLater)
+        self._track_worker_thread(thread)
         thread.start()
         QMetaObject.invokeMethod(worker, "run", Qt.ConnectionType.QueuedConnection)
 
@@ -1059,6 +1067,7 @@ class MainWindow(QMainWindow):
         worker.finished.connect(worker.deleteLater)
         worker.finished.connect(thread.quit)
         thread.finished.connect(thread.deleteLater)
+        self._track_worker_thread(thread)
         thread.start()
         QMetaObject.invokeMethod(worker, "run", Qt.ConnectionType.QueuedConnection)
 
@@ -1112,6 +1121,7 @@ class MainWindow(QMainWindow):
         worker.finished.connect(worker.deleteLater)
         worker.finished.connect(thread.quit)
         thread.finished.connect(thread.deleteLater)
+        self._track_worker_thread(thread)
         thread.start()
         QMetaObject.invokeMethod(worker, "run", Qt.ConnectionType.QueuedConnection)
 
@@ -1150,3 +1160,30 @@ class MainWindow(QMainWindow):
         """Fill the panel with a job's persisted logs and environment diff."""
         self.panel.show_logs_outcome(self._diagnostics_controller.read_logs(job))
         self.panel.show_environment_outcome(self._diagnostics_controller.compare_environment(job))
+
+    def _track_worker_thread(self, thread: QThread) -> None:
+        """Keep each worker thread alive until its finished signal is handled."""
+        self._worker_threads.add(thread)
+        thread.finished.connect(self._on_worker_thread_finished)
+
+    def _on_worker_thread_finished(self) -> None:
+        """Drop a finished worker thread on the main window's Qt thread."""
+        thread = self.sender()
+        if isinstance(thread, QThread):
+            self._worker_threads.discard(thread)
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        """Keep the window alive until its worker QThreads have stopped."""
+        threads = tuple(self._worker_threads)
+        for thread in threads:
+            if thread.isRunning():
+                thread.quit()
+        deadline = monotonic() + self.WORKER_THREAD_WAIT_MS / 1000
+        for thread in threads:
+            if thread.isRunning():
+                remaining_ms = max(0, int((deadline - monotonic()) * 1000))
+                thread.wait(remaining_ms)
+        if any(thread.isRunning() for thread in threads):
+            event.ignore()
+            return
+        super().closeEvent(event)

@@ -8,7 +8,8 @@ from pathlib import Path
 from uuid import UUID
 
 import pytest
-from PySide6.QtCore import QItemSelection, QModelIndex, QTimer
+from PySide6.QtCore import QItemSelection, QModelIndex, QThread, QTimer
+from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -531,6 +532,57 @@ class TestDiagnosticsTrigger:
 
 
 class TestHistoryPanelWiring:
+    def test_right_pane_sections_are_vertically_resizable(
+        self, qtbot: QtBot, tmp_path: Path
+    ) -> None:
+        world, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        splitter = window._right_splitter
+        assert splitter.orientation().name == "Vertical"
+        assert [splitter.widget(index) for index in range(splitter.count())] == [
+            window.inspector,
+            window.panel,
+            window.history_panel,
+        ]
+
+    def test_close_stops_tracked_worker_threads(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        world, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        thread = QThread(window)
+        window._track_worker_thread(thread)
+        thread.start()
+        qtbot.waitUntil(thread.isRunning)
+        monkeypatch.setattr(MainWindow, "WORKER_THREAD_WAIT_MS", 100)
+        window.close()
+        assert not thread.isRunning()
+        qtbot.waitUntil(lambda: thread not in window._worker_threads)
+
+    def test_close_refuses_to_destroy_a_still_running_worker(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A worker that cannot quit keeps the main window alive safely."""
+        world, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+
+        class StuckThread:
+            def isRunning(self) -> bool:
+                return True
+
+            def quit(self) -> None:
+                pass
+
+            def wait(self, _: int) -> bool:
+                return False
+
+        window._worker_threads.add(StuckThread())  # type: ignore[arg-type]
+        monkeypatch.setattr(MainWindow, "WORKER_THREAD_WAIT_MS", 0)
+        event = QCloseEvent()
+        window.closeEvent(event)
+        assert not event.isAccepted()
+        window._worker_threads.clear()
+
     def test_history_refresh_with_selection(self, qtbot: QtBot, tmp_path: Path) -> None:
         world, managed, *_ = _seed_three(tmp_path)
         window = _window(qtbot, DiscoveryController(world.services))

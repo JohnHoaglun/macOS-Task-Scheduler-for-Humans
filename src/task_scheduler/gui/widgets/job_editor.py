@@ -10,8 +10,10 @@ from pathlib import Path
 from typing import cast
 
 from pydantic import ValidationError
+from PySide6.QtCore import QSize
 from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -42,6 +44,7 @@ from task_scheduler.gui.controllers.editor_controller import (
     copy_draft,
     external_dirty_fields,
 )
+from task_scheduler.gui.dialog_sizing import bounded_preferred_size
 from task_scheduler.gui.presenters.agent_presenter import (
     PREVIEW_DISCLOSURE,
     PREVIEW_HEADING,
@@ -76,6 +79,7 @@ _SCHEDULE_UNIT_SECONDS = (1, 60, 3600, 86400)
 # widen Name and Label to roughly double that so names and derived labels read.
 _IDENTITY_FIELD_WIDTH_CHARS = 30
 _IDENTITY_FIELD_WIDTH_PROBE = "x" * _IDENTITY_FIELD_WIDTH_CHARS
+_EDITOR_PREFERRED_SIZE = QSize(780, 840)
 
 
 class JobEditor(QDialog):
@@ -107,6 +111,8 @@ class JobEditor(QDialog):
         self._dirty_fields: frozenset[ExternalEditField] = frozenset()
         self._external_mode = False
         self._working_dir_hint: Path | None = None
+        self._stdout_auto_directory: Path | None = None
+        self._stderr_auto_directory: Path | None = None
         content = QWidget()
         self._external_banner = QLabel(content)
         self._external_banner.setObjectName("editor-external-banner")
@@ -158,6 +164,8 @@ class JobEditor(QDialog):
         layout.addLayout(buttons)
         close_button.clicked.connect(self.reject)
         self._name.textEdited.connect(self._on_name_edited)
+        self._stdout_path.textEdited.connect(partial(self._on_log_path_edited, "stdout"))
+        self._stderr_path.textEdited.connect(partial(self._on_log_path_edited, "stderr"))
         self._times.rowsChanged.connect(self._on_draft_changed)
         self._script.textEdited.connect(self._on_draft_changed)
         self._script.textChanged.connect(self._on_script_changed)
@@ -177,6 +185,10 @@ class JobEditor(QDialog):
         preview_button.clicked.connect(self._on_preview)
         self._test_draft_button.clicked.connect(self._on_test_draft)
         self._save_button.clicked.connect(self._on_save)
+        validate_button.setToolTip("Check for errors without saving; results appear above.")
+        screen = QApplication.primaryScreen()
+        available_size = screen.availableGeometry().size() if screen is not None else None
+        self.resize(bounded_preferred_size(_EDITOR_PREFERRED_SIZE, available_size))
 
     def _build_identity(self) -> QGroupBox:
         """The Identity group: an editable name and the read-only derived label."""
@@ -278,7 +290,12 @@ class JobEditor(QDialog):
             self._candidates.addItem(format_python_candidate(candidate), candidate.path)
         self._use_candidate.setEnabled(self._candidates.count() > 0)
         if result.candidates:
-            note = "Choose a candidate or type an interpreter path above."
+            if not self._external_mode and not self._interpreter.text().strip():
+                self._candidates.setCurrentIndex(0)
+                self._on_use_candidate()
+                note = "The top candidate was filled; you can change it or choose another."
+            else:
+                note = "Choose a candidate or type an interpreter path above."
         else:
             note = "No interpreters detected for this script. Type the interpreter path above."
         notes = format_detection_notes(result.notes)
@@ -366,7 +383,29 @@ class JobEditor(QDialog):
             self._name.blockSignals(False)
         self._controller.set_name(self._draft, lowered.strip())
         self._label.setText(self._draft.label)
+        self._rederive_log_paths()
         self._on_draft_changed()
+
+    def _on_log_path_edited(self, stream: str, _: str) -> None:
+        """Keep user-entered stream paths from being replaced during later renames."""
+        if stream == "stdout":
+            self._stdout_auto_directory = None
+        else:
+            self._stderr_auto_directory = None
+
+    def _log_filename(self, stream: str) -> str:
+        """Return the current task-derived filename for one launchd stream."""
+        name = self._name.text().strip() or self._label.text().strip() or "task"
+        return f"{name}.{stream}.log"
+
+    def _rederive_log_paths(self) -> None:
+        """Refresh only stream paths that originated from directory selection."""
+        if self._stdout_auto_directory is not None:
+            path = self._stdout_auto_directory / self._log_filename("stdout")
+            self._stdout_path.setText(str(path))
+        if self._stderr_auto_directory is not None:
+            path = self._stderr_auto_directory / self._log_filename("stderr")
+            self._stderr_path.setText(str(path))
 
     def _path_row(
         self, line_edit_name: str, button_name: str, mode: str
@@ -411,7 +450,7 @@ class JobEditor(QDialog):
             box.setObjectName(f"editor-weekday-{day}")
             self._weekdays.append(box)
             days_layout.addWidget(box)
-        calendar_form.addRow("Weekdays", days_widget)
+        calendar_form.addRow(days_widget)
         self._schedule_stack.addWidget(calendar_page)
         interval_page = QWidget(self._schedule_stack)
         interval_page.setObjectName("editor-interval-schedule")
@@ -479,17 +518,20 @@ class JobEditor(QDialog):
         )
         form.addRow("Working directory", directory_row)
         self._stdout_path, stdout_row = self._path_row(
-            "editor-stdout-path", "editor-stdout-path-browse", "save"
+            "editor-stdout-path", "editor-stdout-path-browse", "log-directory"
         )
         form.addRow("Stdout log", stdout_row)
         self._stderr_path, stderr_row = self._path_row(
-            "editor-stderr-path", "editor-stderr-path-browse", "save"
+            "editor-stderr-path", "editor-stderr-path-browse", "log-directory"
         )
         form.addRow("Stderr log", stderr_row)
         self._logging_note = QLabel(group)
         self._logging_note.setObjectName("editor-logging-note")
         self._logging_note.setWordWrap(True)
-        self._logging_note.setText("Leave a log path empty to disable that stream.")
+        self._logging_note.setText(
+            "Choose a log directory to derive per-task filenames. "
+            "Leave a log path empty to disable that stream."
+        )
         form.addRow(self._logging_note)
         return group
 
@@ -507,14 +549,22 @@ class JobEditor(QDialog):
 
     def _on_browse(self, line_edit: QLineEdit, mode: str) -> None:
         """Open a file dialog of the given mode and write the chosen path into the line edit."""
-        if mode == "directory":
+        if mode in {"directory", "log-directory"}:
             path = QFileDialog.getExistingDirectory(self, "Select a directory", line_edit.text())
         elif mode == "open":
             path, _ = QFileDialog.getOpenFileName(self, "Select a file", line_edit.text())
         else:
             path, _ = QFileDialog.getSaveFileName(self, "Select a file", line_edit.text())
         if path:
-            line_edit.setText(path)
+            if mode == "log-directory":
+                directory = Path(path).absolute()
+                if line_edit is self._stdout_path:
+                    self._stdout_auto_directory = directory
+                else:
+                    self._stderr_auto_directory = directory
+                self._rederive_log_paths()
+            else:
+                line_edit.setText(path)
 
     def open_new(self) -> None:
         """Populate the dialog from a fresh draft and show it for a new job."""
@@ -592,6 +642,8 @@ class JobEditor(QDialog):
         self._run_at_load.setChecked(d.run_at_load)
         self._working_directory.setText(d.working_directory)
         self._environment.set_rows([[key, value] for key, value in d.environment])
+        self._stdout_auto_directory = None
+        self._stderr_auto_directory = None
         self._stdout_path.setText(d.stdout_path)
         self._stderr_path.setText(d.stderr_path)
         self._preview.clear()
@@ -643,7 +695,12 @@ class JobEditor(QDialog):
         self._collect()
         if self._draft is None:
             return
-        self._show_errors(self._controller.validate(self._draft))
+        outcome = self._controller.validate(self._draft)
+        if outcome.ok:
+            self._errors.setPlainText("No issues found.")
+            self._errors.show()
+        else:
+            self._show_errors(outcome)
 
     def _on_preview(self) -> None:
         """Render the draft to a plist and show it, or show any field errors."""
@@ -695,9 +752,6 @@ class JobEditor(QDialog):
 
     def _show_errors(self, outcome: EditorOutcome) -> None:
         """Render an outcome's message and field errors into the hidden error pane."""
-        if outcome.ok:
-            self._errors.hide()
-            return
         lines = [outcome.message]
         lines.extend(f"{field}: {text}" for field, text in outcome.fields.items())
         self._errors.setPlainText("\n".join(lines))

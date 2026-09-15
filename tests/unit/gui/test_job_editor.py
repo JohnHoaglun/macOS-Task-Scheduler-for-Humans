@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QFileDialog,
@@ -160,15 +161,28 @@ class TestKindSwitching:
         box.setCurrentIndex(0)
         assert stack(editor).currentIndex() == 0
 
+    def test_weekdays_has_no_redundant_form_label(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """Weekday checkboxes are retained without a duplicate form label."""
+        _, editor, _ = make_editor(qtbot, tmp_path)
+        assert "Weekdays" not in {label.text() for label in editor.findChildren(QLabel)}
+
 
 class TestValidation:
-    def test_valid_draft_validate_keeps_errors_hidden(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """A valid draft passes validate with no error pane shown."""
+    def test_valid_draft_validate_shows_success(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """A valid draft shows a non-saving success result and leaves Save enabled."""
         _, editor, _ = make_editor(qtbot, tmp_path)
         fill_valid_python(editor)
         button(editor, "editor-validate").click()
-        assert not errors(editor).isVisible()
+        assert errors(editor).isVisible()
+        assert errors(editor).toPlainText() == "No issues found."
         assert button(editor, "editor-save").isEnabled()
+
+    def test_validate_explains_its_non_saving_result(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """Validate describes both its scope and where feedback appears."""
+        _, editor, _ = make_editor(qtbot, tmp_path)
+        assert button(editor, "editor-validate").toolTip() == (
+            "Check for errors without saving; results appear above."
+        )
 
 
 class TestIdentity:
@@ -268,18 +282,54 @@ class TestCloseAndBrowse:
         button(editor, "editor-interpreter-browse").click()
         assert line_edit(editor, "editor-interpreter").text() == "/keep/this"
 
-    def test_browse_save_sets_path(
+    def test_browse_save_mode_writes_the_selected_file(
         self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Save-mode browse writes the chosen file path into the line edit."""
+        """The generic save-file mode remains available for non-log paths."""
         _, editor, _ = make_editor(qtbot, tmp_path)
         monkeypatch.setattr(
             QFileDialog,
             "getSaveFileName",
-            staticmethod(lambda *args, **kwargs: ("/tmp/out.log", "")),
+            staticmethod(lambda *args, **kwargs: ("/tmp/custom.log", "")),
+        )
+        editor._on_browse(line_edit(editor, "editor-stdout-path"), "save")
+        assert line_edit(editor, "editor-stdout-path").text() == "/tmp/custom.log"
+
+    def test_browse_log_directory_derives_stream_paths(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Log browsing selects a directory and derives editable per-stream filenames."""
+        _, editor, _ = make_editor(qtbot, tmp_path)
+        monkeypatch.setattr(
+            QFileDialog,
+            "getExistingDirectory",
+            staticmethod(lambda *args, **kwargs: "/tmp/logs"),
+        )
+        line_edit(editor, "editor-name").textEdited.emit("Nightly Sync")
+        button(editor, "editor-stdout-path-browse").click()
+        button(editor, "editor-stderr-path-browse").click()
+        assert line_edit(editor, "editor-stdout-path").text() == "/tmp/logs/nightly sync.stdout.log"
+        assert line_edit(editor, "editor-stderr-path").text() == "/tmp/logs/nightly sync.stderr.log"
+
+    def test_derived_log_path_tracks_name_but_manual_path_does_not(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Renaming updates directory-derived paths but leaves user paths untouched."""
+        _, editor, _ = make_editor(qtbot, tmp_path)
+        monkeypatch.setattr(
+            QFileDialog,
+            "getExistingDirectory",
+            staticmethod(lambda *args, **kwargs: "/tmp/logs"),
         )
         button(editor, "editor-stdout-path-browse").click()
-        assert line_edit(editor, "editor-stdout-path").text() == "/tmp/out.log"
+        button(editor, "editor-stderr-path-browse").click()
+        stderr = line_edit(editor, "editor-stderr-path")
+        stderr.setText("/manual/errors.log")
+        stderr.textEdited.emit(stderr.text())
+        editor._on_log_path_edited("stdout", "/manual/output.log")
+        line_edit(editor, "editor-name").textEdited.emit("Renamed")
+        assert line_edit(editor, "editor-stdout-path").text() == "/tmp/logs/task.stdout.log"
+        assert stderr.text() == "/manual/errors.log"
 
 
 class TestUnopenedDialog:
@@ -290,11 +340,18 @@ class TestUnopenedDialog:
         qtbot.addWidget(editor)
         editor._load_draft()
         editor._collect()
+        editor._on_name_edited("new name")
         button(editor, "editor-validate").click()
         button(editor, "editor-preview").click()
         button(editor, "editor-save").click()
         assert not errors(editor).isVisible()
         assert editor.result() == 0
+
+    def test_validate_invalid_draft_shows_errors(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """Validate preserves field-error feedback when the form is invalid."""
+        _, editor, _ = make_editor(qtbot, tmp_path)
+        button(editor, "editor-validate").click()
+        assert errors(editor).isVisible()
 
     def test_test_draft_noop_without_draft(self, qtbot: QtBot, tmp_path: Path) -> None:
         """Test Draft no-ops on a dialog that was never opened."""
@@ -309,26 +366,32 @@ class TestUnopenedDialog:
 
 
 class TestPythonDetection:
-    def test_use_candidate_populates_interpreter_and_working_dir(
+    def test_top_candidate_autofills_and_use_keeps_alternatives(
         self, qtbot: QtBot, tmp_path: Path
     ) -> None:
-        """Using a candidate fills the interpreter and the empty working dir."""
+        """Detection fills the top candidate while Use still selects an alternative."""
         _, editor, _ = make_editor(qtbot, tmp_path)
         fake_detection(
             editor,
             [
                 InterpreterCandidate(
                     path=Path("/tmp/proj/.venv/bin/python"), source=CandidateSource.VENV
-                )
+                ),
+                InterpreterCandidate(path=Path("/usr/bin/python3"), source=CandidateSource.PATH),
             ],
             working_directory=Path("/tmp/proj"),
         )
         editor.findChild(QLineEdit, "editor-script").setText("/tmp/proj/main.py")
         combo = editor.findChild(QComboBox, "editor-candidates")
         assert combo is not None
-        combo.setCurrentIndex(0)
-        button(editor, "editor-use-candidate").click()
         assert line_edit(editor, "editor-interpreter").text() == "/tmp/proj/.venv/bin/python"
+        assert line_edit(editor, "editor-working-directory").text() == "/tmp/proj"
+        note = editor.findChild(QLabel, "editor-detection-note")
+        assert note is not None
+        assert "filled" in note.text()
+        combo.setCurrentIndex(1)
+        button(editor, "editor-use-candidate").click()
+        assert line_edit(editor, "editor-interpreter").text() == "/usr/bin/python3"
         assert line_edit(editor, "editor-working-directory").text() == "/tmp/proj"
 
     def test_no_candidates_with_notes_appends_to_base_note(
@@ -576,3 +639,22 @@ class TestExternalMode:
         assert editor.result() == 0
         assert editor.edited_job is None
         assert errors(editor).isVisible()
+
+    def test_external_detection_never_autofills(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """Candidate detection does not change an external draft automatically."""
+        _, editor = self._open_external(qtbot, tmp_path)
+        line_edit(editor, "editor-interpreter").setText("")
+        fake_detection(
+            editor,
+            [InterpreterCandidate(path=Path("/tmp/proj/python"), source=CandidateSource.VENV)],
+        )
+        line_edit(editor, "editor-script").setText("/tmp/proj/main.py")
+        assert line_edit(editor, "editor-interpreter").text() == ""
+
+
+def test_initial_size_is_bounded_by_primary_screen(qtbot: QtBot, tmp_path: Path) -> None:
+    """The editor's preferred size never exceeds the usable primary display."""
+    _, editor, _ = make_editor(qtbot, tmp_path)
+    screen = QApplication.primaryScreen()
+    assert screen is not None
+    assert editor.size().boundedTo(screen.availableGeometry().size()) == editor.size()

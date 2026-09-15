@@ -186,6 +186,18 @@ job's fixed label is simply shown), so the dialog never exposes a manual label
 edit; the `set_label` mutator remains for programmatic drafts.
 Nothing in a draft is persisted until a save.
 
+**Editor presentation.** `JobEditor` uses the pure
+`gui.dialog_sizing.bounded_preferred_size()` policy for a `780x840` preferred
+size, bounded to the primary screen's usable geometry. A non-external draft
+with a selected script and blank interpreter auto-applies the highest-priority
+detection candidate (including the empty working-directory hint); the picker
+and explicit Use action remain available for alternatives. External drafts
+never auto-apply detection. Stdout/stderr Browse selects a directory and
+derives editable `<name>.stdout.log` / `<name>.stderr.log` paths. Only paths
+that came from that directory selection track later name changes; an edited or
+loaded path remains manual. Validate is non-persisting and renders either
+field errors or `No issues found.` in the editor feedback pane.
+
 The draft's calendar schedule is `times: list[str]` — the raw visible
 `HH:MM` rows, verbatim, in row order (a fresh draft holds one empty row) —
 plus a `weekdays` set. The dialog renders the rows with the reusable
@@ -582,6 +594,20 @@ the job in memory, and opens the modal `DirectTestDialog`
 test summary, diagnostics list, direct stdout/stderr tabs, persisted
 stdout/stderr tabs plus Refresh (synchronous re-read), the environment
 comparison, and the Python recommendation group.
+
+**Worker lifetime and layout.** `DirectTestDialog` uses the same pure sizing
+policy with a `760x560` preferred size. If it closes while its diagnostics
+worker thread runs, a class-level retention registry keeps the hidden dialog
+alive until the thread's deferred deletion completes; late outcomes are
+discarded. This prevents a parent dialog from directly destroying a running
+child `QThread` (the native Qt warning captured in `app.log` was `QObject:
+shared QObject was deleted directly`). `MainWindow` tracks every lifecycle,
+external-control, and diagnostics worker thread; its close event requests
+quit, waits up to 10 seconds in total, and refuses window destruction if a
+blocking worker remains. The right pane keeps its badge strip above a vertical
+splitter containing inspector, diagnostics, and history. `HistoryPanel` fixes
+Time/Type/Result widths at 140/100/90 pixels, gives its table a 160-pixel
+minimum height, and leaves Details stretched.
 
 ## Python Environment Detectors (Increments 18 and 23)
 

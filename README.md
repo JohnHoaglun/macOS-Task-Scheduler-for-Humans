@@ -73,6 +73,29 @@ launchd
 
 Advanced users will still be able to inspect the generated plist and underlying launchd configuration.
 
+## Task Editor And Testing
+
+The New Task editor opens at a readable, display-bounded size. Select a Python
+script and the highest-priority detected interpreter is filled in immediately;
+the detected-candidate list remains available when you want a different one.
+The editor's **Validate** button checks the current form without saving it and
+shows either field errors or **No issues found.**
+
+For stdout and stderr, use **Browse** to choose a log directory. The editor
+derives editable filenames from the task name, for example
+`nightly sync.stdout.log` and `nightly sync.stderr.log`; renaming a task updates
+directory-derived names, while a manually edited path is preserved. Clearing a
+stream path still disables that stream.
+
+**Test Draft** runs the validated, unsaved draft directly. Closing its window
+while a test is running closes the dialog immediately; the test completes
+silently and its late result is discarded. It does not test launchd scheduling
+or persist the draft.
+
+The main window's execution-history area has readable Time, Type, and Result
+columns and a draggable vertical splitter with the inspector and diagnostics,
+so long details and several attempts remain usable together.
+
 ## Development Phases
 
 Development follows a **Crawl → Walk → Run** model.

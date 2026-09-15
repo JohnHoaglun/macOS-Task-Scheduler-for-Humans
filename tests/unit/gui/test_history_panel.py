@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID
 
+from PySide6.QtWidgets import QTableView
 from pytestqt.qtbot import QtBot
 
 from task_scheduler.application.history_models import (
@@ -44,3 +45,11 @@ class TestShowHistoryEvents:
         events = [_event()]
         panel.show_history(HistoryOutcome(label="test", events=tuple(events)))
         assert panel.events() == events
+
+    def test_table_uses_readable_column_widths_and_minimum_height(self, qtbot: QtBot) -> None:
+        panel = HistoryPanel()
+        qtbot.addWidget(panel)
+        table = panel.findChild(QTableView, "history-table")
+        assert table is not None
+        assert [table.columnWidth(column) for column in range(3)] == [140, 100, 90]
+        assert table.minimumHeight() == 160

@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QMetaObject, Qt, QThread
+from typing import ClassVar
+
+from PySide6.QtCore import QMetaObject, QSize, Qt, QThread, QTimer
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
+    QApplication,
     QDialog,
     QHBoxLayout,
     QPushButton,
@@ -21,6 +24,7 @@ from task_scheduler.gui.controllers.diagnostics_controller import (
     RequestVerdict as TestVerdict,
 )
 from task_scheduler.gui.controllers.diagnostics_worker import DiagnosticsWorker
+from task_scheduler.gui.dialog_sizing import bounded_preferred_size
 from task_scheduler.gui.widgets.diagnostic_logs_panel import DiagnosticLogsPanel
 
 __all__ = ["DirectTestDialog"]
@@ -35,6 +39,8 @@ class DirectTestDialog(QDialog):
     outcome is dropped.
     """
 
+    _closing_dialogs: ClassVar[list[DirectTestDialog]] = []
+
     def __init__(
         self,
         controller: DiagnosticsController,
@@ -46,6 +52,7 @@ class DirectTestDialog(QDialog):
         self._job = job
         self._closing = False
         self._worker: DiagnosticsWorker | None = None
+        self._thread: QThread | None = None
         self.setWindowTitle(f"Test '{job.name}'")
         self.panel = DiagnosticLogsPanel(self)
         self.panel.refresh_button.clicked.connect(self._on_refresh)
@@ -58,6 +65,9 @@ class DirectTestDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(self.panel)
         layout.addLayout(buttons)
+        screen = QApplication.primaryScreen()
+        available_size = screen.availableGeometry().size() if screen is not None else None
+        self.resize(bounded_preferred_size(QSize(760, 560), available_size))
         self._start()
 
     def _start(self) -> None:
@@ -69,11 +79,14 @@ class DirectTestDialog(QDialog):
         worker = DiagnosticsWorker(self._controller)
         self._worker = worker
         thread = QThread(self)
+        self._thread = thread
         worker.moveToThread(thread)
         worker.finished.connect(self._on_finished)
         worker.finished.connect(worker.deleteLater)
         worker.finished.connect(thread.quit)
         thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(self._on_thread_finished)
+        thread.destroyed.connect(self._on_thread_destroyed)
         thread.start()
         QMetaObject.invokeMethod(worker, "run", Qt.ConnectionType.QueuedConnection)
 
@@ -83,6 +96,20 @@ class DirectTestDialog(QDialog):
             return
         self.panel.show_test_outcome(self._job, outcome)
         self._render_logs()
+
+    def _on_thread_finished(self) -> None:
+        """Release worker references once its event loop has stopped."""
+        self._worker = None
+        self._thread = None
+
+    def _on_thread_destroyed(self) -> None:
+        """Release a closed dialog only after Qt has deleted its QThread."""
+        QTimer.singleShot(0, self._release_after_thread_deleted)
+
+    def _release_after_thread_deleted(self) -> None:
+        """Allow normal deletion after the deferred QThread deletion completes."""
+        if self in self._closing_dialogs:
+            self._closing_dialogs.remove(self)
 
     def _on_refresh(self) -> None:
         """Re-read the job's persisted logs and environment comparison."""
@@ -96,4 +123,10 @@ class DirectTestDialog(QDialog):
     def closeEvent(self, event: QCloseEvent) -> None:
         """Drop any outcome arriving after the dialog has closed."""
         self._closing = True
+        if (
+            self._thread is not None
+            and self._thread.isRunning()
+            and self not in self._closing_dialogs
+        ):
+            self._closing_dialogs.append(self)
         super().closeEvent(event)
