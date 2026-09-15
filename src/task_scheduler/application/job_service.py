@@ -30,6 +30,7 @@ __all__ = [
     "JobService",
     "default_job_catalog_root",
     "default_job_logs_root",
+    "derive_log_paths",
     "managed_label",
 ]
 
@@ -47,6 +48,21 @@ MANAGED_LABEL_PREFIX = "io.github.macos-task-scheduler.user."
 def default_job_logs_root() -> Path:
     """Return the default per-user directory for job stdout/stderr logs."""
     return Path.home() / "Library" / "Logs" / "macOS Task Scheduler for Humans"
+
+
+def derive_log_paths(name: str, log_directory: str) -> tuple[str, str]:
+    """Derive the ``(stdout_path, stderr_path)`` pair for *name* in *log_directory*.
+
+    Filenames are ``<name>.stdout.log`` / ``<name>.stderr.log`` (a blank name
+    falls back to ``task``). A blank directory disables both streams and
+    returns two empty strings.
+    """
+    directory = log_directory.strip()
+    if not directory:
+        return ("", "")
+    task = name.strip() or "task"
+    base = Path(directory)
+    return (str(base / f"{task}.stdout.log"), str(base / f"{task}.stderr.log"))
 
 
 def managed_label(name: str, job_id: UUID) -> str:
@@ -152,6 +168,7 @@ class JobService:
         directories are created here.
         """
         id = job_id if job_id is not None else uuid4()
+        stdout_path, stderr_path = derive_log_paths(name, str(default_job_logs_root()))
         return JobDefinition(
             schema_version=SUPPORTED_SCHEMA_VERSION,
             id=id,
@@ -163,8 +180,8 @@ class JobService:
             environment=EnvironmentConfig(),
             working_directory=command.script.parent if isinstance(command, PythonCommand) else None,
             logging=LoggingConfig(
-                stdout_path=default_job_logs_root() / id.hex / "stdout.log",
-                stderr_path=default_job_logs_root() / id.hex / "stderr.log",
+                stdout_path=Path(stdout_path),
+                stderr_path=Path(stderr_path),
             ),
         )
 

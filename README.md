@@ -81,11 +81,12 @@ the detected-candidate list remains available when you want a different one.
 The editor's **Validate** button checks the current form without saving it and
 shows either field errors or **No issues found.**
 
-For stdout and stderr, use **Browse** to choose a log directory. The editor
-derives editable filenames from the task name, for example
-`nightly sync.stdout.log` and `nightly sync.stderr.log`; renaming a task updates
-directory-derived names, while a manually edited path is preserved. Clearing a
-stream path still disables that stream.
+For logging, choose one **log directory** with **Browse** (new tasks default
+to the app log root). The editor derives both stream paths from the task
+name in that directory, for example `nightly sync.stdout.log` and
+`nightly sync.stderr.log`; renaming a task updates both derived paths, and
+the derived paths are shown read-only. Clearing the log directory disables
+both streams.
 
 **Test Draft** runs the validated, unsaved draft directly. Closing its window
 while a test is running closes the dialog immediately; the test completes
@@ -716,10 +717,11 @@ The dialog is a scrollable form with the following sections:
   launchd behavior: if the Mac is asleep a run is not woken, and missed
   runs are not retried.
 * **Environment** — key/value rows for the job's environment variables.
-* **Advanced** — the working directory and optional stdout/stderr log
-  paths; leave a path empty to disable that stream. The default log root
-  for managed jobs is
-  `~/Library/Logs/macOS Task Scheduler for Humans/<job-id>/`.
+* **Advanced** — the working directory and the log directory. The editor
+  derives the stdout/stderr paths as `<log directory>/<name>.stdout.log`
+  and `<log directory>/<name>.stderr.log`, shown read-only; clearing the
+  log directory disables both streams. The default log directory for new
+  tasks is `~/Library/Logs/macOS Task Scheduler for Humans`.
 * **Preview** — the generated plist XML, read-only.
 
 **Validate**, **Preview**, **Save**, and **Close** act on the draft. Save

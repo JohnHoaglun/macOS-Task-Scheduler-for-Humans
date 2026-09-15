@@ -23,9 +23,10 @@ from pytestqt.qtbot import QtBot
 from tests.conftest import make_job
 from tests.fakes import FakeTaskWorld
 
-from task_scheduler.application.job_service import managed_label
+from task_scheduler.application.job_service import default_job_logs_root, managed_label
 from task_scheduler.domain import (
     JobDefinition,
+    LoggingConfig,
 )
 from task_scheduler.gui.controllers.diagnostics_controller import DiagnosticsController
 from task_scheduler.gui.controllers.editor_controller import EditorController
@@ -282,23 +283,28 @@ class TestCloseAndBrowse:
         button(editor, "editor-interpreter-browse").click()
         assert line_edit(editor, "editor-interpreter").text() == "/keep/this"
 
-    def test_browse_save_mode_writes_the_selected_file(
-        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    def test_new_draft_defaults_log_directory_and_derives_paths(
+        self, qtbot: QtBot, tmp_path: Path
     ) -> None:
-        """The generic save-file mode remains available for non-log paths."""
+        """A new draft defaults to the app log root with task-derived stream paths."""
         _, editor, _ = make_editor(qtbot, tmp_path)
-        monkeypatch.setattr(
-            QFileDialog,
-            "getSaveFileName",
-            staticmethod(lambda *args, **kwargs: ("/tmp/custom.log", "")),
-        )
-        editor._on_browse(line_edit(editor, "editor-stdout-path"), "save")
-        assert line_edit(editor, "editor-stdout-path").text() == "/tmp/custom.log"
+        root = str(default_job_logs_root())
+        assert line_edit(editor, "editor-log-directory").text() == root
+        assert line_edit(editor, "editor-stdout-path").text() == f"{root}/task.stdout.log"
+        assert line_edit(editor, "editor-stderr-path").text() == f"{root}/task.stderr.log"
 
-    def test_browse_log_directory_derives_stream_paths(
+    def test_stream_fields_are_read_only_in_managed_mode(
+        self, qtbot: QtBot, tmp_path: Path
+    ) -> None:
+        """Managed stream paths are derived, not hand-edited."""
+        _, editor, _ = make_editor(qtbot, tmp_path)
+        assert line_edit(editor, "editor-stdout-path").isReadOnly()
+        assert line_edit(editor, "editor-stderr-path").isReadOnly()
+
+    def test_browse_log_directory_derives_both_stream_paths(
         self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Log browsing selects a directory and derives editable per-stream filenames."""
+        """Log directory browse derives both stream paths in the one directory."""
         _, editor, _ = make_editor(qtbot, tmp_path)
         monkeypatch.setattr(
             QFileDialog,
@@ -306,30 +312,32 @@ class TestCloseAndBrowse:
             staticmethod(lambda *args, **kwargs: "/tmp/logs"),
         )
         line_edit(editor, "editor-name").textEdited.emit("Nightly Sync")
-        button(editor, "editor-stdout-path-browse").click()
-        button(editor, "editor-stderr-path-browse").click()
+        button(editor, "editor-log-directory-browse").click()
+        assert line_edit(editor, "editor-log-directory").text() == "/tmp/logs"
         assert line_edit(editor, "editor-stdout-path").text() == "/tmp/logs/nightly sync.stdout.log"
         assert line_edit(editor, "editor-stderr-path").text() == "/tmp/logs/nightly sync.stderr.log"
 
-    def test_derived_log_path_tracks_name_but_manual_path_does_not(
-        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    def test_renaming_updates_both_derived_stream_paths(
+        self, qtbot: QtBot, tmp_path: Path
     ) -> None:
-        """Renaming updates directory-derived paths but leaves user paths untouched."""
+        """Typing the task name live-updates both derived stream paths."""
         _, editor, _ = make_editor(qtbot, tmp_path)
-        monkeypatch.setattr(
-            QFileDialog,
-            "getExistingDirectory",
-            staticmethod(lambda *args, **kwargs: "/tmp/logs"),
-        )
-        button(editor, "editor-stdout-path-browse").click()
-        button(editor, "editor-stderr-path-browse").click()
-        stderr = line_edit(editor, "editor-stderr-path")
-        stderr.setText("/manual/errors.log")
-        stderr.textEdited.emit(stderr.text())
-        editor._on_log_path_edited("stdout", "/manual/output.log")
-        line_edit(editor, "editor-name").textEdited.emit("Renamed")
-        assert line_edit(editor, "editor-stdout-path").text() == "/tmp/logs/task.stdout.log"
-        assert stderr.text() == "/manual/errors.log"
+        line_edit(editor, "editor-name").textEdited.emit("Nightly Sync")
+        root = str(default_job_logs_root())
+        assert line_edit(editor, "editor-stdout-path").text() == f"{root}/nightly sync.stdout.log"
+        assert line_edit(editor, "editor-stderr-path").text() == f"{root}/nightly sync.stderr.log"
+
+    def test_clearing_log_directory_disables_both_streams(
+        self, qtbot: QtBot, tmp_path: Path
+    ) -> None:
+        """Clearing the log directory blanks both derived stream paths."""
+        _, editor, _ = make_editor(qtbot, tmp_path)
+        line_edit(editor, "editor-name").textEdited.emit("Nightly Sync")
+        directory = line_edit(editor, "editor-log-directory")
+        directory.setText("")
+        directory.textEdited.emit("")
+        assert line_edit(editor, "editor-stdout-path").text() == ""
+        assert line_edit(editor, "editor-stderr-path").text() == ""
 
 
 class TestUnopenedDialog:
@@ -650,6 +658,38 @@ class TestExternalMode:
         )
         line_edit(editor, "editor-script").setText("/tmp/proj/main.py")
         assert line_edit(editor, "editor-interpreter").text() == ""
+
+    def test_external_mode_hides_log_directory_and_keeps_manual_paths(
+        self, qtbot: QtBot, tmp_path: Path
+    ) -> None:
+        """External edits keep the manual stream fields; the log directory row is hidden."""
+        world = FakeTaskWorld(tmp_path)
+        editor = JobEditor(EditorController(world.services))
+        qtbot.addWidget(editor)
+        job = make_job(
+            label=self.EXTERNAL_LABEL,
+            name="External Job",
+            logging=LoggingConfig(
+                stdout_path=Path("/tmp/external/out.log"),
+                stderr_path=Path("/tmp/external/err.log"),
+            ),
+        )
+        editor.open_external(tmp_path / f"{self.EXTERNAL_LABEL}.plist", job)
+        directory = editor.findChild(QLineEdit, "editor-log-directory")
+        assert directory is not None
+        assert not directory.isVisible()
+        stdout = line_edit(editor, "editor-stdout-path")
+        stderr = line_edit(editor, "editor-stderr-path")
+        assert not stdout.isReadOnly()
+        assert not stderr.isReadOnly()
+        assert stdout.text() == "/tmp/external/out.log"
+        assert stderr.text() == "/tmp/external/err.log"
+        # The log-directory slot stays wired while hidden: its guard must keep
+        # the manual external paths untouched.
+        directory.textEdited.emit("/should/not/apply")
+        line_edit(editor, "editor-name").textEdited.emit("renamed")
+        assert stdout.text() == "/tmp/external/out.log"
+        assert stderr.text() == "/tmp/external/err.log"
 
 
 def test_initial_size_is_bounded_by_primary_screen(qtbot: QtBot, tmp_path: Path) -> None:

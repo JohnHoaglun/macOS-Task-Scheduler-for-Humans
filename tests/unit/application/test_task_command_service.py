@@ -17,6 +17,7 @@ from tests.fakes import OK_PROCESS, FakeTaskWorld
 
 from task_scheduler.application.diagnostic_models import DiagnosticSource
 from task_scheduler.application.job_service import (
+    default_job_logs_root,
     managed_label,
 )
 from task_scheduler.application.log_service import JobLogs, LogStream
@@ -145,6 +146,8 @@ class TestEditorFacade:
         assert job.name == "Daily Backup"
         assert job.label == managed_label("Daily Backup", OTHER_ID)
         assert job.enabled is True
+        assert job.logging.stdout_path == default_job_logs_root() / "Daily Backup.stdout.log"
+        assert job.logging.stderr_path == default_job_logs_root() / "Daily Backup.stderr.log"
         assert not world.catalog_root.exists()
         assert world.jobs.find(job.label) is None
         assert not world.la_root.exists()

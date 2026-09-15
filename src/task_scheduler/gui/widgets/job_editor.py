@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from task_scheduler.application.job_service import derive_log_paths
 from task_scheduler.domain import CalendarSchedule, IntervalSchedule, JobDefinition, Weekday
 from task_scheduler.gui.controllers.diagnostics_controller import DiagnosticsController
 from task_scheduler.gui.controllers.editor_controller import (
@@ -111,8 +112,6 @@ class JobEditor(QDialog):
         self._dirty_fields: frozenset[ExternalEditField] = frozenset()
         self._external_mode = False
         self._working_dir_hint: Path | None = None
-        self._stdout_auto_directory: Path | None = None
-        self._stderr_auto_directory: Path | None = None
         content = QWidget()
         self._external_banner = QLabel(content)
         self._external_banner.setObjectName("editor-external-banner")
@@ -164,8 +163,7 @@ class JobEditor(QDialog):
         layout.addLayout(buttons)
         close_button.clicked.connect(self.reject)
         self._name.textEdited.connect(self._on_name_edited)
-        self._stdout_path.textEdited.connect(partial(self._on_log_path_edited, "stdout"))
-        self._stderr_path.textEdited.connect(partial(self._on_log_path_edited, "stderr"))
+        self._log_directory.textEdited.connect(self._on_log_directory_edited)
         self._times.rowsChanged.connect(self._on_draft_changed)
         self._script.textEdited.connect(self._on_draft_changed)
         self._script.textChanged.connect(self._on_script_changed)
@@ -383,29 +381,26 @@ class JobEditor(QDialog):
             self._name.blockSignals(False)
         self._controller.set_name(self._draft, lowered.strip())
         self._label.setText(self._draft.label)
-        self._rederive_log_paths()
+        self._refresh_derived_log_display()
         self._on_draft_changed()
 
-    def _on_log_path_edited(self, stream: str, _: str) -> None:
-        """Keep user-entered stream paths from being replaced during later renames."""
-        if stream == "stdout":
-            self._stdout_auto_directory = None
-        else:
-            self._stderr_auto_directory = None
+    def _on_log_directory_edited(self, _text: str) -> None:
+        """Update the draft's log directory and refresh both derived stream paths."""
+        if self._external_mode or self._draft is None:
+            return
+        self._controller.set_log_directory(self._draft, self._log_directory.text().strip())
+        self._refresh_derived_log_display()
+        self._on_draft_changed()
 
-    def _log_filename(self, stream: str) -> str:
-        """Return the current task-derived filename for one launchd stream."""
-        name = self._name.text().strip() or self._label.text().strip() or "task"
-        return f"{name}.{stream}.log"
-
-    def _rederive_log_paths(self) -> None:
-        """Refresh only stream paths that originated from directory selection."""
-        if self._stdout_auto_directory is not None:
-            path = self._stdout_auto_directory / self._log_filename("stdout")
-            self._stdout_path.setText(str(path))
-        if self._stderr_auto_directory is not None:
-            path = self._stderr_auto_directory / self._log_filename("stderr")
-            self._stderr_path.setText(str(path))
+    def _refresh_derived_log_display(self) -> None:
+        """Show both stream paths derived from the visible name and log directory."""
+        if self._draft is None or self._external_mode:
+            return
+        stdout, stderr = derive_log_paths(
+            self._name.text().strip(), self._log_directory.text().strip()
+        )
+        self._stdout_path.setText(stdout)
+        self._stderr_path.setText(stderr)
 
     def _path_row(
         self, line_edit_name: str, button_name: str, mode: str
@@ -510,27 +505,37 @@ class JobEditor(QDialog):
         return group
 
     def _build_advanced(self) -> QGroupBox:
-        """The Advanced group: working directory and per-stream log paths."""
+        """The Advanced group: working directory, log directory, and derived stream paths."""
         group = QGroupBox("Advanced")
         form = QFormLayout(group)
         self._working_directory, directory_row = self._path_row(
             "editor-working-directory", "editor-working-directory-browse", "directory"
         )
         form.addRow("Working directory", directory_row)
-        self._stdout_path, stdout_row = self._path_row(
-            "editor-stdout-path", "editor-stdout-path-browse", "log-directory"
+        self._log_directory, log_directory_row = self._path_row(
+            "editor-log-directory", "editor-log-directory-browse", "directory"
         )
-        form.addRow("Stdout log", stdout_row)
-        self._stderr_path, stderr_row = self._path_row(
-            "editor-stderr-path", "editor-stderr-path-browse", "log-directory"
-        )
-        form.addRow("Stderr log", stderr_row)
+        form.addRow("Log directory", log_directory_row)
+        log_directory_label = form.labelForField(log_directory_row)
+        assert log_directory_label is not None
+        self._log_directory_label = log_directory_label
+        log_directory_browse = log_directory_row.findChild(QPushButton)
+        assert log_directory_browse is not None
+        self._log_directory_browse = log_directory_browse
+        self._stdout_path = QLineEdit(group)
+        self._stdout_path.setObjectName("editor-stdout-path")
+        self._stdout_path.setReadOnly(True)
+        form.addRow("Stdout log", self._stdout_path)
+        self._stderr_path = QLineEdit(group)
+        self._stderr_path.setObjectName("editor-stderr-path")
+        self._stderr_path.setReadOnly(True)
+        form.addRow("Stderr log", self._stderr_path)
         self._logging_note = QLabel(group)
         self._logging_note.setObjectName("editor-logging-note")
         self._logging_note.setWordWrap(True)
         self._logging_note.setText(
-            "Choose a log directory to derive per-task filenames. "
-            "Leave a log path empty to disable that stream."
+            "Filenames are derived from the task name in the log directory. "
+            "Clear the log directory to disable both streams."
         )
         form.addRow(self._logging_note)
         return group
@@ -549,22 +554,14 @@ class JobEditor(QDialog):
 
     def _on_browse(self, line_edit: QLineEdit, mode: str) -> None:
         """Open a file dialog of the given mode and write the chosen path into the line edit."""
-        if mode in {"directory", "log-directory"}:
+        if mode == "directory":
             path = QFileDialog.getExistingDirectory(self, "Select a directory", line_edit.text())
-        elif mode == "open":
-            path, _ = QFileDialog.getOpenFileName(self, "Select a file", line_edit.text())
         else:
-            path, _ = QFileDialog.getSaveFileName(self, "Select a file", line_edit.text())
+            path, _ = QFileDialog.getOpenFileName(self, "Select a file", line_edit.text())
         if path:
-            if mode == "log-directory":
-                directory = Path(path).absolute()
-                if line_edit is self._stdout_path:
-                    self._stdout_auto_directory = directory
-                else:
-                    self._stderr_auto_directory = directory
-                self._rederive_log_paths()
-            else:
-                line_edit.setText(path)
+            line_edit.setText(path)
+            if line_edit is self._log_directory:
+                self._on_log_directory_edited(path)
 
     def open_new(self) -> None:
         """Populate the dialog from a fresh draft and show it for a new job."""
@@ -598,6 +595,12 @@ class JobEditor(QDialog):
         self._name.setReadOnly(True)
         self._save_button.setText("Save External Plist…")
         self._preview_group.setTitle("Proposed replacement plist")
+        self._stdout_path.setReadOnly(False)
+        self._stderr_path.setReadOnly(False)
+        self._log_directory_label.hide()
+        self._log_directory.hide()
+        self._log_directory_browse.hide()
+        self._logging_note.hide()
         self._load_draft()
 
     def _reset_external_mode(self) -> None:
@@ -611,6 +614,12 @@ class JobEditor(QDialog):
         self._name.setReadOnly(False)
         self._save_button.setText("Save")
         self._preview_group.setTitle("Preview")
+        self._stdout_path.setReadOnly(True)
+        self._stderr_path.setReadOnly(True)
+        self._log_directory_label.show()
+        self._log_directory.show()
+        self._log_directory_browse.show()
+        self._logging_note.show()
 
     def _load_draft(self) -> None:
         """Fill every field from the current draft (setText never re-triggers the change slots)."""
@@ -642,10 +651,14 @@ class JobEditor(QDialog):
         self._run_at_load.setChecked(d.run_at_load)
         self._working_directory.setText(d.working_directory)
         self._environment.set_rows([[key, value] for key, value in d.environment])
-        self._stdout_auto_directory = None
-        self._stderr_auto_directory = None
-        self._stdout_path.setText(d.stdout_path)
-        self._stderr_path.setText(d.stderr_path)
+        self._log_directory.setText(d.log_directory)
+        if self._external_mode:
+            self._stdout_path.setText(d.stdout_path)
+            self._stderr_path.setText(d.stderr_path)
+        else:
+            stdout, stderr = derive_log_paths(d.name, d.log_directory)
+            self._stdout_path.setText(stdout)
+            self._stderr_path.setText(stderr)
         self._preview.clear()
         self._errors.hide()
         self._errors.clear()
@@ -687,8 +700,11 @@ class JobEditor(QDialog):
         c.set_run_at_load(d, self._run_at_load.isChecked())
         c.set_working_directory(d, self._working_directory.text().strip())
         c.set_environment(d, [(row[0], row[1]) for row in self._environment.rows()])
-        c.set_stdout_path(d, self._stdout_path.text().strip())
-        c.set_stderr_path(d, self._stderr_path.text().strip())
+        if self._external_mode:
+            c.set_stdout_path(d, self._stdout_path.text().strip())
+            c.set_stderr_path(d, self._stderr_path.text().strip())
+        else:
+            c.set_log_directory(d, self._log_directory.text().strip())
 
     def _on_validate(self) -> None:
         """Validate the draft and show any field errors."""

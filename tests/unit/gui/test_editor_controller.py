@@ -9,10 +9,12 @@ from pydantic import ValidationError
 from tests.conftest import make_job
 from tests.fakes import FakeTaskWorld
 
+from task_scheduler.application.job_service import default_job_logs_root, derive_log_paths
 from task_scheduler.domain import (
     ExecutableCommand,
     IntervalSchedule,
     JobDefinition,
+    LoggingConfig,
     ShellCommand,
 )
 from task_scheduler.gui.controllers.editor_controller import (
@@ -73,6 +75,49 @@ class TestOtherMutators:
         assert d.environment == [("HOME", "/opt/bin")]
 
 
+class TestLogPaths:
+    def test_open_new_defaults_log_directory_to_app_root(self, tmp_path: Path) -> None:
+        """A new draft defaults its log directory to the application log root."""
+        world, controller = make_controller(tmp_path)
+        d = controller.open_new()
+        assert d.log_directory == str(default_job_logs_root())
+        assert d.stdout_path == ""
+        assert d.stderr_path == ""
+
+    def test_set_log_directory_derives_from_current_name(self, tmp_path: Path) -> None:
+        """Setting the log directory derives both stream paths from the draft name."""
+        world, controller = make_controller(tmp_path)
+        d = controller.open_new()
+        controller.set_name(d, "Nightly Sync")
+        controller.set_log_directory(d, "/tmp/logs")
+        assert d.log_directory == "/tmp/logs"
+        assert d.stdout_path == "/tmp/logs/Nightly Sync.stdout.log"
+        assert d.stderr_path == "/tmp/logs/Nightly Sync.stderr.log"
+
+    def test_set_log_directory_blank_disables_both_streams(self, tmp_path: Path) -> None:
+        """Clearing the log directory disables both stream paths."""
+        world, controller = make_controller(tmp_path)
+        d = controller.open_new()
+        controller.set_name(d, "Nightly Sync")
+        controller.set_log_directory(d, "/tmp/logs")
+        controller.set_log_directory(d, "   ")
+        assert d.log_directory == "   "
+        assert d.stdout_path == ""
+        assert d.stderr_path == ""
+
+    def test_derive_log_paths(self) -> None:
+        """Derivation joins the stripped name; a blank name falls back to task."""
+        assert derive_log_paths("Nightly Sync", "/tmp/logs") == (
+            "/tmp/logs/Nightly Sync.stdout.log",
+            "/tmp/logs/Nightly Sync.stderr.log",
+        )
+        assert derive_log_paths("  ", "/tmp/logs") == (
+            "/tmp/logs/task.stdout.log",
+            "/tmp/logs/task.stderr.log",
+        )
+        assert derive_log_paths("Any", "  ") == ("", "")
+
+
 class TestOpenExisting:
     def test_shell_job(self, tmp_path: Path) -> None:
         """A persisted shell job populates only the shell fields."""
@@ -126,6 +171,38 @@ class TestOpenExisting:
         job = make_job(schedule=IntervalSchedule(seconds=1800, run_at_load=True))
         d = controller.open_existing(job)
         assert d.run_at_load is True
+
+    def test_log_directory_shared_parent(self, tmp_path: Path) -> None:
+        """Stream paths in one directory load as that shared directory."""
+        world, controller = make_controller(tmp_path)
+        job = make_job(
+            logging=LoggingConfig(
+                stdout_path=Path("/tmp/logs/out.log"),
+                stderr_path=Path("/tmp/logs/err.log"),
+            )
+        )
+        d = controller.open_existing(job)
+        assert d.log_directory == "/tmp/logs"
+        assert d.stdout_path == "/tmp/logs/out.log"
+        assert d.stderr_path == "/tmp/logs/err.log"
+
+    def test_log_directory_stdout_parent_when_parents_differ(self, tmp_path: Path) -> None:
+        """Differing stream parents load the stdout path's parent."""
+        world, controller = make_controller(tmp_path)
+        job = make_job(
+            logging=LoggingConfig(
+                stdout_path=Path("/tmp/a/out.log"),
+                stderr_path=Path("/tmp/b/err.log"),
+            )
+        )
+        d = controller.open_existing(job)
+        assert d.log_directory == "/tmp/a"
+
+    def test_log_directory_blank_when_no_streams(self, tmp_path: Path) -> None:
+        """A job without stream paths loads with a blank log directory."""
+        world, controller = make_controller(tmp_path)
+        d = controller.open_existing(make_job())
+        assert d.log_directory == ""
 
 
 def valid_draft(controller: EditorController, tmp_path: Path) -> JobDraft:

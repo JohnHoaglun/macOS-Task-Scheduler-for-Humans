@@ -1,4 +1,15 @@
-# TODOS.md (v0.0.33)
+# TODOS.md (v0.0.34)
+
+## Consolidated Log Directory and Auto-Naming (DONE — v0.0.34)
+
+User-reported: the v0.0.33 log-path work did not consolidate the stdout/stderr paths (two independent per-field directory pickers) and auto-naming appeared not to work (New Task fields empty; derivation only after per-field browse). Fix: one log directory drives both read-only name-derived paths, defaulting to the app log root.
+
+- [x] `application/job_service.py`: pure `derive_log_paths(name, log_directory)`; `new_managed_job` defaults to `<root>/<name>.stdout.log` / `<root>/<name>.stderr.log` (no hex subdirectory)
+- [x] `gui/controllers/editor_controller.py`: `JobDraft.log_directory`; `set_log_directory` mutator deriving both stream paths; `open_new` defaults the app log root; `open_existing` decomposes the shared parent; `copy_draft` carries the field
+- [x] `gui/widgets/job_editor.py`: Log directory row (editable + Browse); read-only derived stream fields (no per-stream browse); live re-derivation on name/directory edits; external mode hides the directory row and keeps manual stream fields; remove `_on_log_path_edited` / `_rederive_log_paths` / `_log_filename` and the save-file browse branch
+- [x] Tests: rework `test_job_editor.py` browse/derivation cases (defaults, live rename, clear-to-disable, read-only managed fields, external mode); add `test_editor_controller.py` derivation/decomposition/`set_log_directory` cases; assert the new `new_managed_job` default in `test_task_command_service.py`
+- [x] Docs: README Task Editor section + Advanced bullet; `docs/architecture.md` editor-presentation paragraph
+- [x] Closeout: `make check` (full suite + ruff + mypy strict + 100% coverage — 593 tests), ratio 9,889:13,475 = 73.39% (under cap), version 0.0.33 → 0.0.34 (all 4 registry locations), stale-version grep, SUMMARY/PROJECT/TODOS, commit, push
 
 ## UX And Test-Thread Safety (DONE — v0.0.33)
 

@@ -10,7 +10,12 @@ from uuid import UUID, uuid4
 
 from pydantic import ValidationError
 
-from task_scheduler.application.job_service import JobConflictError, managed_label
+from task_scheduler.application.job_service import (
+    JobConflictError,
+    default_job_logs_root,
+    derive_log_paths,
+    managed_label,
+)
 from task_scheduler.application.task_command_service import TaskCommandService
 from task_scheduler.domain import (
     SUPPORTED_SCHEMA_VERSION,
@@ -122,9 +127,26 @@ def copy_draft(draft: JobDraft) -> JobDraft:
         run_at_load=draft.run_at_load,
         working_directory=draft.working_directory,
         environment=list(draft.environment),
+        log_directory=draft.log_directory,
         stdout_path=draft.stdout_path,
         stderr_path=draft.stderr_path,
     )
+
+
+def _log_directory_for(stdout_path: str, stderr_path: str) -> str:
+    """The log directory to load for a job's stored stream paths.
+
+    The shared parent when both paths live in one directory; the first set
+    path's parent (stdout before stderr) when they differ; blank when neither
+    path is set.
+    """
+    paths = [Path(path) for path in (stdout_path, stderr_path) if path]
+    if not paths:
+        return ""
+    parents = {path.parent for path in paths}
+    if len(parents) == 1:
+        return str(next(iter(parents)))
+    return str(paths[0].parent)
 
 
 @dataclass
@@ -152,6 +174,7 @@ class JobDraft:
     run_at_load: bool = False
     working_directory: str = ""
     environment: list[tuple[str, str]] = field(default_factory=list)
+    log_directory: str = ""
     stdout_path: str = ""
     stderr_path: str = ""
 
@@ -195,8 +218,12 @@ class EditorController:
         self._services = services
 
     def open_new(self) -> JobDraft:
-        """Create an empty draft for a new job with a freshly generated id."""
-        return JobDraft(job_id=uuid4())
+        """Create an empty draft for a new job with a freshly generated id.
+
+        The log directory defaults to the per-user application log root so
+        the derived stream paths are visible and track the name as typed.
+        """
+        return JobDraft(job_id=uuid4(), log_directory=str(default_job_logs_root()))
 
     def open_existing(self, job: JobDefinition) -> JobDraft:
         """Populate a draft from a persisted job definition."""
@@ -232,6 +259,8 @@ class EditorController:
             schedule_kind = "interval"
             run_at_load = job.schedule.run_at_load
             interval_value, interval_unit = self._interval_display(job.schedule.seconds)
+        stdout = str(job.logging.stdout_path) if job.logging.stdout_path is not None else ""
+        stderr = str(job.logging.stderr_path) if job.logging.stderr_path is not None else ""
         return JobDraft(
             job_id=job.id,
             name=job.name,
@@ -256,8 +285,9 @@ class EditorController:
                 str(job.working_directory) if job.working_directory is not None else ""
             ),
             environment=list(job.environment.variables.items()),
-            stdout_path=str(job.logging.stdout_path) if job.logging.stdout_path is not None else "",
-            stderr_path=str(job.logging.stderr_path) if job.logging.stderr_path is not None else "",
+            log_directory=_log_directory_for(stdout, stderr),
+            stdout_path=stdout,
+            stderr_path=stderr,
         )
 
     def set_name(self, draft: JobDraft, value: str) -> None:
@@ -355,6 +385,11 @@ class EditorController:
     def remove_environment_row(self, draft: JobDraft, index: int) -> None:
         """Remove one environment variable row."""
         del draft.environment[index]
+
+    def set_log_directory(self, draft: JobDraft, value: str) -> None:
+        """Set the managed-mode log directory and re-derive both stream paths from it."""
+        draft.log_directory = value
+        draft.stdout_path, draft.stderr_path = derive_log_paths(draft.name, value)
 
     def set_stdout_path(self, draft: JobDraft, value: str) -> None:
         """Set the stdout capture path."""

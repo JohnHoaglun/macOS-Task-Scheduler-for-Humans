@@ -2,7 +2,32 @@
 
 ## Current State
 
-### Approved v0.0.33 UX and Crash-Safety Pass (2026-09-14)
+### Approved v0.0.34 Consolidated Log Directory and Auto-Naming (2026-09-14)
+
+**Goal:** fix the v0.0.33 log-path under-delivery. Shipped behavior was two separate per-stream directory pickers (each field had its own Browse) with auto-naming only active after a per-field browse; the New Task dialog left the fields empty, so the task name never appeared in the log paths.
+
+**Confirmed decisions:**
+- One **Log directory** field (editable + Browse directory picker) drives both streams; **Stdout log** / **Stderr log** are read-only and always display `<name>.stdout.log` / `<name>.stderr.log` inside the log directory.
+- Renaming live-updates both derived paths in managed mode; a blank name displays the `task` fallback; clearing the log directory blanks both paths (streams disabled).
+- New-task drafts default `log_directory` to `~/Library/Logs/macOS Task Scheduler for Humans` (no per-job hex subdirectory).
+- Edit loads `log_directory` as the shared parent of the stored stream paths (stdout's parent when they differ; blank when neither is set); saving rewrites the stream paths to the name-derived form (legacy hex filenames normalize).
+- External mode: the Log directory row is hidden; both stream fields stay manually editable with verbatim stored paths, and the dirty-field/merge preservation contract is unchanged.
+- `JobDraft` gains `log_directory: str`; `stdout_path`/`stderr_path` stay authoritative for `build_job` (managed: derived by `set_log_directory`; external: verbatim), so external previews and `merge_external_edit` stay truthful.
+- Pure `derive_log_paths(name, log_directory) -> tuple[str, str]` lives in `application/job_service.py` (Qt-free, exported) and is used by the controller and `JobService.new_managed_job` (whose default becomes `<root>/<name>.stdout.log` / `<root>/<name>.stderr.log`, replacing the hex-subdirectory default).
+
+**Parallelization decision:** single serial pass (solo work — cited blocker: the controller draft-contract change and the GUI widget plus its tests form one sequential path; no pinned shared interface, no independent lanes).
+
+| Lane | Scope | Files owned | Stop condition |
+|---|---|---|---|
+| build (solo) | Controller/service contract, editor UI, tests, docs, closeout | `application/job_service.py`, `gui/controllers/editor_controller.py`, `gui/widgets/job_editor.py`, `tests/unit/application/*`, `tests/unit/gui/*`, README, `docs/architecture.md` | `make check` green (full suite, ruff, mypy strict, 100% coverage), ratio ≤ 75%, version 0.0.33 → 0.0.34, commit, push |
+
+**Gates:** New Task shows name-derived paths under the default root before any name is typed; renaming updates both paths; clearing the directory blanks both; external mode hides the directory row, keeps manual verbatim paths, and leaves dirty-field behavior untouched; no dead browse-mode code; no catalog writes or launchctl in tests.
+
+**Blockers:** none.
+
+### Historical State (superseded by v0.0.34 above)
+
+#### v0.0.33 UX and Crash-Safety Pass (2026-09-14)
 
 **Goal:** resolve the eight reported issues: taller New Task and Test Draft dialogs; automatic interpreter selection; remove the redundant Weekdays label; directory-based derived log paths; clear Validate feedback; a readable, resizable execution-history panel; and the direct-test native crash.
 
@@ -27,7 +52,6 @@
 
 **Blockers:** none.
 
-### Historical State
 Crawl Increments 0–12 complete and pushed to `sched_dev_opencode` (version 0.0.12):
 - **Increment 0:** project foundation (pyproject, Makefile, package structure, docs, tooling)
 - **Increment 1:** Pydantic domain model + schema-versioned JSON persistence

@@ -192,11 +192,17 @@ size, bounded to the primary screen's usable geometry. A non-external draft
 with a selected script and blank interpreter auto-applies the highest-priority
 detection candidate (including the empty working-directory hint); the picker
 and explicit Use action remain available for alternatives. External drafts
-never auto-apply detection. Stdout/stderr Browse selects a directory and
-derives editable `<name>.stdout.log` / `<name>.stderr.log` paths. Only paths
-that came from that directory selection track later name changes; an edited or
-loaded path remains manual. Validate is non-persisting and renders either
-field errors or `No issues found.` in the editor feedback pane.
+never auto-apply detection. The managed form holds one editable log
+directory (a new draft defaults to `default_job_logs_root()`); the stdout
+and stderr fields are read-only displays of
+`derive_log_paths(name, log_directory)` — `<name>.stdout.log` /
+`<name>.stderr.log` in that directory, a blank name falls back to `task`,
+and a blank directory disables both streams. Name and directory edits
+re-derive both paths live; `set_log_directory` is the only draft mutator
+that writes the stream paths. External drafts hide the log directory row
+and keep the stream fields editable and verbatim. Validate is non-persisting
+and renders either field errors or `No issues found.` in the editor
+feedback pane.
 
 The draft's calendar schedule is `times: list[str]` — the raw visible
 `HH:MM` rows, verbatim, in row order (a fresh draft holds one empty row) —
@@ -233,8 +239,9 @@ rather than exceptions.
 
 **JobService factory and save policy.** `JobService.new_managed_job()`
 builds the in-memory `JobDefinition` for a new managed job — label from
-`managed_label`, default stdout/stderr paths under
-`default_job_logs_root() / <job-id>/` — and persists nothing.
+`managed_label`, default stdout/stderr paths from
+`derive_log_paths(name, str(default_job_logs_root()))` — and persists
+nothing.
 `JobService.save()` is the catalog's update path: it overwrites the record
 for the job's own immutable id, and raises `JobConflictError` when a
 different managed job already claims the label.
