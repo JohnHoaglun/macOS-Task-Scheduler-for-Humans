@@ -1,6 +1,33 @@
 # PLAN.md
 
 ## Current State
+
+### Approved v0.0.33 UX and Crash-Safety Pass (2026-09-14)
+
+**Goal:** resolve the eight reported issues: taller New Task and Test Draft dialogs; automatic interpreter selection; remove the redundant Weekdays label; directory-based derived log paths; clear Validate feedback; a readable, resizable execution-history panel; and the direct-test native crash.
+
+**Confirmed decisions:** log paths use `<name>.stdout.log` and `<name>.stderr.log`; script selection auto-fills the top detected interpreter while retaining the picker and Use button; history uses fixed readable columns, a minimum table height, and a vertical splitter; closing Test Draft immediately hides it, lets the test finish silently, and discards its result.
+
+**Crash root cause:** `DirectTestDialog` parents its running `QThread` to the modal dialog. Closing mid-test lets the dialog be destroyed while its child thread still runs. The app log records Qt's corroborating warning: `QObject: shared QObject was deleted directly. The program is malformed and may crash.` Main-window workers have the equivalent app-exit lifetime risk.
+
+**Parallelization decision:** Wave 0 is a small serial shared-surface step. Wave 1 has two independent lanes.
+
+| Lane | Scope | Files owned | Stop condition | Dependencies |
+|---|---|---|---|---|
+| Wave 0: build | Dialog sizing helper | `gui/dialog_sizing.py`, its focused test | Pure sizing contract and import gate pass | None |
+| Wave 1A: build | Job Editor UX, items 1-5 | `widgets/job_editor.py`, `test_job_editor.py` | Required behaviors covered and `make check` green | Read-only import of Wave 0 helper |
+| Wave 1B: build | Direct-test lifetime, dialog/history readability, items 6-8 | `widgets/direct_test_dialog.py`, `widgets/history_panel.py`, `main_window.py`, focused dialog/history/window tests | Close-mid-test lifetime and close-window gates pass; `make check` green | Read-only import of Wave 0 helper |
+| Wave 2: build | Integration and closeout | docs, registry, project board | Composition checks, ratio cap, full suite, commit, push | Both Wave 1 lanes |
+
+**Pinned shared contract:** `bounded_preferred_size(preferred: QSize, available_size: QSize | None) -> QSize` is pure. It returns `preferred` when `available_size` is `None`, otherwise `preferred.boundedTo(available_size)`. Both lanes import it only; no lane changes it.
+
+**Shared-surface inventory:** Wave 1A owns `JobEditor` behavior and tests. Wave 1B owns `DirectTestDialog`, main-window worker lifetime, right-pane layout, history rendering, and their tests. Public constructors remain unchanged: `JobEditor(controller, parent=None, diagnostics=None, *, clock=None)` and `DirectTestDialog(controller, job, parent=None)`. History model columns remain `Time`, `Type`, `Result`, `Details`; existing object names remain stable. `DiagnosticsWorker`, `DiagnosticsController`, and worker signal contracts are unchanged.
+
+**Lane gates:** Wave 1A proves auto-fill never rewrites an external draft, a manual log path is not overwritten by a name edit, and Validate visibly reports success. Wave 1B proves a closed running dialog remains retained until `thread.finished`, drops the late outcome, releases itself afterward, and main-window close refuses destruction when a running worker does not exit within the bounded wait. Neither lane adds dependencies or platform calls.
+
+**Blockers:** none.
+
+### Historical State
 Crawl Increments 0–12 complete and pushed to `sched_dev_opencode` (version 0.0.12):
 - **Increment 0:** project foundation (pyproject, Makefile, package structure, docs, tooling)
 - **Increment 1:** Pydantic domain model + schema-versioned JSON persistence

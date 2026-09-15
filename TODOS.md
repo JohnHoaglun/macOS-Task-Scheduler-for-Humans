@@ -1,5 +1,14 @@
 # TODOS.md (v0.0.32)
 
+## UX And Test-Thread Safety (IN PROGRESS — v0.0.33)
+
+User-approved: use `<name>.stdout.log` / `<name>.stderr.log`, auto-fill the top interpreter candidate, make history columns and vertical space readable with a draggable splitter, and let Test Draft close immediately while a running test finishes silently.
+
+- [ ] Wave 0: add the pinned pure `gui/dialog_sizing.py` helper and import gate.
+- [ ] Wave 1A: make New Task taller; auto-fill the top interpreter candidate without changing external drafts; remove the redundant Weekdays label; choose a log directory and derive editable per-task stream filenames; explain Validate and show success feedback.
+- [ ] Wave 1B: make Test Draft taller; retain a closed dialog until its worker exits; prevent main-window destruction while owned workers are still running; size history columns and make the inspector/diagnostics/history area vertically resizable.
+- [ ] Wave 2: composition review, full `make check`, coverage and ratio gate, documentation, version 0.0.32 → 0.0.33, commit, and push.
+
 ## Application Debug Logging + Crash Diagnostics (DONE — v0.0.32)
 
 User-reported: the app has crashed multiple times with no way to diagnose (unhandled GUI errors print a traceback to stderr, which a macOS GUI app discards). User chose **log file + crash dialog**.
