@@ -94,6 +94,31 @@ class TestShowEnvironmentOutcome:
         )
 
 
+class TestPanelCollapse:
+    def test_panel_collapsed_by_default(self, qtbot) -> None:
+        """Only the Diagnostics header shows until a user-initiated outcome renders."""
+        panel = DiagnosticLogsPanel()
+        qtbot.addWidget(panel)
+        toggle = panel.findChild(object, "diagnostics-panel-toggle")
+        content = panel.findChild(object, "diagnostics-panel-content")
+        assert toggle is not None and not toggle.isChecked()
+        assert content is not None and content.isHidden()
+        panel.show_notice("Cannot test: not managed.")
+        assert toggle.isChecked()
+        assert not content.isHidden()
+
+    def test_outcome_expands_panel_but_inner_sections_stay_collapsed(self, qtbot) -> None:
+        """Auto-expand opens the panel only; inner sections keep v0.0.26 behavior."""
+        panel = DiagnosticLogsPanel()
+        qtbot.addWidget(panel)
+        job = make_job()
+        panel.show_test_outcome(job, _outcome(job))
+        toggle = panel.findChild(object, "diagnostics-panel-toggle")
+        inner = panel.findChild(object, "diagnostics-section-content")
+        assert toggle is not None and toggle.isChecked()
+        assert inner is not None and inner.isHidden()
+
+
 class TestDiagnosticsPane:
     def test_logs_outcome_appends_logs_group(self, qtbot) -> None:
         panel = DiagnosticLogsPanel()

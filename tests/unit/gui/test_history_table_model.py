@@ -60,6 +60,11 @@ class TestData:
         assert model.data(model.index(1, 2)) == "Failed"
         assert "exit code 1" in model.data(model.index(1, 3))
 
+    def test_time_column_and_non_display_role(self, model: HistoryTableModel):
+        text = model.data(model.index(0, 0))
+        assert isinstance(text, str) and text.startswith("2025-01-15 ")
+        assert model.data(model.index(0, 0), Qt.ItemDataRole.TextAlignmentRole) is None
+
     def test_out_of_range_row_returns_none(self, model: HistoryTableModel):
         idx = model.createIndex(999, 0)
         assert idx.isValid()

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID
 
-from PySide6.QtWidgets import QTableView
+from PySide6.QtWidgets import QTableView, QToolButton, QWidget
 from pytestqt.qtbot import QtBot
 
 from task_scheduler.application.history_models import (
@@ -53,3 +53,26 @@ class TestShowHistoryEvents:
         assert table is not None
         assert [table.columnWidth(column) for column in range(3)] == [140, 100, 90]
         assert table.minimumHeight() == 160
+
+
+class TestCollapsedByDefault:
+    def test_content_hidden_until_toggled(self, qtbot: QtBot) -> None:
+        """The panel opens collapsed: only the History toggle header shows."""
+        panel = HistoryPanel()
+        qtbot.addWidget(panel)
+        toggle = panel.findChild(QToolButton, "history-toggle")
+        content = panel.findChild(QWidget, "history-content")
+        assert toggle is not None and not toggle.isChecked()
+        assert content is not None and content.isHidden()
+        toggle.setChecked(True)
+        assert not content.isHidden()
+
+    def test_show_history_never_expands(self, qtbot: QtBot) -> None:
+        """Rendering events on selection keeps the panel collapsed."""
+        panel = HistoryPanel()
+        qtbot.addWidget(panel)
+        panel.show_history(HistoryOutcome(label="test", events=(_event(),)))
+        toggle = panel.findChild(QToolButton, "history-toggle")
+        content = panel.findChild(QWidget, "history-content")
+        assert toggle is not None and not toggle.isChecked()
+        assert content is not None and content.isHidden()

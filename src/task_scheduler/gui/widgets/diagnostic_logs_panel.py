@@ -43,6 +43,10 @@ __all__ = ["DiagnosticLogsPanel"]
 class DiagnosticLogsPanel(QWidget):
     """Direct-test summary, diagnostics, log tabs, and environment groups.
 
+    Collapsed by default: only the "Diagnostics" header shows until a
+    user-initiated outcome renders (``show_notice`` / ``show_test_outcome`` /
+    ``show_logs_outcome`` / ``show_environment_outcome`` each expand it); the
+    inner sections keep their own collapsed, never-auto-expanding behavior.
     Public surface: :meth:`show_test_outcome`, :meth:`show_logs_outcome`,
     :meth:`show_environment_outcome`, and ``refresh_button`` (the host
     connects its ``clicked`` signal to the controller's synchronous read).
@@ -118,17 +122,31 @@ class DiagnosticLogsPanel(QWidget):
         python_layout.addWidget(self._python_text)
         python_content.setLayout(python_layout)
 
-        layout = QVBoxLayout(self)
-        layout.addWidget(
+        panel_content = QWidget(self)
+        panel_content.setObjectName("diagnostics-panel-content")
+        panel_layout = QVBoxLayout(panel_content)
+        panel_layout.addWidget(
             self._collapsible_section("Diagnostics", "diagnostics-section", diagnostics_content)
         )
-        layout.addWidget(
+        panel_layout.addWidget(
             self._collapsible_section("Persisted logs", "diagnostics-persisted", persisted_content)
         )
-        layout.addWidget(self._environment_box)
-        layout.addWidget(
+        panel_layout.addWidget(self._environment_box)
+        panel_layout.addWidget(
             self._collapsible_section("Python interpreter", "diagnostics-python", python_content)
         )
+
+        self._panel_toggle = QToolButton(self)
+        self._panel_toggle.setObjectName("diagnostics-panel-toggle")
+        self._panel_toggle.setText("Diagnostics")
+        self._panel_toggle.setCheckable(True)
+        panel_content.hide()
+        self._panel_toggle.toggled.connect(panel_content.setVisible)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self._panel_toggle)
+        layout.addWidget(panel_content)
 
     def _collapsible_section(self, title: str, object_name: str, content: QWidget) -> QWidget:
         """Create a collapsed disclosure header and its hidden content."""
@@ -158,12 +176,19 @@ class DiagnosticLogsPanel(QWidget):
         parent.addTab(edit, title)
         return edit
 
+    def _expand(self) -> None:
+        """Expand the panel header (a user-initiated outcome is about to render)."""
+        if not self._panel_toggle.isChecked():
+            self._panel_toggle.setChecked(True)
+
     def show_notice(self, text: str) -> None:
         """Replace the summary line with a caller-supplied notice."""
+        self._expand()
         self._summary.setText(text)
 
     def show_test_outcome(self, job: JobDefinition, outcome: TestOutcome) -> None:
         """Render the summary, diagnostics, direct-output tabs, and detection."""
+        self._expand()
         self._summary.setText(format_test_summary(outcome))
         if outcome.result is not None:
             self._diagnostics_text.setPlainText(format_report(outcome.result.report))
@@ -175,6 +200,7 @@ class DiagnosticLogsPanel(QWidget):
 
     def show_logs_outcome(self, outcome: LogsOutcome) -> None:
         """Render the persisted stdout/stderr tabs from a synchronous read."""
+        self._expand()
         if outcome.logs is None:
             message = f"Logs unavailable: {outcome.error}"
             self._persisted_stdout.setPlainText(message)
@@ -188,6 +214,7 @@ class DiagnosticLogsPanel(QWidget):
 
     def show_environment_outcome(self, outcome: EnvironmentOutcome) -> None:
         """Render the environment comparison (names only, never values)."""
+        self._expand()
         if outcome.difference is None:
             self._environment_text.setText(f"Comparison unavailable: {outcome.error}")
             return

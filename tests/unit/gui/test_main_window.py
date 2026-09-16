@@ -544,6 +544,9 @@ class TestHistoryPanelWiring:
             window.panel,
             window.history_panel,
         ]
+        # Collapsed diagnostics/history: the inspector owns the bulk of the pane.
+        sizes = splitter.sizes()
+        assert sizes[0] > sizes[1] and sizes[0] > sizes[2]
 
     def test_close_stops_tracked_worker_threads(
         self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

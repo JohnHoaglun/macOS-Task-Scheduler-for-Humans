@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QTableView,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -31,8 +32,11 @@ __all__ = ["HistoryPanel"]
 class HistoryPanel(QWidget):
     """Execution-history table with disclosure, state text, and refresh.
 
-    Public surface: :meth:`show_history` and ``refresh_requested`` (the
-    signal the host connects to the controller's synchronous query).
+    Collapsed by default: only the "History" toggle header shows; the
+    disclosure, state text, table, and Refresh live in hidden content that
+    :meth:`show_history` renders without expanding (the user expands on
+    demand). Public surface: :meth:`show_history` and ``refresh_requested``
+    (the signal the host connects to the controller's synchronous query).
     """
 
     refresh_requested = Signal()
@@ -41,11 +45,14 @@ class HistoryPanel(QWidget):
         super().__init__(parent)
         self.setObjectName("history-panel")
 
-        self._disclosure = QLabel(HISTORY_DISCLOSURE, self)
+        content = QWidget(self)
+        content.setObjectName("history-content")
+
+        self._disclosure = QLabel(HISTORY_DISCLOSURE, content)
         self._disclosure.setObjectName("history-disclosure")
         self._disclosure.setWordWrap(True)
 
-        self._table_view = QTableView(self)
+        self._table_view = QTableView(content)
         self._table_view.setObjectName("history-table")
         self._table_view.setEditTriggers(QTableView.EditTrigger.NoEditTriggers)
         self._table_view.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
@@ -58,19 +65,31 @@ class HistoryPanel(QWidget):
         self._table_view.setColumnWidth(2, 90)
         self._table_view.setMinimumHeight(160)
 
-        self._state_label = QLabel(self)
+        self._state_label = QLabel(content)
         self._state_label.setObjectName("history-state-text")
         self._state_label.setWordWrap(True)
 
-        self._refresh_button = QPushButton("Refresh", self)
+        self._refresh_button = QPushButton("Refresh", content)
         self._refresh_button.setObjectName("history-refresh")
         self._refresh_button.clicked.connect(lambda _checked=False: self.refresh_requested.emit())
 
+        content_layout = QVBoxLayout(content)
+        content_layout.addWidget(self._disclosure)
+        content_layout.addWidget(self._state_label)
+        content_layout.addWidget(self._table_view)
+        content_layout.addWidget(self._refresh_button)
+
+        self._toggle = QToolButton(self)
+        self._toggle.setObjectName("history-toggle")
+        self._toggle.setText("History")
+        self._toggle.setCheckable(True)
+        content.hide()
+        self._toggle.toggled.connect(content.setVisible)
+
         layout = QVBoxLayout(self)
-        layout.addWidget(self._disclosure)
-        layout.addWidget(self._state_label)
-        layout.addWidget(self._table_view)
-        layout.addWidget(self._refresh_button)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self._toggle)
+        layout.addWidget(content)
 
     def show_history(self, outcome: HistoryOutcome) -> None:
         """Render the history outcome in the panel."""

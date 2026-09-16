@@ -222,7 +222,7 @@ class MainWindow(QMainWindow):
         self._right_splitter.addWidget(self.inspector)
         self._right_splitter.addWidget(self.panel)
         self._right_splitter.addWidget(self.history_panel)
-        self._right_splitter.setSizes([320, 240, 200])
+        self._right_splitter.setSizes([1000, 40, 40])
         right_layout.addWidget(self._right_splitter, 1)
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self.table)

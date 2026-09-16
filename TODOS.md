@@ -1,4 +1,15 @@
-# TODOS.md (v0.0.34)
+# TODOS.md (v0.0.35)
+
+## Collapsed Diagnostics/History and Inspector Real Estate (DONE — v0.0.35)
+
+User-reported (screenshot, 2026-09-16): the diagnostics/history region below the inspector is "a mess" at startup and the inspector is "too small to be useful". User chose **collapse by default**: slim expandable headers for diagnostics and history; the inspector gets the full inspector+diagnostics real estate.
+
+- [x] `gui/widgets/history_panel.py`: checkable "History" toggle (`history-toggle`) above content (`history-content`, hidden by default); `show_history` never auto-expands
+- [x] `gui/widgets/diagnostic_logs_panel.py`: checkable "Diagnostics" toggle (`diagnostics-panel-toggle`) above content (`diagnostics-panel-content`, hidden by default); `show_notice` / `show_test_outcome` / `show_logs_outcome` / `show_environment_outcome` auto-expand; inner sections unchanged (v0.0.26 behavior)
+- [x] `gui/main_window.py`: right-pane splitter initial sizes `[1000, 40, 40]` (was `[320, 240, 200]`)
+- [x] Tests: initial-collapsed + expand invariants for both panels; main-window sizes assertion (inspector owns the bulk of the right pane); `test_history_table_model.py` time-column/non-display-role cases (the hidden table no longer triggers Qt data requests)
+- [x] Docs: README "Graphical Interface" collapsed-state wording; `docs/architecture.md` startup-layout bullet
+- [x] Closeout: `make check` (full suite + ruff + mypy strict + 100% coverage — 598 tests), ratio 9,945:13,521 = 73.55% (under cap), version 0.0.34 → 0.0.35 (all 4 registry locations), stale-version grep, SUMMARY/PROJECT/TODOS, commit, push
 
 ## Consolidated Log Directory and Auto-Naming (DONE — v0.0.34)
 

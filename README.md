@@ -566,9 +566,12 @@ The window opens at a preferred `1280x900` size, bounded to the usable area
 of the primary display so it does not extend under the macOS menu bar or Dock.
 It remains normally resizable and maximizable.
 
+The **Diagnostics** and **History** regions of the right pane begin collapsed
+so the selected task's inspector fills the pane. Click a region header to
+open it; user-initiated diagnostics activity (testing a draft, refreshing
+diagnostics) also opens the Diagnostics region. Inside that region, the
 Diagnostics, Persisted logs, and Python interpreter details begin collapsed
-so the selected task's Overview remains readable. Click a section header to
-open its details; new results do not open sections automatically.
+and new results do not open them automatically.
 
 The main window lists every LaunchAgent discovered under
 `~/Library/LaunchAgents` — application-managed jobs, external agents created

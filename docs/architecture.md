@@ -114,10 +114,15 @@ gui/
   `1280x900` startup size, bounded to the primary screen's usable geometry.
   It is applied after GUI composition and before `show()`, without persisting
   geometry or changing normal resize/maximize behavior.
-* `DiagnosticLogsPanel` keeps Diagnostics, Persisted logs, and Python
-  interpreter details behind collapsed, user-controlled headers at startup.
-  Rendering new results updates hidden content without opening a section;
-  `MainWindow` gives the inspector the right pane's surplus vertical space.
+* The right pane gives the inspector the surplus vertical space: the
+  diagnostics and history panels each open collapsed behind a checkable
+  header ("Diagnostics", "History") and the splitter starts at
+  `[1000, 40, 40]` (drag handles remain). User-initiated diagnostics results
+  (test outcome, logs/environment refresh, draft-test notice) expand the
+  Diagnostics panel automatically; `HistoryPanel.show_history` never expands.
+  Inside the Diagnostics panel, Diagnostics, Persisted logs, and Python
+  interpreter details stay behind their own collapsed headers and new results
+  do not open them.
 * The GUI's read path calls `list_agents()` (discovered plists plus
   catalog-only saved jobs) and `inspect_discovered()`, and the in-memory
   editor methods (`validate_job`, `generate_plist_for`, `save_managed_job`,

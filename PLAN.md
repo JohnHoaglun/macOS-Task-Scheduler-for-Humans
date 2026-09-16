@@ -2,7 +2,31 @@
 
 ## Current State
 
-### Approved v0.0.34 Consolidated Log Directory and Auto-Naming (2026-09-14)
+### Approved v0.0.35 Collapsed Diagnostics/History and Inspector Real Estate (2026-09-16)
+
+**Goal:** the main window's right pane opens with the diagnostics/history region (below the inspector) permanently consuming most of the height (splitter sizes 320/240/200: always-visible Environment group, three collapsed disclosure toggles, and history disclosure/state/Refresh chrome). The user wants the selected-task inspector to own the full inspector+diagnostics real estate; the diagnostics/history region should be collapsed by default behind slim expandable headers (user chose "Collapse by default").
+
+**Confirmed decisions:**
+- `DiagnosticLogsPanel` gains an outer collapsible header: a checkable `QToolButton` "Diagnostics" (object name `diagnostics-panel-toggle`) above a content widget (object name `diagnostics-panel-content`) holding the existing four sections. Content starts hidden (slim header only).
+- The outer header auto-expands only when a user-initiated outcome arrives: `show_notice` / `show_test_outcome` / `show_logs_outcome` / `show_environment_outcome` (invoked only by the Test Task action, the diagnostics Refresh button, and the Test Draft dialog's refuse/finish/refresh paths — never by selection changes).
+- The inner sections (Diagnostics / Persisted logs / Python interpreter toggles and the always-visible Environment group) keep their existing v0.0.26 behavior (collapsed at startup, never auto-expanded) and are otherwise unchanged.
+- `HistoryPanel` gains a collapsible header: a checkable `QToolButton` "History" (object name `history-toggle`) above a content widget (object name `history-content`) holding the disclosure/state/table/Refresh. Content starts hidden. `show_history` never auto-expands — it is called on every selection change, so auto-expanding would pop the pane open on each row click.
+- `MainWindow` right-pane splitter initial sizes become `[1000, 40, 40]` (was `[320, 240, 200]`) so the inspector owns the bulk of the right-pane height; handles stay draggable and expanding a header reveals its content (content taller than the pane's allocation is revealed by dragging — standard splitter behavior).
+- Badges, filters, and the inspector are unchanged; no existing child object names change (all `findChild` lookups keep working).
+
+**Parallelization decision:** single serial pass (solo work — cited blocker: one global pass over two widget files plus the host layout; the tests consume the same pinned object names; work smaller than delegation overhead).
+
+| Lane | Scope | Files owned | Stop condition |
+|---|---|---|---|
+| build (solo) | Panel headers, host layout, tests, docs, closeout | `gui/widgets/diagnostic_logs_panel.py`, `gui/widgets/history_panel.py`, `gui/main_window.py`, `tests/unit/gui/test_diagnostic_logs_panel.py`, `tests/unit/gui/test_history_panel.py`, `tests/unit/gui/test_main_window.py`, README, `docs/architecture.md` | `make check` green (full suite, ruff, mypy strict, 100% coverage), ratio ≤ 75%, version 0.0.34 → 0.0.35, commit, push |
+
+**Gates:** at startup the inspector owns the bulk of the right pane and both headers are slim (content hidden); the diagnostics header auto-expands on test/logs/environment outcomes while inner sections stay collapsed; the history header stays collapsed on selection changes; `make check` green with 100% coverage.
+
+**Blockers:** none.
+
+### Historical State (superseded by v0.0.35 above)
+
+#### v0.0.34 Consolidated Log Directory and Auto-Naming (2026-09-14)
 
 **Goal:** fix the v0.0.33 log-path under-delivery. Shipped behavior was two separate per-stream directory pickers (each field had its own Browse) with auto-naming only active after a per-field browse; the New Task dialog left the fields empty, so the task name never appeared in the log paths.
 
@@ -24,8 +48,6 @@
 **Gates:** New Task shows name-derived paths under the default root before any name is typed; renaming updates both paths; clearing the directory blanks both; external mode hides the directory row, keeps manual verbatim paths, and leaves dirty-field behavior untouched; no dead browse-mode code; no catalog writes or launchctl in tests.
 
 **Blockers:** none.
-
-### Historical State (superseded by v0.0.34 above)
 
 #### v0.0.33 UX and Crash-Safety Pass (2026-09-14)
 
