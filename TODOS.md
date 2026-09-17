@@ -1,4 +1,13 @@
-# TODOS.md (v0.0.36)
+# TODOS.md (v0.0.37)
+
+## Inspector Row-Clipping Fix and Readability Regression Gate (DONE — v0.0.37)
+
+User-reported (annotated screenshot, 2026-09-16 19:42, Retina 2564×1872 px ≈ 1282×936 pt window): the inspector's Overview and Command group boxes are "unusable / not readable" — long wrapped values (Name/Label/Source; the multi-line hermes command) are cut at the top of their rows and collide with the rows below. User process directive: "you need to catch stuff like that in your testing" — add a regression gate for this bug class.
+
+- [x] `gui/widgets/agent_inspector.py`: Overview + Command groups rebuilt from `QFormLayout` rows to `QGridLayout` via `_grid_rows` (column 0 = single-line right-aligned non-wrapping `_row_label` that always fits the widest label; column 1 = stretched word-wrapping value, so row height follows the value's `heightForWidth` by construction); `QFormLayout` import removed; docstring records the no-clipping invariant
+- [x] Tests: `TestInspectorReadability` in `test_main_window.py` — real `MainWindow` at 1282×936, wide app font (Helvetica 18, saved/restored) active at construction (the user's display context), managed task selected, user's real long values set after the initial layout pass; asserts no vertically clipped wrapped label (`height >= heightForWidth(width)`) and no horizontally clipped non-wrapping label (`width >= horizontalAdvance(text)`); disclosed in SUMMARY: stable offscreen runs do not reproduce the Retina timing-specific clip (test also passes pre-fix in a stable run) — the gate enforces the contract, the grid rebuild removes the fragile heuristic
+- [x] Docs: `docs/architecture.md` right-pane layout paragraph (grid rows + readability gate)
+- [x] Closeout: `make check` (full suite + ruff + mypy strict + 100% coverage — 600 tests, 6,992 statements), ratio 9,965:13,387 = 74.44% (under cap), version 0.0.36 → 0.0.37 (all 4 registry locations), stale-version grep, SUMMARY/PROJECT/TODOS, commit, push
 
 ## Main-Window Layout Second Pass: Badge-Strip Removal and Readable Inspector (DONE — v0.0.36)
 

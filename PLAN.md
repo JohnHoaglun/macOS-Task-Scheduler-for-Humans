@@ -2,7 +2,29 @@
 
 ## Current State
 
-### Approved v0.0.36 Main-Window Layout Second Pass: Badge-Strip Removal and Readable Inspector (2026-09-16)
+### Approved v0.0.37 Inspector Row-Clipping Fix and Readability Regression Gate (2026-09-16)
+
+**Goal:** user's third annotated screenshot (19:42, Retina 2564×1872 px = ~1282×936 pt window): the **Overview** and **Command** group boxes in the inspector are unusable — wrapped multi-line values (Name/Label/Source; the long hermes command) are cut at the top of their row and collide with the rows below. Root cause (reproduced offscreen with the real `MainWindow` at 1282×936 + a wider font that forces wrapping): `QFormLayout` does not honor `heightForWidth` for word-wrapped row labels in this window context — the label column collapses to the 100 px minimum, row labels wrap (e.g. "Working directory" needs 120 px at the wide font, row gets 30 px), and at the user's SF Pro scale the squeezed value rows are the clipped ones. Secondary user request: **this class of layout bug must be caught by the test suite**, not discovered in the field.
+
+**Confirmed decisions:**
+- Rebuild the `AgentInspector` Overview and Command groups from `QFormLayout` rows to a `QGridLayout`: column 0 holds a non-wrapping, right-aligned row label (`setWordWrap(False)`) sized to the widest label text (no wrap, no clip); column 1 (`setColumnStretch(1, 1)`) holds the word-wrapped value label filling the cell. Row height therefore always equals the value's `heightForWidth` — nothing is ever clipped vertically. Schedule / Environment / Warnings / Advanced are untouched.
+- Add an offscreen **readability invariant test** to `test_main_window.py` (`TestInspectorReadability`): real `MainWindow` + selected managed task, then a wide per-widget font on the inspector (deterministic wrap, no global font mutation); assert (a) every visible word-wrapped label has `height >= heightForWidth(width)` (nothing vertically clipped) and (b) every non-wrapping row label fits its text on one line (`width >= fontMetrics().horizontalAdvance(text)`).
+- **Standing gate (project rule, from the user's process feedback):** any GUI layout change ships with an offscreen readability invariant test — font wide enough to force wrapping, asserting no clipped labels — before closeout.
+- Version 0.0.36 → 0.0.37; standard closeout (make check, 100% coverage, ratio ≤ 75%, docs, commit, push).
+
+**Parallelization decision:** single serial pass (solo work — cited blocker: one widget file plus its host test; smaller than delegation overhead).
+
+| Lane | Scope | Files owned | Stop condition |
+|---|---|---|---|
+| build (solo) | Inspector grid rows, readability test, docs, closeout | `gui/widgets/agent_inspector.py`, `tests/unit/gui/test_main_window.py`, `docs/architecture.md` | `make check` green (full suite, ruff, mypy strict, 100% coverage), ratio ≤ 75%, zero clipped labels under the wide-font invariant, version 0.0.36 → 0.0.37, commit, push |
+
+**Gates:** wide-font offscreen run of the real window shows zero clipped labels (the v0.0.36 run showed 1+); the new `TestInspectorReadability` fails on the old `QFormLayout` code and passes on the grid code (red/green verified); `make check` green with 100% coverage.
+
+**Blockers:** none.
+
+### Historical State (superseded by v0.0.37 above)
+
+#### v0.0.36 Main-Window Layout Second Pass: Badge-Strip Removal and Readable Inspector (2026-09-16)
 
 **Goal:** user's second annotated screenshot (19:03, after v0.0.35 shipped) reports three layout problems in the main window: (1) the five-pill **badge strip** at the top of the right pane "offers no value" — its pills duplicate the table's Classification/State columns and the inspector's own rows; (2) the **inspector** is not readable — long non-wrapping values (Source path, Name/Label, preview heading) are clipped at the pane's right edge and the inspector's QScrollArea shows a horizontal scrollbar; (3) the rightmost ~third of the **left task-list pane is empty** (the table columns end before the pane edge) — "wasted space that could be used for [the inspector] to extend into".
 

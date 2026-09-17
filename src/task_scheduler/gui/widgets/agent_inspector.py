@@ -7,7 +7,7 @@ from datetime import datetime
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QFormLayout,
+    QGridLayout,
     QGroupBox,
     QLabel,
     QScrollArea,
@@ -49,6 +49,9 @@ class AgentInspector(QWidget):
 
     Every value word-wraps and the scroll area never shows a horizontal
     scrollbar, so long paths/commands are always fully readable at any width.
+    The Overview/Command rows use a grid with single-line row labels: the
+    label column always fits the widest label and each row's height follows
+    the wrapped value's ``heightForWidth``, so nothing is ever clipped.
     """
 
     def __init__(
@@ -83,6 +86,25 @@ class AgentInspector(QWidget):
             label.setWordWrap(True)
         return label
 
+    def _row_label(self, text: str) -> QLabel:
+        """A single-line, right-aligned row label that never wraps or clips."""
+        label = QLabel(text, self)
+        label.setWordWrap(False)
+        label.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
+        return label
+
+    def _grid_rows(
+        self, box: QGroupBox, rows: tuple[tuple[str, QLabel], ...]
+    ) -> None:
+        """Lay (label, value) rows out: labels fit their text, values stretch."""
+        grid = QGridLayout(box)
+        grid.setColumnStretch(1, 1)
+        for row, (text, value) in enumerate(rows):
+            grid.addWidget(self._row_label(text), row, 0)
+            grid.addWidget(value, row, 1)
+
     def _build_overview(self) -> QGroupBox:
         """The Overview group: identity, classification, and state fields."""
         box = QGroupBox("Overview")
@@ -95,14 +117,18 @@ class AgentInspector(QWidget):
             "enabled": self._field("overview-enabled", wrap=True),
             "loaded": self._field("overview-loaded", wrap=True),
         }
-        form = QFormLayout(box)
-        form.addRow("Name", self._overview["name"])
-        form.addRow("Label", self._overview["label"])
-        form.addRow("Classification", self._overview["classification"])
-        form.addRow("Source", self._overview["source"])
-        form.addRow("State", self._overview["state"])
-        form.addRow("Enabled", self._overview["enabled"])
-        form.addRow("Loaded", self._overview["loaded"])
+        self._grid_rows(
+            box,
+            (
+                ("Name", self._overview["name"]),
+                ("Label", self._overview["label"]),
+                ("Classification", self._overview["classification"]),
+                ("Source", self._overview["source"]),
+                ("State", self._overview["state"]),
+                ("Enabled", self._overview["enabled"]),
+                ("Loaded", self._overview["loaded"]),
+            ),
+        )
         return box
 
     def _build_command(self) -> QGroupBox:
@@ -112,9 +138,13 @@ class AgentInspector(QWidget):
             "command": self._field("command-command", wrap=True),
             "working_directory": self._field("command-working-directory", wrap=True),
         }
-        form = QFormLayout(box)
-        form.addRow("Command", self._command["command"])
-        form.addRow("Working directory", self._command["working_directory"])
+        self._grid_rows(
+            box,
+            (
+                ("Command", self._command["command"]),
+                ("Working directory", self._command["working_directory"]),
+            ),
+        )
         return box
 
     def _build_schedule(self) -> QGroupBox:

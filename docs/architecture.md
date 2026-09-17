@@ -621,7 +621,13 @@ diagnostics, history) directly — the read-only five-pill badge strip was
 removed in v0.0.36 because its values duplicate the table and inspector.
 The central horizontal splitter starts at `[400, 600]` so the inspector owns
 the majority of the window width, and the inspector word-wraps every value
-with the horizontal scrollbar disabled so nothing is ever clipped.
+with the horizontal scrollbar disabled so nothing is ever clipped. The
+Overview and Command groups lay their rows out in a `QGridLayout` — a
+single-line, right-aligned, non-wrapping label in column 0 (which therefore
+always fits the widest label) and the word-wrapping value in a stretched
+column 1 — so each row's height follows the wrapped value's
+`heightForWidth` and no label is ever vertically or horizontally clipped.
+A wide-font offscreen test enforces that invariant on every inspector label.
 `HistoryPanel` fixes
 Time/Type/Result widths at 140/100/90 pixels, gives its table a 160-pixel
 minimum height, and leaves Details stretched.

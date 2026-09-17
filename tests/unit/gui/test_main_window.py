@@ -9,7 +9,7 @@ from uuid import UUID
 
 import pytest
 from PySide6.QtCore import QItemSelection, QModelIndex, Qt, QThread, QTimer
-from PySide6.QtGui import QCloseEvent
+from PySide6.QtGui import QCloseEvent, QFont
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -530,6 +530,56 @@ class TestDiagnosticsTrigger:
             timeout=5000,
         )
         assert _panel_text(window, "diagnostics-summary") == ("Passed (exit code 0) in 0.00s")
+
+
+class TestInspectorReadability:
+    """Wrapped inspector text must never be vertically clipped.
+
+    A wide per-widget font forces wrapping the same way the user's Retina
+    display does, so the layout invariant is checked deterministically
+    offscreen instead of discovered in the field.
+    """
+
+    def test_no_inspector_label_is_clipped_when_text_wraps(
+        self, qtbot: QtBot, tmp_path: Path
+    ) -> None:
+        app = QApplication.instance()
+        assert app is not None
+        saved_font = app.font()
+        app.setFont(QFont("Helvetica", 18))
+        try:
+            world, managed, *_ = _seed_three(tmp_path)
+            window = _window(qtbot, DiscoveryController(world.services))
+            window.resize(1282, 936)
+            _select_managed(world, window, managed)
+            inspector = window.inspector
+            # Worst case: the user's long values, set after the initial pass.
+            _value_label(inspector, "overview-name").setText(
+                "ai.hermes.gateway-researcher"
+            )
+            _value_label(inspector, "overview-source").setText(
+                "/Users/johnhoaglun/Library/LaunchAgents/"
+                "ai.hermes.gateway-researcher.plist"
+            )
+            _value_label(inspector, "command-command").setText(
+                "/Users/johnhoaglun/.hermes/hermes-agent/venv/bin/python -m "
+                "hermes_cli.main --profile researcher gateway run --reload"
+            )
+            app.processEvents()
+            app.processEvents()
+            for label in inspector.findChildren(QLabel):
+                if not label.isVisible():
+                    continue
+                if label.wordWrap():
+                    assert label.height() >= label.heightForWidth(
+                        label.width()
+                    ), label.objectName()
+                else:
+                    assert label.width() >= label.fontMetrics().horizontalAdvance(
+                        label.text()
+                    ), label.text()
+        finally:
+            app.setFont(saved_font)
 
 
 class TestHistoryPanelWiring:
