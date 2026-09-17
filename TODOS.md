@@ -1,4 +1,15 @@
-# TODOS.md (v0.0.35)
+# TODOS.md (v0.0.36)
+
+## Main-Window Layout Second Pass: Badge-Strip Removal and Readable Inspector (DONE — v0.0.36)
+
+User-reported (screenshot, 2026-09-16 19:03, after v0.0.35): (1) the right-pane badge strip "offers no value" — pills duplicate the table's Classification/State and the inspector rows; (2) the inspector is not readable — long values (Source path, Name/Label, preview heading) clip at the pane edge and the inspector shows a horizontal scrollbar; (3) the rightmost ~third of the left pane is empty — give that space to the inspector.
+
+- [x] `gui/main_window.py`: remove `_badge_strip`/`_badges` construction, `right_layout` row, `_populate_badges` + its call sites, and the `agent_badges`/`AgentBadge`/`QHBoxLayout` imports; central horizontal splitter initial sizes `[600, 400]` → `[400, 600]`
+- [x] Delete `gui/widgets/agent_badge.py`; from `gui/presenters/agent_badge_presenter.py` remove `agent_badges`/`BadgeDescriptor`/`AgentBadgeSet`/tooltip helpers, keep `dimensions` + `AgentDimensions`
+- [x] `gui/widgets/agent_inspector.py`: word-wrap the seven Overview fields + `schedule-preview-heading`; `QScrollArea.setHorizontalScrollBarPolicy(ScrollBarAlwaysOff)`
+- [x] Tests: delete `test_agent_badge.py` + `test_agent_badge_presenter.py`; main-window tests assert no badge strip + right pane larger than left; inspector tests assert wrap + no horizontal scrollbar
+- [x] Docs: `docs/architecture.md` (right-pane layout, GUI filtering contract, eager loaded-status refresh)
+- [x] Closeout: `make check` (full suite + ruff + mypy strict + 100% coverage — 599 tests), ratio 9,915:13,357 = 74.23% (under cap), version 0.0.35 → 0.0.36 (all 4 registry locations), stale-version grep, SUMMARY/PROJECT/TODOS, commit, push
 
 ## Collapsed Diagnostics/History and Inspector Real Estate (DONE — v0.0.35)
 

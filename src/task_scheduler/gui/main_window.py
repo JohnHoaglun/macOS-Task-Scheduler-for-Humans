@@ -13,7 +13,6 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QFileDialog,
-    QHBoxLayout,
     QMainWindow,
     QMessageBox,
     QSplitter,
@@ -65,10 +64,8 @@ from task_scheduler.gui.controllers.lifecycle_controller import (
 from task_scheduler.gui.controllers.lifecycle_worker import LifecycleWorker
 from task_scheduler.gui.models.agent_filter_proxy_model import AgentFilterProxyModel
 from task_scheduler.gui.models.agent_table_model import AgentTableModel
-from task_scheduler.gui.presenters.agent_badge_presenter import agent_badges
 from task_scheduler.gui.presenters.agent_presenter import shell_safe_command
 from task_scheduler.gui.presenters.history_presenter import HISTORY_NOT_APPLICABLE
-from task_scheduler.gui.widgets.agent_badge import AgentBadge
 from task_scheduler.gui.widgets.agent_empty_state import AgentEmptyState
 from task_scheduler.gui.widgets.agent_filter_controls import AgentFilterControls
 from task_scheduler.gui.widgets.agent_inspector import AgentInspector
@@ -203,20 +200,11 @@ class MainWindow(QMainWindow):
         self._filter_controls = AgentFilterControls(self)
         self._filter_controls.attach(self._proxy)
         self._empty_state = AgentEmptyState(self)
-        self._badge_strip = QWidget()
-        self._badge_strip.setObjectName("agent-badge-strip")
-        self._badge_layout = QHBoxLayout(self._badge_strip)
-        self._badge_layout.setContentsMargins(0, 0, 0, 0)
-        self._badges = [AgentBadge() for _ in range(5)]
-        for badge in self._badges:
-            self._badge_layout.addWidget(badge)
-        self._badge_strip.hide()
         self.inspector = AgentInspector()
         self.panel = DiagnosticLogsPanel()
         right_pane = QWidget()
         right_layout = QVBoxLayout(right_pane)
         right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.addWidget(self._badge_strip)
         self.history_panel = HistoryPanel()
         self._right_splitter = QSplitter(Qt.Orientation.Vertical, right_pane)
         self._right_splitter.addWidget(self.inspector)
@@ -227,7 +215,7 @@ class MainWindow(QMainWindow):
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self.table)
         splitter.addWidget(right_pane)
-        splitter.setSizes([600, 400])
+        splitter.setSizes([400, 600])
         central = QWidget()
         central_layout = QVBoxLayout(central)
         central_layout.setContentsMargins(0, 0, 0, 0)
@@ -333,7 +321,6 @@ class MainWindow(QMainWindow):
             self.inspector.show_error(outcome.error)
             self.statusBar().showMessage(outcome.error)
             self._update_empty_state()
-            self._populate_badges(None)
             self._update_lifecycle_actions()
             return
         if not outcome.agents:
@@ -341,7 +328,6 @@ class MainWindow(QMainWindow):
             self.inspector.show_placeholder("No tasks found.")
             self.statusBar().clearMessage()
             self._update_empty_state()
-            self._populate_badges(None)
             self._update_lifecycle_actions()
             return
         previous = self._selected_listing()
@@ -350,7 +336,6 @@ class MainWindow(QMainWindow):
         row = self._row_for_identity(previous)
         if row < self._proxy.rowCount():
             self.table.setCurrentIndex(self._proxy.index(row, 0))
-        self._populate_badges(self._selected_listing())
         self.statusBar().clearMessage()
         self._update_lifecycle_actions()
 
@@ -570,12 +555,10 @@ class MainWindow(QMainWindow):
         if not rows:
             self.inspector.show_placeholder("Select a task to inspect its details.")
             self.history_panel.show_history(HistoryOutcome(label="", events=()))
-            self._populate_badges(None)
             self._update_lifecycle_actions()
             return
         listing = self._listing_at_table_row(rows[0])
         if listing is None:
-            self._populate_badges(None)
             self._update_lifecycle_actions()
             return
         if listing.kind is ListingKind.SAVED:
@@ -584,18 +567,15 @@ class MainWindow(QMainWindow):
                 self.history_panel.show_history(
                     self._history_controller.history_for(listing.job.label)
                 )
-            self._populate_badges(listing)
             self._update_lifecycle_actions()
             return
         result = self._controller.inspect(listing)
         if result.error is not None:
             self.inspector.show_error(result.error)
-            self._populate_badges(None)
             self._update_lifecycle_actions()
             return
         assert result.report is not None
         self.inspector.show_agent(listing, result.report, diagnostics=result.diagnostics)
-        self._populate_badges(listing)
         self._update_lifecycle_actions()
         if listing.managed and listing.job is not None:
             self.history_panel.show_history(self._history_controller.history_for(listing.job.label))
@@ -999,23 +979,6 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"Import failed: {result.error}")
             return
         self.refresh()
-
-    def _populate_badges(self, listing: TaskListing | None) -> None:
-        """Render the five status badges for *listing* in the right-pane strip."""
-        if listing is None:
-            self._badge_strip.hide()
-            return
-        self._badge_strip.show()
-        badge_set = agent_badges(listing)
-        descriptors = (
-            badge_set.state,
-            badge_set.installed,
-            badge_set.enabled,
-            badge_set.loaded,
-            badge_set.command,
-        )
-        for badge, descriptor in zip(self._badges, descriptors, strict=True):
-            badge.set_descriptor(descriptor)
 
     def _on_lifecycle_triggered(self, action: LifecycleAction) -> None:
         """Route to the external controls or the managed lifecycle worker."""

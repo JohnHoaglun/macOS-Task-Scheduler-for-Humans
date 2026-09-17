@@ -1,4 +1,4 @@
-"""Pure badge presenter for agent rows (no Qt dependency)."""
+"""Pure filter-dimension presenter for agent rows (no Qt dependency)."""
 
 from __future__ import annotations
 
@@ -10,15 +10,6 @@ from task_scheduler.gui.presenters.agent_presenter import classify, enabled_stat
 
 
 @dataclass(frozen=True, slots=True)
-class BadgeDescriptor:
-    """A single badge with text, accessible name, and optional tooltip."""
-
-    text: str
-    accessible_name: str
-    tooltip: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
 class AgentDimensions:
     """State of one agent row across five filterable dimensions."""
 
@@ -27,17 +18,6 @@ class AgentDimensions:
     enabled: str
     loaded: str
     command: str
-
-
-@dataclass(frozen=True, slots=True)
-class AgentBadgeSet:
-    """All five badge descriptors for one agent row."""
-
-    state: BadgeDescriptor
-    installed: BadgeDescriptor
-    enabled: BadgeDescriptor
-    loaded: BadgeDescriptor
-    command: BadgeDescriptor
 
 
 def dimensions(listing: TaskListing) -> AgentDimensions:
@@ -66,88 +46,7 @@ def dimensions(listing: TaskListing) -> AgentDimensions:
     )
 
 
-def agent_badges(listing: TaskListing) -> AgentBadgeSet:
-    """Build a BadgeSet for *listing* with human-friendly tooltips."""
-    dims = dimensions(listing)
-
-    state = BadgeDescriptor(
-        text=dims.state,
-        accessible_name=f"State: {dims.state}",
-        tooltip=_state_tooltip(dims.state),
-    )
-    installed = BadgeDescriptor(
-        text=dims.installed,
-        accessible_name=f"Installed: {dims.installed}",
-        tooltip=_installed_tooltip(dims.installed),
-    )
-    enabled = BadgeDescriptor(
-        text=dims.enabled,
-        accessible_name=f"Enabled: {dims.enabled}",
-        tooltip=_enabled_tooltip(dims.enabled),
-    )
-    loaded = BadgeDescriptor(
-        text=dims.loaded,
-        accessible_name=f"Loaded: {dims.loaded}",
-        tooltip=_loaded_tooltip(dims.loaded),
-    )
-    command = BadgeDescriptor(
-        text=dims.command,
-        accessible_name=f"Command: {dims.command}",
-        tooltip=_command_tooltip(dims.command),
-    )
-    return AgentBadgeSet(
-        state=state,
-        installed=installed,
-        enabled=enabled,
-        loaded=loaded,
-        command=command,
-    )
-
-
-def _state_tooltip(value: str) -> str | None:
-    if value == "Managed":
-        return "Managed by the task catalog"
-    if value == "External":
-        return "Third-party LaunchAgent, not managed by the catalog"
-    return "Invalid or unrecognized agent"
-
-
-def _installed_tooltip(value: str) -> str | None:
-    if value == "saved":
-        return "Job saved in the catalog but not deployed as a plist"
-    return "Plist discovered in the LaunchAgents directory"
-
-
-def _enabled_tooltip(value: str) -> str | None:
-    if value == "enabled":
-        return "Job is configured to run"
-    if value == "disabled":
-        return "Job is configured but disabled"
-    return "Enabled state could not be determined"
-
-
-def _loaded_tooltip(value: str) -> str | None:
-    if value == "loaded":
-        return "Job is currently loaded in launchd"
-    if value == "not loaded":
-        return "Job is installed but not loaded in launchd"
-    return "Load status is unknown"
-
-
-def _command_tooltip(value: str) -> str | None:
-    if value == "python":
-        return "Python script command"
-    if value == "shell":
-        return "Shell command"
-    if value == "executable":
-        return "Direct executable command"
-    return "Command type could not be determined"
-
-
 __all__ = [
-    "AgentBadgeSet",
     "AgentDimensions",
-    "BadgeDescriptor",
-    "agent_badges",
     "dimensions",
 ]

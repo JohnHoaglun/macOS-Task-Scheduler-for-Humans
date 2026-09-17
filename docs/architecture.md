@@ -616,8 +616,13 @@ child `QThread` (the native Qt warning captured in `app.log` was `QObject:
 shared QObject was deleted directly`). `MainWindow` tracks every lifecycle,
 external-control, and diagnostics worker thread; its close event requests
 quit, waits up to 10 seconds in total, and refuses window destruction if a
-blocking worker remains. The right pane keeps its badge strip above a vertical
-splitter containing inspector, diagnostics, and history. `HistoryPanel` fixes
+blocking worker remains. The right pane is the vertical splitter (inspector,
+diagnostics, history) directly — the read-only five-pill badge strip was
+removed in v0.0.36 because its values duplicate the table and inspector.
+The central horizontal splitter starts at `[400, 600]` so the inspector owns
+the majority of the window width, and the inspector word-wraps every value
+with the horizontal scrollbar disabled so nothing is ever clipped.
+`HistoryPanel` fixes
 Time/Type/Result widths at 140/100/90 pixels, gives its table a 160-pixel
 minimum height, and leaves Details stretched.
 
@@ -944,8 +949,9 @@ capability is GUI-only: there is no CLI command for it.
 `TaskListing` gains the `loaded: bool | None` field (True = loaded in
 launchd, False = not loaded, None = unknown/unavailable), enabling global
 truthful filtering.  `list_agents()` now performs an eager read-only
-`launchctl print` for every eligible discovered listing so badges and
-filters are accurate — one status call per discovered task.  Saved-only
+`launchctl print` for every eligible discovered listing so the table's state
+values and the filters are accurate — one status call per discovered task.
+Saved-only
 and invalid/unparseable listings carry `None` (no query issued).
 
 `AgentTableModel` exposes typed data roles via constants (`ROLE_STATE`,
@@ -966,8 +972,8 @@ shell-quoted command.  Each active filter group must match (AND across
 groups); selecting multiple values within one group broadens that group
 (OR within a group).  Each row has exactly one value per group, so every
 row matches exactly one option per group and no row is dropped for being
-unknown.  A pure badge presenter provides the visible text, accessible name,
-and tooltip fallback for each group's values.
+unknown.  A pure dimensions presenter (`agent_badge_presenter.dimensions`)
+extracts each group's value from a listing.
 
 The empty-state widgets distinguish "No tasks found." (zero source rows)
 from "No matching tasks." with a Clear Filters action (zero proxy rows).
@@ -978,8 +984,8 @@ action calls receive source indexes, never proxy indexes.
 
 The loaded status is refreshed eagerly during `list_agents()` by reading
 each eligible discovered agent's launchd state — a single read-only
-`launchctl print` per discovered task.  This ensures the badge presenter's
-loaded/not-loaded indicators are globally truthful at the moment of listing.
+`launchctl print` per discovered task.  This ensures the filter dimensions'
+loaded/not-loaded values are globally truthful at the moment of listing.
 The refresh is read-only: no `launchctl` enable/disable/modify operations
 are issued, and no history events are recorded for the internal status
 calls.

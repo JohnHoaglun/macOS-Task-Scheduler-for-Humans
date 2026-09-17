@@ -8,7 +8,7 @@ from pathlib import Path
 from uuid import UUID
 
 import pytest
-from PySide6.QtCore import QItemSelection, QModelIndex, QThread, QTimer
+from PySide6.QtCore import QItemSelection, QModelIndex, Qt, QThread, QTimer
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QApplication,
@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QSplitter,
 )
 from pytestqt.qtbot import QtBot
 from tests.fakes import FakeTaskWorld
@@ -547,6 +548,47 @@ class TestHistoryPanelWiring:
         # Collapsed diagnostics/history: the inspector owns the bulk of the pane.
         sizes = splitter.sizes()
         assert sizes[0] > sizes[1] and sizes[0] > sizes[2]
+
+    def test_inspector_pane_is_wider_than_the_task_list(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """The freed list-pane space goes to the inspector: right starts larger."""
+        world, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        splitter = next(
+            s
+            for s in window.centralWidget().findChildren(QSplitter)
+            if s.orientation() == Qt.Orientation.Horizontal
+        )
+        assert splitter.widget(0) is window.table
+        assert splitter.sizes()[1] > splitter.sizes()[0]
+
+    def test_right_pane_has_no_badge_strip(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """The value-less status pills are gone; the pane is splitter-only."""
+        world, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        assert window.findChild(object, "agent-badge-strip") is None
+
+    def test_inspector_values_wrap_without_horizontal_scrollbar(
+        self, qtbot: QtBot, tmp_path: Path
+    ) -> None:
+        """Long values wrap; nothing can be clipped at the inspector's edge."""
+        world, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        scroll = window.inspector.findChild(QScrollArea)
+        assert scroll is not None
+        assert scroll.horizontalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        wrapped = (
+            "overview-name",
+            "overview-label",
+            "overview-classification",
+            "overview-source",
+            "overview-state",
+            "overview-enabled",
+            "overview-loaded",
+            "schedule-preview-heading",
+        )
+        for name in wrapped:
+            label = window.inspector.findChild(QLabel, name)
+            assert label is not None and label.wordWrap()
 
     def test_close_stops_tracked_worker_threads(
         self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

@@ -45,7 +45,11 @@ __all__ = ["AgentInspector"]
 
 
 class AgentInspector(QWidget):
-    """Read-only details panel for the selected discovered agent."""
+    """Read-only details panel for the selected discovered agent.
+
+    Every value word-wraps and the scroll area never shows a horizontal
+    scrollbar, so long paths/commands are always fully readable at any width.
+    """
 
     def __init__(
         self, parent: QWidget | None = None, *, clock: Callable[[], datetime] | None = None
@@ -56,6 +60,7 @@ class AgentInspector(QWidget):
         self._message.setWordWrap(True)
         self._scroll = QScrollArea(self)
         self._scroll.setWidgetResizable(True)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         content = QWidget()
         content_layout = QVBoxLayout(content)
         content_layout.addWidget(self._build_overview())
@@ -82,13 +87,13 @@ class AgentInspector(QWidget):
         """The Overview group: identity, classification, and state fields."""
         box = QGroupBox("Overview")
         self._overview = {
-            "name": self._field("overview-name"),
-            "label": self._field("overview-label"),
-            "classification": self._field("overview-classification"),
-            "source": self._field("overview-source"),
-            "state": self._field("overview-state"),
-            "enabled": self._field("overview-enabled"),
-            "loaded": self._field("overview-loaded"),
+            "name": self._field("overview-name", wrap=True),
+            "label": self._field("overview-label", wrap=True),
+            "classification": self._field("overview-classification", wrap=True),
+            "source": self._field("overview-source", wrap=True),
+            "state": self._field("overview-state", wrap=True),
+            "enabled": self._field("overview-enabled", wrap=True),
+            "loaded": self._field("overview-loaded", wrap=True),
         }
         form = QFormLayout(box)
         form.addRow("Name", self._overview["name"])
@@ -116,7 +121,7 @@ class AgentInspector(QWidget):
         """The Schedule group: the schedule line plus the next-run preview block."""
         box = QGroupBox("Schedule")
         self._schedule_text = self._field("schedule-text", wrap=True)
-        self._preview_heading = self._field("schedule-preview-heading")
+        self._preview_heading = self._field("schedule-preview-heading", wrap=True)
         self._preview_disclosure = self._field("schedule-preview-disclosure", wrap=True)
         self._preview_occurrences = self._field("schedule-preview-occurrences", wrap=True)
         layout = QVBoxLayout(box)

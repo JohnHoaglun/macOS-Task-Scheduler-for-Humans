@@ -2,29 +2,28 @@
 
 ## Current State
 
-### Approved v0.0.35 Collapsed Diagnostics/History and Inspector Real Estate (2026-09-16)
+### Approved v0.0.36 Main-Window Layout Second Pass: Badge-Strip Removal and Readable Inspector (2026-09-16)
 
-**Goal:** the main window's right pane opens with the diagnostics/history region (below the inspector) permanently consuming most of the height (splitter sizes 320/240/200: always-visible Environment group, three collapsed disclosure toggles, and history disclosure/state/Refresh chrome). The user wants the selected-task inspector to own the full inspector+diagnostics real estate; the diagnostics/history region should be collapsed by default behind slim expandable headers (user chose "Collapse by default").
+**Goal:** user's second annotated screenshot (19:03, after v0.0.35 shipped) reports three layout problems in the main window: (1) the five-pill **badge strip** at the top of the right pane "offers no value" — its pills duplicate the table's Classification/State columns and the inspector's own rows; (2) the **inspector** is not readable — long non-wrapping values (Source path, Name/Label, preview heading) are clipped at the pane's right edge and the inspector's QScrollArea shows a horizontal scrollbar; (3) the rightmost ~third of the **left task-list pane is empty** (the table columns end before the pane edge) — "wasted space that could be used for [the inspector] to extend into".
 
 **Confirmed decisions:**
-- `DiagnosticLogsPanel` gains an outer collapsible header: a checkable `QToolButton` "Diagnostics" (object name `diagnostics-panel-toggle`) above a content widget (object name `diagnostics-panel-content`) holding the existing four sections. Content starts hidden (slim header only).
-- The outer header auto-expands only when a user-initiated outcome arrives: `show_notice` / `show_test_outcome` / `show_logs_outcome` / `show_environment_outcome` (invoked only by the Test Task action, the diagnostics Refresh button, and the Test Draft dialog's refuse/finish/refresh paths — never by selection changes).
-- The inner sections (Diagnostics / Persisted logs / Python interpreter toggles and the always-visible Environment group) keep their existing v0.0.26 behavior (collapsed at startup, never auto-expanded) and are otherwise unchanged.
-- `HistoryPanel` gains a collapsible header: a checkable `QToolButton` "History" (object name `history-toggle`) above a content widget (object name `history-content`) holding the disclosure/state/table/Refresh. Content starts hidden. `show_history` never auto-expands — it is called on every selection change, so auto-expanding would pop the pane open on each row click.
-- `MainWindow` right-pane splitter initial sizes become `[1000, 40, 40]` (was `[320, 240, 200]`) so the inspector owns the bulk of the right-pane height; handles stay draggable and expanding a header reveals its content (content taller than the pane's allocation is revealed by dragging — standard splitter behavior).
-- Badges, filters, and the inspector are unchanged; no existing child object names change (all `findChild` lookups keep working).
+- Remove the badge strip entirely: `MainWindow` loses the `_badge_strip`/`_badges` construction, its `right_layout` row, `_populate_badges` and its eight call sites, and the `agent_badges`/`AgentBadge` imports. Delete `gui/widgets/agent_badge.py` + `tests/unit/gui/test_agent_badge.py` (3-line stub) + `tests/unit/gui/test_agent_badge_presenter.py` (both tests exercise only `agent_badges`). From `gui/presenters/agent_badge_presenter.py` remove `agent_badges`, `BadgeDescriptor`, `AgentBadgeSet`, and the five `_*_tooltip` helpers; **keep `dimensions` + `AgentDimensions`** (consumed by `agent_table_model.py` and `agent_filter_proxy_model.py` for the filterable table dimensions).
+- Make the inspector fully readable at any width: every value label word-wraps — the seven Overview fields (name, label, classification, source, state, enabled, loaded) and `schedule-preview-heading` gain `wrap=True` (command, schedule text, preview disclosure/occurrences, environment, and warnings already wrap); additionally the inspector's `QScrollArea` sets `horizontalScrollBarPolicy(ScrollBarAlwaysOff)` so no value can ever be clipped horizontally (vertical scrolling unchanged).
+- Reallocate the left/right panes: the central horizontal splitter's initial sizes become `[400, 600]` (was `[600, 400]`), giving the inspector ~60% of the window width; the table keeps `setStretchLastSection(True)` and the drag handle stays.
 
-**Parallelization decision:** single serial pass (solo work — cited blocker: one global pass over two widget files plus the host layout; the tests consume the same pinned object names; work smaller than delegation overhead).
+**Parallelization decision:** single serial pass (solo work — cited blocker: one coupled surface: host layout + two widget changes + their tests; smaller than delegation overhead).
 
 | Lane | Scope | Files owned | Stop condition |
 |---|---|---|---|
-| build (solo) | Panel headers, host layout, tests, docs, closeout | `gui/widgets/diagnostic_logs_panel.py`, `gui/widgets/history_panel.py`, `gui/main_window.py`, `tests/unit/gui/test_diagnostic_logs_panel.py`, `tests/unit/gui/test_history_panel.py`, `tests/unit/gui/test_main_window.py`, README, `docs/architecture.md` | `make check` green (full suite, ruff, mypy strict, 100% coverage), ratio ≤ 75%, version 0.0.34 → 0.0.35, commit, push |
+| build (solo) | Strip removal, inspector wrap/no-hscroll, splitter reallocation, tests, docs, closeout | `gui/main_window.py`, `gui/widgets/agent_inspector.py`, `gui/widgets/agent_badge.py` (delete), `gui/presenters/agent_badge_presenter.py`, `tests/unit/gui/test_main_window.py`, `tests/unit/gui/test_agent_inspector.py` (if present), `tests/unit/gui/test_agent_badge.py` (delete), `tests/unit/gui/test_agent_badge_presenter.py` (delete), `docs/architecture.md` | `make check` green (full suite, ruff, mypy strict, 100% coverage), ratio ≤ 75%, version 0.0.35 → 0.0.36, commit, push |
 
-**Gates:** at startup the inspector owns the bulk of the right pane and both headers are slim (content hidden); the diagnostics header auto-expands on test/logs/environment outcomes while inner sections stay collapsed; the history header stays collapsed on selection changes; `make check` green with 100% coverage.
+**Gates:** `findChild(object, "agent-badge-strip")` is `None` and no `agent_badge`/`agent_badges` imports remain outside the dimensions API; inspector scroll area reports `ScrollBarAlwaysOff` horizontally and all value labels have `wordWrap()`; the central horizontal splitter's right pane is larger than the left at startup; `make check` green with 100% coverage; `docs/architecture.md` no longer describes the right-pane badge strip.
 
 **Blockers:** none.
 
-### Historical State (superseded by v0.0.35 above)
+### Historical State (superseded by v0.0.36 above)
+
+#### v0.0.35 Collapsed Diagnostics/History and Inspector Real Estate (2026-09-16)
 
 #### v0.0.34 Consolidated Log Directory and Auto-Naming (2026-09-14)
 
