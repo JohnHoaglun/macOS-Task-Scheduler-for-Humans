@@ -2,7 +2,30 @@
 
 ## Current State
 
-### Approved v0.0.37 Inspector Row-Clipping Fix and Readability Regression Gate (2026-09-16)
+### Approved v0.0.38 Filter Bar Hidden by Default with View-Menu Toggle (2026-09-18)
+
+**Goal:** user's annotated screenshot (2026-09-18 16:37, red box around the top filter bar): the Search / State / Installed / Enabled / Loaded / Command / Clear-filters row is "overly complex" for users at first startup. Requested: an app-menu option to enable or disable the entire filter bar; **hidden by default**.
+
+**Confirmed decisions:**
+- New **View** menu (placed after Edit: File, Edit, View, Actions, Diagnostics, Lifecycle) holding one checkable action **Show Filters**.
+- The `AgentFilterControls` widget (`agent-filter-controls`, added at the top of the central layout) is hidden at startup; the action starts unchecked. Toggling the action toggles only visibility (`toggled → setVisible`) — active filter state is preserved, never reset, so re-showing reveals the same state; the empty-state "Clear" path keeps working while the bar is hidden (it calls the controls' `reset()` programmatically).
+- No persistence: the app has no `QSettings` layer, so "hidden by default" is the startup default every session (matches the user's request exactly).
+- Tests in `test_main_window.py` (`TestFilterBarToggle`): filter bar hidden by default; the View-menu action is checkable and initially unchecked; triggering it shows the bar and checks itself; triggering again hides it. Existing main-window tests are unaffected (none touch the filter object names; standalone `test_agent_filter_controls.py` tests the widget directly and is unaffected).
+- Version 0.0.37 → 0.0.38; standard closeout (make check, 100% coverage, ratio ≤ 75%, docs, commit, push).
+
+**Parallelization decision:** single serial pass (solo work — cited blocker: one widget file plus its host test and docs; smaller than delegation overhead).
+
+| Lane | Scope | Files owned | Stop condition |
+|---|---|---|---|
+| build (solo) | View-menu action + default-hidden bar, tests, docs, closeout | `gui/main_window.py`, `tests/unit/gui/test_main_window.py`, `docs/architecture.md`, `README.md` | `make check` green (full suite, ruff, mypy strict, 100% coverage), ratio ≤ 75%, version 0.0.37 → 0.0.38, commit, push |
+
+**Gates:** default-hidden bar verified in the new tests; toggle round-trip (show → hide) verified; `make check` green with 100% coverage.
+
+**Blockers:** none.
+
+### Historical State (superseded by v0.0.38 above)
+
+#### v0.0.37 Inspector Row-Clipping Fix and Readability Regression Gate (2026-09-16)
 
 **Goal:** user's third annotated screenshot (19:42, Retina 2564×1872 px = ~1282×936 pt window): the **Overview** and **Command** group boxes in the inspector are unusable — wrapped multi-line values (Name/Label/Source; the long hermes command) are cut at the top of their row and collide with the rows below. Root cause (reproduced offscreen with the real `MainWindow` at 1282×936 + a wider font that forces wrapping): `QFormLayout` does not honor `heightForWidth` for word-wrapped row labels in this window context — the label column collapses to the 100 px minimum, row labels wrap (e.g. "Working directory" needs 120 px at the wide font, row gets 30 px), and at the user's SF Pro scale the squeezed value rows are the clipped ones. Secondary user request: **this class of layout bug must be caught by the test suite**, not discovered in the field.
 

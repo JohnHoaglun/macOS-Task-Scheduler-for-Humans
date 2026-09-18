@@ -986,6 +986,16 @@ from "No matching tasks." with a Clear Filters action (zero proxy rows).
 The `MainWindow` owns every view-to-source index mapping: all controller and
 action calls receive source indexes, never proxy indexes.
 
+**Filter bar visibility.** The `AgentFilterControls` row (search box, the
+five filter combos, Clear Filters) is **hidden by default** so first-time
+users see only the task table and inspector. A checkable
+`show_filters_action` ("Show Filters") in the View menu (menu order: File,
+Edit, View, Actions, Diagnostics, Lifecycle) toggles the whole row via
+`toggled -> setVisible`. Hiding the bar never resets active filter state —
+re-showing reveals the same state — and the empty-state Clear action keeps
+calling the controls' `reset()` while the bar is hidden. The preference is
+not persisted: the bar starts hidden in every session.
+
 ### Eager Read-Only Loaded-Status Refresh
 
 The loaded status is refreshed eagerly during `list_agents()` by reading

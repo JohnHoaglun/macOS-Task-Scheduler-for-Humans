@@ -582,6 +582,29 @@ class TestInspectorReadability:
             app.setFont(saved_font)
 
 
+class TestFilterBarToggle:
+    """The search/filter row is hidden at startup and toggled from the View menu."""
+
+    def test_filter_bar_is_hidden_by_default(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        assert window._filter_controls.isHidden()
+        assert window.show_filters_action.isCheckable()
+        assert not window.show_filters_action.isChecked()
+
+    def test_view_menu_toggle_shows_and_hides_the_filter_bar(
+        self, qtbot: QtBot, tmp_path: Path
+    ) -> None:
+        world, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        window.show_filters_action.trigger()
+        assert window._filter_controls.isVisible()
+        assert window.show_filters_action.isChecked()
+        window.show_filters_action.trigger()
+        assert window._filter_controls.isHidden()
+        assert not window.show_filters_action.isChecked()
+
+
 class TestHistoryPanelWiring:
     def test_right_pane_sections_are_vertically_resizable(
         self, qtbot: QtBot, tmp_path: Path

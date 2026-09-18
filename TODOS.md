@@ -1,4 +1,13 @@
-# TODOS.md (v0.0.37)
+# TODOS.md (v0.0.38)
+
+## Filter Bar Hidden by Default with View-Menu Toggle (DONE — v0.0.38)
+
+User request (annotated screenshot, 2026-09-18 16:37, red box around the top filter row): the Search / State / Installed / Enabled / Loaded / Command / Clear-filters row is "overly complex" for the user at first startup — add an app-menu option to enable or disable the whole row; hidden by default.
+
+- [x] `gui/main_window.py`: `AgentFilterControls` row hidden at startup; new **View** menu (File, Edit, View, Actions, Diagnostics, Lifecycle) with checkable `show_filters_action` ("Show Filters", initially unchecked) toggling the row's visibility via `toggled -> setVisible`; hiding never resets filter state; empty-state Clear keeps calling `reset()` while hidden
+- [x] Tests: `TestFilterBarToggle` in `test_main_window.py` — bar hidden by default; action checkable and initially unchecked; toggle round-trip (show → hide) keeps action state and bar visibility in sync
+- [x] Docs: `docs/architecture.md` GUI Filtering Contract — "Filter bar visibility" paragraph
+- [x] Closeout: `make check` (full suite + ruff + mypy strict + 100% coverage — 602 tests, 6,999 statements), ratio 9,988:13,394 = 74.57% (under cap), version 0.0.37 → 0.0.38 (all 4 registry locations), stale-version grep, SUMMARY/PROJECT/TODOS, commit, push
 
 ## Inspector Row-Clipping Fix and Readability Regression Gate (DONE — v0.0.37)
 
