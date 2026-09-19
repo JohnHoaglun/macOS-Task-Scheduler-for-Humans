@@ -270,11 +270,8 @@ class TestCloseAndBrowse:
     ) -> None:
         """Directory browse mode writes the chosen directory."""
         _, editor, _ = make_editor(qtbot, tmp_path)
-        monkeypatch.setattr(
-            QFileDialog,
-            "getExistingDirectory",
-            staticmethod(lambda *args, **kwargs: "/tmp/workdir"),
-        )
+        fake = staticmethod(lambda *_a: "/tmp/workdir")
+        monkeypatch.setattr(QFileDialog, "getExistingDirectory", fake)
         button(editor, "editor-working-directory-browse").click()
         assert line_edit(editor, "editor-working-directory").text() == "/tmp/workdir"
 
@@ -283,11 +280,8 @@ class TestCloseAndBrowse:
     ) -> None:
         """A cancelled browse leaves the line edit untouched."""
         _, editor, _ = make_editor(qtbot, tmp_path)
-        monkeypatch.setattr(
-            QFileDialog,
-            "getOpenFileName",
-            staticmethod(lambda *args, **kwargs: ("", "")),
-        )
+        fake = staticmethod(lambda *_a: ("", ""))
+        monkeypatch.setattr(QFileDialog, "getOpenFileName", fake)
         line_edit(editor, "editor-interpreter").setText("/keep/this")
         button(editor, "editor-interpreter-browse").click()
         assert line_edit(editor, "editor-interpreter").text() == "/keep/this"
@@ -315,11 +309,8 @@ class TestCloseAndBrowse:
     ) -> None:
         """Log directory browse derives both stream paths in the one directory."""
         _, editor, _ = make_editor(qtbot, tmp_path)
-        monkeypatch.setattr(
-            QFileDialog,
-            "getExistingDirectory",
-            staticmethod(lambda *args, **kwargs: "/tmp/logs"),
-        )
+        fake = staticmethod(lambda *_a: "/tmp/logs")
+        monkeypatch.setattr(QFileDialog, "getExistingDirectory", fake)
         line_edit(editor, "editor-name").textEdited.emit("Nightly Sync")
         button(editor, "editor-log-directory-browse").click()
         assert line_edit(editor, "editor-log-directory").text() == "/tmp/logs"

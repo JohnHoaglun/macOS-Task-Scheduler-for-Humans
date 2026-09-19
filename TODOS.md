@@ -1,4 +1,13 @@
-# TODOS.md (v0.0.41)
+# TODOS.md (v0.0.42)
+
+## Shutdown SIGSEGV Fix (DONE — v0.0.42)
+
+User-reported crash (2026-09-18): the app occasionally segfaults at shutdown. Root cause: `MainWindow` constructed its three worker threads (`_start_external_worker`, `_start_worker`, `_start_test_worker`) as `QThread(self)` — a QThread parented to the window is C++-owned by the window, so the window's destructor could free the thread while the worker's queued `deleteLater` (posted from the worker thread at completion) was still pending; the deferred delete then landed on freed memory during the shutdown event-loop flush.
+
+- [x] `gui/main_window.py`: all three dispatch sites now construct parentless `QThread()` workers; `_track_worker_thread` documents the no-early-free invariant (a parentless thread is destroyed only by its own `deleteLater`, delivered by the app's global event loop before it ends). `direct_test_dialog.py`'s dialog-scoped worker is unchanged (the dialog outlives the worker by construction)
+- [x] Regression test `TestHistoryPanelWiring.test_worker_threads_are_parentless_and_shutdown_flush_is_safe` (offscreen, real event loop): records every dispatched `QThread` through a recording proxy over the module-level `QThread`, exercises all three dispatch sites for real (run-now with the result dialog and question scripted, diagnostics read, direct test), asserts exactly three workers were created and each has `parent() is None` (the SIGSEGV precondition is gone by construction) and the window's tracked set drains to empty, then closes the window and flushes the shutdown event loop safely
+- [x] Test-ratio trim (formatting-only, zero coverage loss): the fix + test pushed the working-tree test/src ratio to 75.26% (over the 75% cap); restored to 74.95% with pure formatting collapses (multi-line `monkeypatch.setattr`/`qtbot.waitUntil`/assert calls folded to ≤100-char lines, shared `_answer_question` QMessageBox stub, `fake = staticmethod(lambda ...)` patterns, docstring compression) — no assertions, coverage, or behavior changed
+- [x] Closeout: `make check` (605 tests + ruff + mypy strict + 100% coverage), ratio 10,051 test : 13,410 src (74.95%, ≤ 75%), version 0.0.41 → 0.0.42 (all 4 registry locations), stale-version grep, SUMMARY/PROJECT, commit, push
 
 ## Job-Editor Label Kept on a Single Line (DONE — v0.0.41)
 

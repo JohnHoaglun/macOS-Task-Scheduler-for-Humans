@@ -667,7 +667,7 @@ class MainWindow(QMainWindow):
 
     def _start_external_worker(self, worker: ExternalControlWorker) -> None:
         """Run the external-control worker on a QThread and invoke it through the queue."""
-        thread = QThread(self)
+        thread = QThread()
         worker.moveToThread(thread)
         worker.finished.connect(self._on_external_finished)
         worker.finished.connect(worker.deleteLater)
@@ -1043,7 +1043,7 @@ class MainWindow(QMainWindow):
 
     def _start_worker(self, worker: LifecycleWorker) -> None:
         """Run the worker on a QThread and invoke it through the queue."""
-        thread = QThread(self)
+        thread = QThread()
         worker.moveToThread(thread)
         worker.finished.connect(self._on_lifecycle_finished)
         worker.finished.connect(worker.deleteLater)
@@ -1097,7 +1097,7 @@ class MainWindow(QMainWindow):
 
     def _start_test_worker(self, worker: DiagnosticsWorker) -> None:
         """Run the test worker on a QThread and invoke it through the queue."""
-        thread = QThread(self)
+        thread = QThread()
         worker.moveToThread(thread)
         worker.finished.connect(self._on_test_finished)
         worker.finished.connect(worker.deleteLater)
@@ -1144,7 +1144,12 @@ class MainWindow(QMainWindow):
         self.panel.show_environment_outcome(self._diagnostics_controller.compare_environment(job))
 
     def _track_worker_thread(self, thread: QThread) -> None:
-        """Keep each worker thread alive until its finished signal is handled."""
+        """Track a parentless worker thread until its finished signal is handled.
+
+        Worker threads are constructed without a parent so the window's
+        destructor can never free one before its queued ``deleteLater``
+        is delivered.
+        """
         self._worker_threads.add(thread)
         thread.finished.connect(self._on_worker_thread_finished)
 

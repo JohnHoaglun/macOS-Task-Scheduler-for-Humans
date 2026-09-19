@@ -5,10 +5,11 @@ from __future__ import annotations
 import base64
 import plistlib
 from pathlib import Path
+from typing import Any
 from uuid import UUID
 
 import pytest
-from PySide6.QtCore import QItemSelection, QModelIndex, Qt, QThread, QTimer
+from PySide6.QtCore import QItemSelection, QModelIndex, QObject, Qt, QThread, QTimer
 from PySide6.QtGui import QCloseEvent, QFont
 from PySide6.QtWidgets import (
     QApplication,
@@ -25,6 +26,7 @@ from PySide6.QtWidgets import (
 from pytestqt.qtbot import QtBot
 from tests.fakes import FakeTaskWorld
 
+import task_scheduler.gui.main_window as main_window_module
 from conftest import make_job
 from task_scheduler.application import ExternalEditResult, TaskCommandService
 from task_scheduler.application.task_command_service import (
@@ -366,6 +368,10 @@ def _select_managed(world: FakeTaskWorld, window: MainWindow, job: JobDefinition
     window.table.setCurrentIndex(model.index(row, 0))
 
 
+def _answer_question(monkeypatch: pytest.MonkeyPatch, answer: QMessageBox.StandardButton) -> None:
+    monkeypatch.setattr(QMessageBox, "question", lambda *_: answer)
+
+
 class TestLifecycleTrigger:
     def test_reinstall_declined_confirmation_runs_nothing(
         self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -373,11 +379,7 @@ class TestLifecycleTrigger:
         world, managed, *_ = _seed_three(tmp_path)
         window = _window(qtbot, DiscoveryController(world.services))
         outcomes = _capture_lifecycle(window, monkeypatch)
-        monkeypatch.setattr(
-            QMessageBox,
-            "question",
-            lambda parent, title, text: QMessageBox.StandardButton.No,
-        )
+        _answer_question(monkeypatch, QMessageBox.StandardButton.No)
         _select_managed(world, window, managed)
         baseline = len(world.launch_runner.specs)
         window.reinstall_action.trigger()
@@ -396,18 +398,11 @@ class TestLifecycleTrigger:
             return QDialog.DialogCode.Accepted
 
         monkeypatch.setattr(LifecycleResultDialog, "exec", fake_exec)
-        monkeypatch.setattr(
-            QMessageBox,
-            "question",
-            lambda parent, title, text: QMessageBox.StandardButton.Yes,
-        )
+        _answer_question(monkeypatch, QMessageBox.StandardButton.Yes)
         _select_managed(world, window, managed)
         window.run_now_action.trigger()
         assert window._lifecycle_busy is True
-        qtbot.waitUntil(
-            lambda: window._lifecycle_busy is False and len(outcomes) == 1,
-            timeout=5000,
-        )
+        qtbot.waitUntil(lambda: not window._lifecycle_busy and len(outcomes) == 1, timeout=5000)
         assert outcomes[0].action is LifecycleAction.RUN_NOW
         assert outcomes[0].is_success
 
@@ -486,9 +481,7 @@ class TestDiagnosticsTrigger:
         window = _window(qtbot, DiscoveryController(world.services))
         _select_managed(world, window, job)
         window._on_test_finished(TestOutcome(label=job_b.label, result=None, error="boom"))
-        assert _panel_text(window, "diagnostics-summary") == (
-            "Run Test to check this task directly."
-        )
+        assert _panel_text(window, "diagnostics-summary") == "Run Test to check this task directly."
         assert not window._diagnostics_busy
 
     def test_finished_ignores_foreign_payloads(self, qtbot: QtBot, tmp_path: Path) -> None:
@@ -525,10 +518,7 @@ class TestDiagnosticsTrigger:
         _select_managed(world, window, job)
         window.test_action.trigger()
         assert window._diagnostics_busy is True
-        qtbot.waitUntil(
-            lambda: window._diagnostics_busy is False,
-            timeout=5000,
-        )
+        qtbot.waitUntil(lambda: window._diagnostics_busy is False, timeout=5000)
         assert _panel_text(window, "diagnostics-summary") == ("Passed (exit code 0) in 0.00s")
 
 
@@ -554,13 +544,9 @@ class TestInspectorReadability:
             _select_managed(world, window, managed)
             inspector = window.inspector
             # Worst case: the user's long values, set after the initial pass.
-            _value_label(inspector, "overview-name").setText(
-                "ai.hermes.gateway-researcher"
-            )
-            _value_label(inspector, "overview-source").setText(
-                "/Users/johnhoaglun/Library/LaunchAgents/"
-                "ai.hermes.gateway-researcher.plist"
-            )
+            _value_label(inspector, "overview-name").setText("ai.hermes.gateway-researcher")
+            source = "/Users/johnhoaglun/Library/LaunchAgents/ai.hermes.gateway-researcher.plist"
+            _value_label(inspector, "overview-source").setText(source)
             _value_label(inspector, "command-command").setText(
                 "/Users/johnhoaglun/.hermes/hermes-agent/venv/bin/python -m "
                 "hermes_cli.main --profile researcher gateway run --reload"
@@ -732,6 +718,54 @@ class TestHistoryPanelWiring:
         window.closeEvent(event)
         assert not event.isAccepted()
         window._worker_threads.clear()
+
+    def test_worker_threads_are_parentless_and_shutdown_flush_is_safe(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Regression for the 2026-09-18 shutdown SIGSEGV: a QThread parented
+        to the window is C++-owned by it and was freed while the worker's
+        queued ``deleteLater`` was still pending. Parentless threads die only
+        by their own ``deleteLater``, so close+flush below must be safe.
+        """
+        world, managed, *_ = _seed_three(tmp_path)
+        window = _window_full(qtbot, DiscoveryController(world.services))
+
+        real_qthread: type[QThread] = main_window_module.QThread
+        created: list[tuple[QThread, QObject | None]] = []
+
+        class RecordingQThread(real_qthread):
+            def __init__(self, *args: Any) -> None:
+                super().__init__(*args)
+                created.append((self, self.parent()))
+
+        monkeypatch.setattr(main_window_module, "QThread", RecordingQThread)
+        _answer_question(monkeypatch, QMessageBox.StandardButton.Yes)
+        outcomes: list[LifecycleOutcome] = []
+
+        def fake_exec(self: LifecycleResultDialog) -> int:
+            outcomes.append(self._outcome)
+            return QDialog.DialogCode.Accepted
+
+        monkeypatch.setattr(LifecycleResultDialog, "exec", fake_exec)
+        _script_external_dialogs(monkeypatch, disable=True)
+
+        _select_managed(world, window, managed)
+        window.run_now_action.trigger()
+        qtbot.waitUntil(lambda: not window._lifecycle_busy and len(outcomes) == 1, timeout=5000)
+
+        listing = next(item for item in world.services.list_agents() if not item.managed)
+        window._run_external_lifecycle(LifecycleAction.DISABLE, listing)
+        qtbot.waitUntil(lambda: not window._external_busy, timeout=5000)
+
+        _select_managed(world, window, managed)
+        window._on_test_triggered()
+        qtbot.waitUntil(lambda: not window._diagnostics_busy, timeout=5000)
+
+        assert len(created) == 3
+        assert [parent for _, parent in created] == [None, None, None]
+        assert window._worker_threads == set()
+        window.close()
+        qtbot.wait(100)
 
     def test_history_refresh_with_selection(self, qtbot: QtBot, tmp_path: Path) -> None:
         world, managed, *_ = _seed_three(tmp_path)
@@ -980,11 +1014,8 @@ class TestWave3Composition:
         _select_managed(world, window, managed)
         import task_scheduler.gui.main_window as mw
 
-        monkeypatch.setattr(
-            mw.QFileDialog,
-            "getSaveFileName",
-            staticmethod(lambda *_a: ("/tmp/x.json", "")),
-        )
+        fake = staticmethod(lambda *_a: ("/tmp/x.json", ""))
+        monkeypatch.setattr(mw.QFileDialog, "getSaveFileName", fake)
         dest: list[Path] = []
         monkeypatch.setattr(
             window._services, "export_managed_json", lambda _label, p: dest.append(p)
