@@ -2,6 +2,13 @@
 
 ## Changelog
 
+### v0.0.41
+- User request (annotated screenshot, 2026-09-18 20:59, red box around the **Label** row in the New Task dialog, value `io.github.macos-task-scheduler.user.daily-131a4035`): the label text is not readable — the v0.0.40 word-wrapping label wrapped to two lines and was clipped vertically by the `QFormLayout` row (same root-cause class as the v0.0.37 inspector clipping). Keep it on a single line.
+- `JobEditor._build_identity` now sets `setWordWrap(False)` on the `"editor-label"` `QLabel` — an explicit single-line invariant, so the `QFormLayout` row is one line tall by construction and the value can never be clipped vertically. All other v0.0.40 behavior is retained (plain text, object name, the name's ~30-character minimum width, auto-fill paths, external mode); the docstring is updated.
+- `TestIdentity.test_label_is_plain_text` pins the readability invariant (the v0.0.37 standing gate): the label is plain text, `wordWrap() is False`, and the full label fits on one line at the dialog's natural size (`width() >= fontMetrics().horizontalAdvance(text)` — no horizontal clip).
+- Files: `gui/widgets/job_editor.py` (single-line label), `tests/unit/gui/test_job_editor.py` (single-line + no-clip invariants in `test_label_is_plain_text`), README (Identity section) and `docs/architecture.md` (JobDraft dialog presentation).
+- Verification: `make check` clean (ruff / mypy strict / 604 tests, 100% coverage — 7,010 statements; pre-existing collection, Qt deprecation, and Pydantic serializer warnings only). Test/code ratio 10,029 test : 13,405 src (74.82%, under the 75% cap).
+
 ### v0.0.40
 - User request (annotated screenshot, 2026-09-18 20:49, red box around the read-only **Label** field in the New Task dialog): the label "looks like a textbox" — it implies the user should type there, but the label is derived from the name and is never user input. Replace it with plain text.
 - `JobEditor._build_identity` now presents the Label row as a word-wrapping `QLabel` (object name `"editor-label"` retained) instead of a read-only `QLineEdit`; the label's minimum width is dropped (the Name field keeps its ~30-character font-scaled minimum width). The row's text-update paths (`_on_name_edited` live auto-fill, `_load_draft` fixed-label display) are widget-agnostic and unchanged, and external mode is unchanged (the label was never an input).

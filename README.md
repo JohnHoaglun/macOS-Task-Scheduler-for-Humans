@@ -684,10 +684,10 @@ The dialog is a scrollable form with the following sections:
   lowercase so it matches the derived label. The label is auto-derived from the
   name as
   `io.github.macos-task-scheduler.user.<slug>-<8-hex>` (the name slug plus the
-  first 8 hex characters of the job's UUID) and shown as plain text: type the
-  name and the label updates itself — it is a display, not an input field. The
-  name field is sized for comfortable reading (≈30 characters wide). For an
-  existing job the label is fixed and is shown.
+   first 8 hex characters of the job's UUID) and shown as single-line plain
+   text: type the name and the label updates itself — it is a display, not an
+   input field. The name field is sized for comfortable reading (≈30 characters
+   wide). For an existing job the label is fixed and is shown.
 * **Command** — a Python / Shell / Executable selector with a page per
   kind, each with a row table of arguments. On the Python page, editing
   the script path runs interpreter detection: candidates are listed as

@@ -1,4 +1,13 @@
-# TODOS.md (v0.0.40)
+# TODOS.md (v0.0.41)
+
+## Job-Editor Label Kept on a Single Line (DONE — v0.0.41)
+
+User request (annotated screenshot, 2026-09-18 20:59, red box around the **Label** row in the New Task dialog, value `io.github.macos-task-scheduler.user.daily-131a4035`): the label text is not readable — the v0.0.40 word-wrapping label wrapped to two lines and the row clipped it vertically. Keep it to a single line.
+
+- [x] `gui/widgets/job_editor.py`: `_build_identity` sets `setWordWrap(False)` on the `"editor-label"` `QLabel` (single-line by construction — the `QFormLayout` row can never clip it vertically); docstring updated
+- [x] Tests: `TestIdentity.test_label_is_plain_text` pins the readability invariant — plain text, `wordWrap() is False`, and the full label fits on one line at the dialog's natural size (`width() >= horizontalAdvance(text)`, no horizontal clip)
+- [x] Docs: README (Identity — "single-line plain text"), `docs/architecture.md` (JobDraft dialog presentation)
+- [x] Closeout: `make check` (full suite + ruff + mypy strict + 100% coverage), ratio ≤ 75%, version 0.0.40 → 0.0.41 (all 4 registry locations), stale-version grep, SUMMARY/PROJECT, commit, push
 
 ## Job-Editor Label as Plain Text (DONE — v0.0.40)
 

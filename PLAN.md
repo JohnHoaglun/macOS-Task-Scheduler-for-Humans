@@ -2,6 +2,25 @@
 
 ## Current State
 
+### Approved v0.0.41 Job-Editor Label Kept on a Single Line (2026-09-18)
+
+**Goal:** user's annotated screenshot (2026-09-18 20:59, red box around the **Label** row in the New Task dialog, value `io.github.macos-task-scheduler.user.daily-131a4035`): the label text is not readable — the v0.0.40 word-wrapping label wrapped to two lines and the `QFormLayout` row clipped it vertically (same root-cause class as the v0.0.37 inspector clipping: a wrapped label's `heightForWidth` not being honoured inside a clipped row). User decision: keep the label to a single line.
+
+**Confirmed decisions:**
+- `JobEditor._build_identity` sets `setWordWrap(False)` on the `"editor-label"` `QLabel` (explicit single-line invariant, matching the codebase's other explicit `setWordWrap` calls); the `QFormLayout` row is one line tall by construction, so the value can never be clipped vertically; docstring updated. All other v0.0.40 behavior is retained (plain text, object name, auto-fill paths, external mode).
+- `TestIdentity.test_label_is_plain_text` pins the readability invariant (v0.0.37 standing gate): the label is plain text, `wordWrap() is False`, and the full label fits on one line at the dialog's natural size (`width() >= fontMetrics().horizontalAdvance(text)` — no horizontal clip).
+- Version 0.0.40 → 0.0.41; standard closeout (make check, 100% coverage, ratio ≤ 75%, docs, commit, push).
+
+**Parallelization decision:** single serial pass (solo work — cited blocker: one line in one widget file plus one test invariant and docs; smaller than delegation overhead).
+
+| Lane | Scope | Files owned | Stop condition |
+|---|---|---|---|
+| build (solo) | Single-line label, test invariant, docs, closeout | `gui/widgets/job_editor.py`, `tests/unit/gui/test_job_editor.py`, `README.md`, `docs/architecture.md` | `make check` green (full suite, ruff, mypy strict, 100% coverage), ratio ≤ 75%, version 0.0.40 → 0.0.41, commit, push |
+
+**Gates:** the `"editor-label"` `QLabel` has `wordWrap() is False` and its full text fits on one line at the dialog's natural size; `make check` green with 100% coverage.
+
+**Blockers:** none.
+
 ### Approved v0.0.39 Diagnostics/History Panels Hidden by Default with View-Menu Toggles (2026-09-18)
 
 **Goal:** user's annotated screenshot (2026-09-18 20:08, red box around the two collapsed panel headers stacked at the bottom of the right pane): the **Diagnostics** and **History** header buttons should be removed from the default view.

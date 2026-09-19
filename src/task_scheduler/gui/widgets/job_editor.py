@@ -189,13 +189,13 @@ class JobEditor(QDialog):
         self.resize(bounded_preferred_size(_EDITOR_PREFERRED_SIZE, available_size))
 
     def _build_identity(self) -> QGroupBox:
-        """The Identity group: an editable name and the plain-text derived label."""
+        """The Identity group: an editable name and the single-line plain-text derived label."""
         group = QGroupBox("Identity")
         self._name = QLineEdit(group)
         self._name.setObjectName("editor-name")
         self._label = QLabel(group)
         self._label.setObjectName("editor-label")
-        self._label.setWordWrap(True)
+        self._label.setWordWrap(False)
         field_width = QFontMetrics(self._name.font()).horizontalAdvance(_IDENTITY_FIELD_WIDTH_PROBE)
         self._name.setMinimumWidth(field_width)
         form = QFormLayout(group)

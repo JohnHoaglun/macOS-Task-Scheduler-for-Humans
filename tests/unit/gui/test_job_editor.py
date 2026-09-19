@@ -198,10 +198,13 @@ class TestIdentity:
     """The Identity group: one editable name, a plain-text derived label."""
 
     def test_label_is_plain_text(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """The label shows as plain text and is never an editable field."""
+        """The label shows as single-line plain text, never an editable field."""
         job = make_job()
         _, editor, _ = make_editor(qtbot, tmp_path, job=job)
-        assert label(editor).text() == job.label
+        shown = label(editor)
+        assert shown.text() == job.label
+        assert shown.wordWrap() is False
+        assert shown.width() >= QFontMetrics(shown.font()).horizontalAdvance(job.label)
 
     def test_name_edit_auto_fills_label(self, qtbot: QtBot, tmp_path: Path) -> None:
         """Typing a name derives the label into the plain-text display live."""

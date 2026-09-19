@@ -186,7 +186,7 @@ flag. While the flag is false the label is auto-derived from the name as
 the first 8 hex characters of the job id, via `managed_label`); an explicit
 label edit sets the flag and stops the derivation. In the `JobEditor` dialog
 the name is forced to lowercase (to match the derived label) and the label is
-presented as plain text (a word-wrapping `QLabel`, never a line edit) and
+presented as single-line plain text (a `QLabel` that never wraps, never a line edit) and
 auto-fills from the name as it is typed (a stored job's fixed label is simply
 shown), so the dialog never exposes a manual label edit; the `set_label`
 mutator remains for programmatic drafts.
