@@ -2,6 +2,12 @@
 
 ## Changelog
 
+### v0.0.40
+- User request (annotated screenshot, 2026-09-18 20:49, red box around the read-only **Label** field in the New Task dialog): the label "looks like a textbox" — it implies the user should type there, but the label is derived from the name and is never user input. Replace it with plain text.
+- `JobEditor._build_identity` now presents the Label row as a word-wrapping `QLabel` (object name `"editor-label"` retained) instead of a read-only `QLineEdit`; the label's minimum width is dropped (the Name field keeps its ~30-character font-scaled minimum width). The row's text-update paths (`_on_name_edited` live auto-fill, `_load_draft` fixed-label display) are widget-agnostic and unchanged, and external mode is unchanged (the label was never an input).
+- Files: `gui/widgets/job_editor.py` (plain-text label), `tests/unit/gui/test_job_editor.py` (new `label()` helper asserting the `"editor-label"` child is a `QLabel`, never a `QLineEdit`; `TestIdentity`: `test_label_is_plain_text` replaces `test_label_field_is_read_only`, `test_name_edit_auto_fills_label` + `test_renaming_existing_job_keeps_label` use the helper, `test_identity_fields_are_widened` → `test_identity_name_field_is_widened` Name-only), README (Identity section, external-editor line) and `docs/architecture.md` (JobDraft dialog presentation, `open_external` contract).
+- Verification: `make check` clean (ruff / mypy strict / 604 tests, 100% coverage — 7,010 statements; pre-existing collection, Qt deprecation, and Pydantic serializer warnings only). Test/code ratio 10,026 test : 13,405 src (74.79%, under the 75% cap).
+
 ### v0.0.39
 - User request (annotated screenshot, 2026-09-18 20:08, red box around the two collapsed panel headers stacked at the bottom of the right pane): the **Diagnostics** and **History** header buttons should be removed from the default view.
 - `MainWindow` now constructs the `DiagnosticLogsPanel` and `HistoryPanel` **hidden at startup** (the right vertical splitter keeps its widget order and sizes, so the inspector owns the pane), so the two bare headers no longer show. The **View** menu (menu order: File, Edit, View, Actions, Diagnostics, Lifecycle) gains two checkable actions, `show_diagnostics_action` ("Show Diagnostics") and `show_history_action` ("Show History"), each initially unchecked; `toggled` drives `setVisible` on the respective panel.

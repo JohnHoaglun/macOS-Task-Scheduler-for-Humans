@@ -1,4 +1,13 @@
-# TODOS.md (v0.0.39)
+# TODOS.md (v0.0.40)
+
+## Job-Editor Label as Plain Text (DONE — v0.0.40)
+
+User request (annotated screenshot, 2026-09-18 20:49, red box around the read-only **Label** field in the New Task dialog): the label "looks like a textbox" and implies the user should type there — but the label is derived from the name and is never user input. Replace it with plain text.
+
+- [x] `gui/widgets/job_editor.py`: `_build_identity` presents the Label row as a word-wrapping `QLabel` (object name `"editor-label"` retained) instead of a read-only `QLineEdit`; label minimum width dropped (Name keeps its ~30-char font-scaled minimum); `_on_name_edited` live auto-fill and `_load_draft` fixed-label display unchanged (widget-agnostic `setText`); external mode unchanged
+- [x] Tests: `test_job_editor.py` — new `label()` helper asserting the `"editor-label"` child is a `QLabel`, never a `QLineEdit`; `TestIdentity`: `test_label_is_plain_text` (replaces `test_label_field_is_read_only`), `test_name_edit_auto_fills_label` + `test_renaming_existing_job_keeps_label` use the helper, `test_identity_fields_are_widened` → `test_identity_name_field_is_widened` (Name-only min-width assertion)
+- [x] Docs: README (Identity section — "shown as plain text … it is a display, not an input field"; external-editor line), `docs/architecture.md` (JobDraft dialog presentation, `open_external` contract)
+- [x] Closeout: `make check` (full suite + ruff + mypy strict + 100% coverage — 604 tests, 7,010 statements), ratio 10,026:13,405 = 74.79% (under cap), version 0.0.39 → 0.0.40 (all 4 registry locations), stale-version grep, SUMMARY/PROJECT/TODOS, commit, push
 
 ## Diagnostics/History Panels Hidden by Default with View-Menu Toggles (DONE — v0.0.39)
 

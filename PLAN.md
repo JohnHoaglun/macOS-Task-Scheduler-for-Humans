@@ -23,7 +23,26 @@
 
 **Blockers:** none.
 
-### Historical State (superseded by v0.0.39 above)
+### Approved v0.0.40 Job-Editor Label as Plain Text (2026-09-18)
+
+**Goal:** user's annotated screenshot (2026-09-18 20:49, red box around the read-only **Label** field in the New Task dialog, value `sk-scheduler.user.new-1a7126d2`): the Label box "looks like a textbox" and implies the user should type there — but the label is derived from the name and is never user input. Replace the read-only `QLineEdit` with plain text.
+
+**Confirmed decisions:**
+- `JobEditor._build_identity` presents the Label row as a word-wrapping `QLabel` (object name `"editor-label"` retained) instead of a read-only `QLineEdit`; no minimum width on the label (the Name field keeps its ~30-character font-scaled minimum width). The row's `setText` update paths (`_on_name_edited`, `_load_draft`) are widget-agnostic and unchanged; external mode needs no change (the label was never an input).
+- Tests in `test_job_editor.py` (`TestIdentity`): a new module-level `label(editor)` helper asserts the `"editor-label"` child is a `QLabel`, never a `QLineEdit`; `test_label_is_plain_text` replaces `test_label_field_is_read_only`; `test_name_edit_auto_fills_label` and `test_renaming_existing_job_keeps_label` use the helper; `test_identity_fields_are_widened` becomes `test_identity_name_field_is_widened` (Name-only min-width assertion).
+- Version 0.0.39 → 0.0.40; standard closeout (make check, 100% coverage, ratio ≤ 75%, docs, commit, push).
+
+**Parallelization decision:** single serial pass (solo work — cited blocker: one widget file plus its host test and docs; smaller than delegation overhead).
+
+| Lane | Scope | Files owned | Stop condition |
+|---|---|---|---|
+| build (solo) | Label as plain-text `QLabel`, tests, docs, closeout | `gui/widgets/job_editor.py`, `tests/unit/gui/test_job_editor.py`, `README.md`, `docs/architecture.md` | `make check` green (full suite, ruff, mypy strict, 100% coverage), ratio ≤ 75%, version 0.0.39 → 0.0.40, commit, push |
+
+**Gates:** the `"editor-label"` child is a word-wrapping `QLabel` with the live-derived text; no `editor-label` `QLineEdit` reference remains anywhere; `make check` green with 100% coverage.
+
+**Blockers:** none.
+
+### Historical State (superseded by v0.0.40 above)
 
 #### v0.0.38 Filter Bar Hidden by Default with View-Menu Toggle (2026-09-18)
 

@@ -76,8 +76,8 @@ DAY_NAMES = (
 )
 DAY_LABELS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 _SCHEDULE_UNIT_SECONDS = (1, 60, 3600, 86400)
-# The Identity fields default to a cramped ~15 characters in the QFormLayout;
-# widen Name and Label to roughly double that so names and derived labels read.
+# The Identity Name field defaults to a cramped ~15 characters in the
+# QFormLayout; widen it to roughly double that so names read comfortably.
 _IDENTITY_FIELD_WIDTH_CHARS = 30
 _IDENTITY_FIELD_WIDTH_PROBE = "x" * _IDENTITY_FIELD_WIDTH_CHARS
 _EDITOR_PREFERRED_SIZE = QSize(780, 840)
@@ -189,16 +189,15 @@ class JobEditor(QDialog):
         self.resize(bounded_preferred_size(_EDITOR_PREFERRED_SIZE, available_size))
 
     def _build_identity(self) -> QGroupBox:
-        """The Identity group: an editable name and the read-only derived label."""
+        """The Identity group: an editable name and the plain-text derived label."""
         group = QGroupBox("Identity")
         self._name = QLineEdit(group)
         self._name.setObjectName("editor-name")
-        self._label = QLineEdit(group)
+        self._label = QLabel(group)
         self._label.setObjectName("editor-label")
-        self._label.setReadOnly(True)
+        self._label.setWordWrap(True)
         field_width = QFontMetrics(self._name.font()).horizontalAdvance(_IDENTITY_FIELD_WIDTH_PROBE)
         self._name.setMinimumWidth(field_width)
-        self._label.setMinimumWidth(field_width)
         form = QFormLayout(group)
         form.addRow("Name", self._name)
         form.addRow("Label", self._label)

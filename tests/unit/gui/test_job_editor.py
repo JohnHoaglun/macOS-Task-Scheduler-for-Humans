@@ -72,6 +72,14 @@ def line_edit(editor: JobEditor, object_name: str) -> QLineEdit:
     return edit
 
 
+def label(editor: JobEditor) -> QLabel:
+    """The label display, asserted present as plain text, not a line edit."""
+    assert editor.findChild(QLineEdit, "editor-label") is None
+    found = editor.findChild(QLabel, "editor-label")
+    assert found is not None
+    return found
+
+
 def button(editor: JobEditor, object_name: str) -> QPushButton:
     """The named button, asserted present."""
     found = editor.findChild(QPushButton, object_name)
@@ -187,20 +195,20 @@ class TestValidation:
 
 
 class TestIdentity:
-    """The Identity group: one editable name, a read-only derived label."""
+    """The Identity group: one editable name, a plain-text derived label."""
 
-    def test_label_field_is_read_only(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """The managed editor presents the label read-only, never editable."""
-        _, editor, _ = make_editor(qtbot, tmp_path, job=make_job())
-        assert line_edit(editor, "editor-label").isReadOnly()
+    def test_label_is_plain_text(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """The label shows as plain text and is never an editable field."""
+        job = make_job()
+        _, editor, _ = make_editor(qtbot, tmp_path, job=job)
+        assert label(editor).text() == job.label
 
     def test_name_edit_auto_fills_label(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """Typing a name derives the label into the read-only field live."""
+        """Typing a name derives the label into the plain-text display live."""
         _, editor, _ = make_editor(qtbot, tmp_path)
         line_edit(editor, "editor-name").textEdited.emit("Nightly Sync")
         assert editor._draft is not None
-        label_field = line_edit(editor, "editor-label")
-        assert label_field.isReadOnly()
+        label_field = label(editor)
         assert label_field.text() == managed_label("Nightly Sync", editor._draft.job_id)
         assert editor._draft.label == label_field.text()
         assert editor._draft.label_touched is False
@@ -220,17 +228,15 @@ class TestIdentity:
         _, editor, _ = make_editor(qtbot, tmp_path, job=job)
         line_edit(editor, "editor-name").textEdited.emit("Renamed Backup")
         assert editor._draft is not None
-        assert line_edit(editor, "editor-label").text() == job.label
+        assert label(editor).text() == job.label
         assert editor._draft.label == job.label
 
-    def test_identity_fields_are_widened(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """Name and Label get a font-scaled minimum width (~2x the cramped default)."""
+    def test_identity_name_field_is_widened(self, qtbot: QtBot, tmp_path: Path) -> None:
+        """The name field gets a font-scaled minimum width (~2x the cramped default)."""
         _, editor, _ = make_editor(qtbot, tmp_path)
         name = line_edit(editor, "editor-name")
-        label = line_edit(editor, "editor-label")
         expected = QFontMetrics(name.font()).horizontalAdvance(_IDENTITY_FIELD_WIDTH_PROBE)
         assert name.minimumWidth() == expected
-        assert label.minimumWidth() == expected
         assert expected >= QFontMetrics(name.font()).horizontalAdvance("x" * 25)
 
 

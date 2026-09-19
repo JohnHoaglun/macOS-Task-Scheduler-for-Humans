@@ -186,9 +186,10 @@ flag. While the flag is false the label is auto-derived from the name as
 the first 8 hex characters of the job id, via `managed_label`); an explicit
 label edit sets the flag and stops the derivation. In the `JobEditor` dialog
 the name is forced to lowercase (to match the derived label) and the label is
-presented read-only and auto-fills from the name as it is typed (a stored
-job's fixed label is simply shown), so the dialog never exposes a manual label
-edit; the `set_label` mutator remains for programmatic drafts.
+presented as plain text (a word-wrapping `QLabel`, never a line edit) and
+auto-fills from the name as it is typed (a stored job's fixed label is simply
+shown), so the dialog never exposes a manual label edit; the `set_label`
+mutator remains for programmatic drafts.
 Nothing in a draft is persisted until a save.
 
 **Editor presentation.** `JobEditor` uses the pure
@@ -468,7 +469,8 @@ raw editor.  Managed rows always use the structured editor (existing
 
 **`JobEditor.open_external`** — external mode: title "Edit External
 LaunchAgent"; banner with objectName `editor-external-banner` (preservation
-contract); label field set read-only; a read-only source-path line with
+contract); label shown as plain text (its normal presentation); a read-only
+source-path line with
 objectName `editor-source-path`; save text changes to "Save External
 Plist…"; preview group title "Proposed replacement plist"; `saved_path`
 stays `None`; `edited_job` carries the validated draft.
