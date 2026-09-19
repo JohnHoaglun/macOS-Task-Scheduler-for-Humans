@@ -51,7 +51,7 @@ class ImportController:
         """Return a preview of importing *path*, or an error description."""
         try:
             preview = self._services.preview_external_plist(path)
-        except ValueError as exc:
+        except (ValueError, OSError) as exc:
             return ImportOutcome(
                 source_path=path,
                 error=str(exc),

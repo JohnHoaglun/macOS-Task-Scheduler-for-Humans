@@ -112,6 +112,9 @@ class TestDirectTestDialog:
         monkeypatch.setattr(world.services, "test_job", blocked)
         dialog = DirectTestDialog(controller, job)
         qtbot.addWidget(dialog)
+        assert dialog._thread is not None
+        assert dialog._thread.parent() is None
+        assert dialog._thread in DirectTestDialog._active_threads
         dialog.close()
         assert dialog in DirectTestDialog._closing_dialogs
         dialog._on_finished(TestOutcome(label=job.label, result=None, error="late"))
@@ -123,3 +126,4 @@ class TestDirectTestDialog:
         )
         assert dialog._worker is None
         assert dialog._thread is None
+        assert DirectTestDialog._active_threads == set()

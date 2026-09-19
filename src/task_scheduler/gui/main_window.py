@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import base64
 import plistlib
+import weakref
 from pathlib import Path
 from time import monotonic
 
-from PySide6.QtCore import QItemSelection, QMetaObject, Qt, QThread
+from PySide6.QtCore import QItemSelection, QMetaObject, QObject, Qt, QThread, QTimer
 from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -153,7 +154,8 @@ EXTERNAL_RUN_NOW_NO_LABEL_TOOLTIP = "This task has no usable launchd label."
 class MainWindow(QMainWindow):
     """Main window: a discovered-agent table on the left, an inspector on the right."""
 
-    WORKER_THREAD_WAIT_MS = 10_000
+    CLOSE_DRAIN_TIMEOUT_MS = 10_000
+    CLOSE_POLL_INTERVAL_MS = 50
 
     def __init__(
         self,
@@ -180,7 +182,14 @@ class MainWindow(QMainWindow):
         self._diagnostics_controller = diagnostics
         self._diagnostics_busy = False
         self._active_test_worker: DiagnosticsWorker | None = None
+        self._worker_objects: set[QObject] = set()
         self._worker_threads: set[QThread] = set()
+        self._close_pending = False
+        self._close_finalizing = False
+        self._close_deadline = 0.0
+        self._close_timer = QTimer(self)
+        self._close_timer.setInterval(self.CLOSE_POLL_INTERVAL_MS)
+        self._close_timer.timeout.connect(self._on_close_drain_tick)
         self._history_controller = history
         self._import_controller = import_ctrl
         self._services = services
@@ -501,7 +510,7 @@ class MainWindow(QMainWindow):
     def _update_lifecycle_actions(self) -> None:
         """Enable only the actions the selection allows, unless one is in flight."""
         listing = self._selected_listing()
-        busy = self._lifecycle_busy or self._external_busy
+        busy = self._lifecycle_busy or self._external_busy or self._close_pending
         allowed = frozenset() if busy else self._lifecycle_controller.enabled_actions(listing)
         self.install_action.setEnabled(LifecycleAction.INSTALL in allowed)
         self.reinstall_action.setEnabled(LifecycleAction.REINSTALL in allowed)
@@ -515,6 +524,7 @@ class MainWindow(QMainWindow):
             and listing.managed
             and listing.job is not None
             and not self._diagnostics_busy
+            and not self._close_pending
         )
         self._update_import_action(listing)
         self._update_action_menu(listing)
@@ -523,7 +533,7 @@ class MainWindow(QMainWindow):
 
     def _update_edit_menu(self, listing: TaskListing | None) -> None:
         """Enable Edit menu actions based on the selection."""
-        busy = self._lifecycle_busy or self._external_busy
+        busy = self._lifecycle_busy or self._external_busy or self._close_pending
         self.edit_task_action.setEnabled(listing is not None and not busy)
         self.remove_task_action.setEnabled(
             listing is not None
@@ -649,6 +659,9 @@ class MainWindow(QMainWindow):
         message: str,
     ) -> None:
         """Dispatch an external-control worker under the single busy slot."""
+        if self._close_pending:
+            self.statusBar().showMessage("Close in progress...")
+            return
         services = self._services
         if services is None:
             self.statusBar().showMessage("External controls are not available.")
@@ -672,8 +685,13 @@ class MainWindow(QMainWindow):
         worker.finished.connect(self._on_external_finished)
         worker.finished.connect(worker.deleteLater)
         worker.finished.connect(thread.quit)
-        thread.finished.connect(thread.deleteLater)
-        self._track_worker_thread(thread)
+
+        def _release_external_worker() -> None:
+            if self._active_external_worker is worker:
+                self._active_external_worker = None
+
+        thread.destroyed.connect(_release_external_worker)
+        self._track_worker_thread(thread, worker)
         thread.start()
         QMetaObject.invokeMethod(worker, "run", Qt.ConnectionType.QueuedConnection)
 
@@ -682,7 +700,6 @@ class MainWindow(QMainWindow):
         kind = self._external_kind
         loaded = self._external_loaded
         self._external_busy = False
-        self._active_external_worker = None
         self._external_kind = None
         self._external_loaded = None
         if not isinstance(outcome, ExternalEditResult):
@@ -1001,6 +1018,9 @@ class MainWindow(QMainWindow):
 
     def _on_lifecycle_triggered(self, action: LifecycleAction) -> None:
         """Route to the external controls or the managed lifecycle worker."""
+        if self._close_pending:
+            self.statusBar().showMessage("Close in progress...")
+            return
         listing = self._selected_listing()
         if listing is None:
             self.statusBar().showMessage("Select a task first.")
@@ -1048,18 +1068,22 @@ class MainWindow(QMainWindow):
         worker.finished.connect(self._on_lifecycle_finished)
         worker.finished.connect(worker.deleteLater)
         worker.finished.connect(thread.quit)
-        thread.finished.connect(thread.deleteLater)
-        self._track_worker_thread(thread)
+
+        def _release_lifecycle_worker() -> None:
+            if self._active_worker is worker:
+                self._active_worker = None
+
+        thread.destroyed.connect(_release_lifecycle_worker)
+        self._track_worker_thread(thread, worker)
         thread.start()
         QMetaObject.invokeMethod(worker, "run", Qt.ConnectionType.QueuedConnection)
 
     def _on_lifecycle_finished(self, outcome: object) -> None:
         """Restore the UI, refresh on success, and show the result dialog."""
+        self._lifecycle_busy = False
+        self._update_lifecycle_actions()
         if not isinstance(outcome, LifecycleOutcome):
             return
-        self._lifecycle_busy = False
-        self._active_worker = None
-        self._update_lifecycle_actions()
         if outcome.is_success:
             self.refresh()
             if outcome.action is LifecycleAction.RUN_NOW:
@@ -1075,6 +1099,9 @@ class MainWindow(QMainWindow):
 
     def _on_test_triggered(self) -> None:
         """Request a direct test of the selected job and dispatch a worker."""
+        if self._close_pending:
+            self.statusBar().showMessage("Close in progress...")
+            return
         listing = self._selected_listing()
         if listing is None:
             self.statusBar().showMessage("Select a task first.")
@@ -1102,19 +1129,23 @@ class MainWindow(QMainWindow):
         worker.finished.connect(self._on_test_finished)
         worker.finished.connect(worker.deleteLater)
         worker.finished.connect(thread.quit)
-        thread.finished.connect(thread.deleteLater)
-        self._track_worker_thread(thread)
+
+        def _release_test_worker() -> None:
+            if self._active_test_worker is worker:
+                self._active_test_worker = None
+
+        thread.destroyed.connect(_release_test_worker)
+        self._track_worker_thread(thread, worker)
         thread.start()
         QMetaObject.invokeMethod(worker, "run", Qt.ConnectionType.QueuedConnection)
 
     def _on_test_finished(self, outcome: object) -> None:
         """Render the test result only when the selection still matches it."""
-        if not isinstance(outcome, TestOutcome):
-            return
         self._diagnostics_busy = False
-        self._active_test_worker = None
         self._update_lifecycle_actions()
         self.statusBar().clearMessage()
+        if not isinstance(outcome, TestOutcome):
+            return
         listing = self._selected_listing()
         if listing is None or listing.job is None or self._label_of(listing) != outcome.label:
             return
@@ -1143,34 +1174,83 @@ class MainWindow(QMainWindow):
         self.panel.show_logs_outcome(self._diagnostics_controller.read_logs(job))
         self.panel.show_environment_outcome(self._diagnostics_controller.compare_environment(job))
 
-    def _track_worker_thread(self, thread: QThread) -> None:
-        """Track a parentless worker thread until its finished signal is handled.
+    def _track_worker_thread(self, thread: QThread, *workers: QObject) -> None:
+        """Track a parentless worker thread and its workers until Qt destroys them.
 
         Worker threads are constructed without a parent so the window's
         destructor can never free one before its queued ``deleteLater``
-        is delivered.
+        is delivered. Worker Python wrappers must outlive the thread because
+        releasing them while the worker-thread event loop is still tearing
+        down can destroy the wrapper from the wrong thread.
         """
         self._worker_threads.add(thread)
-        thread.finished.connect(self._on_worker_thread_finished)
+        self._worker_objects.update(workers)
+        thread.finished.connect(thread.deleteLater)
+        thread_ref: weakref.ref[QThread] = weakref.ref(thread)
 
-    def _on_worker_thread_finished(self) -> None:
-        """Drop a finished worker thread on the main window's Qt thread."""
-        thread = self.sender()
-        if isinstance(thread, QThread):
-            self._worker_threads.discard(thread)
+        def _release_worker_lifecycle() -> None:
+            for worker in workers:
+                self._worker_objects.discard(worker)
+            dead = thread_ref()
+            if dead is not None:
+                self._worker_threads.discard(dead)
+
+        thread.destroyed.connect(_release_worker_lifecycle)
+
+    def _on_close_drain_tick(self) -> None:
+        """Finish the close once tracked worker threads have drained."""
+        if not self._close_pending:
+            self._close_timer.stop()
+            return
+        if self._worker_threads:
+            if monotonic() < self._close_deadline:
+                return
+            self._close_pending = False
+            self._close_timer.stop()
+            self._update_lifecycle_actions()
+            self.statusBar().showMessage("Could not finish the active operations.")
+            return
+        self._close_finalizing = True
+        self._close_timer.stop()
+        QTimer.singleShot(0, self._finish_close)
+
+    def _finish_close(self) -> None:
+        """Accept the close after queued deferred-deletion work has been posted."""
+        if self._worker_threads:
+            self._close_finalizing = False
+            self._close_pending = True
+            self._close_deadline = monotonic() + self.CLOSE_DRAIN_TIMEOUT_MS / 1000
+            self._close_timer.start()
+            return
+        self.close()
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        """Keep the window alive until its worker QThreads have stopped."""
-        threads = tuple(self._worker_threads)
-        for thread in threads:
-            if thread.isRunning():
-                thread.quit()
-        deadline = monotonic() + self.WORKER_THREAD_WAIT_MS / 1000
-        for thread in threads:
-            if thread.isRunning():
-                remaining_ms = max(0, int((deadline - monotonic()) * 1000))
-                thread.wait(remaining_ms)
-        if any(thread.isRunning() for thread in threads):
-            event.ignore()
+        """Close asynchronously once active worker threads have drained."""
+        if self._close_finalizing:
+            self._close_finalizing = False
+            self._close_pending = False
+            self._close_timer.stop()
+            super().closeEvent(event)
             return
-        super().closeEvent(event)
+        if not self._worker_threads:
+            super().closeEvent(event)
+            return
+        self._close_pending = True
+        self._close_deadline = monotonic() + self.CLOSE_DRAIN_TIMEOUT_MS / 1000
+        for thread in tuple(self._worker_threads):
+            try:
+                running = thread.isRunning()
+            except RuntimeError:
+                self._worker_threads.discard(thread)
+                continue
+            if running:
+                thread.quit()
+        if not self._worker_threads:
+            self._close_finalizing = True
+            self._close_timer.stop()
+            QTimer.singleShot(0, self._finish_close)
+            return
+        self._update_lifecycle_actions()
+        self.statusBar().showMessage("Finishing active operations...")
+        self._close_timer.start()
+        event.ignore()

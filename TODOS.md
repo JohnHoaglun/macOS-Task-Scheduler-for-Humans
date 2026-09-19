@@ -1,15 +1,15 @@
-# TODOS.md (v0.0.42)
+# TODOS.md (v0.0.43)
 
-## Stability-First Structured Logging and Error Handling (IN PROGRESS — v0.0.43)
+## Stability-First Structured Logging and Error Handling (DONE — v0.0.43)
 
-User-requested (2026-09-19): durable structured logging of every button click and configuration-change event with full configuration content (no redaction), bounded 10 MB / 14-day log retention, and robust worker/GUI error handling so failures produce user-visible outcomes instead of crashes or stuck busy states.
+User-requested (2026-09-19): durable structured logging of every button click and configuration-change event with full configuration content (no redaction), bounded 10 MB / 14-day log retention, and robust worker/GUI error handling so failures produce user-visible outcomes instead of crashes or stuck busy states. Completed with safe parentless worker-thread ownership, durable JSONL audit logging, typed terminal worker outcomes, file-operation hardening, and full-config audit events.
 
-- [ ] Wave 0: Core telemetry API in `application/app_logging.py` — JSONL formatter, custom bounded 10MB/14-day rotating handler (age + size pruning at startup and rollover), session/operation IDs, event schema; integrate existing crash/thread hooks; wire in `gui/app.py` and `cli/app.py`
-- [ ] Wave 1A: Worker stability — typed terminal results for `LifecycleWorker`, `DiagnosticsWorker`, `ExternalControlWorker`; always emit exactly one result, always attempt `finish()`; MainWindow completion handlers clear busy flags before validating payloads; direct-test dialog worker converted to parentless ownership; responsive shutdown (no blocking `QThread.wait`)
-- [ ] Wave 1B: Interaction audit — instrument button clicks (Qt event filter), field changes, dialog outcomes, selection changes, filter toggles, panel visibility, menu actions; emit pinned event shapes with full config snapshots
-- [ ] Wave 1C: File-operation hardening — import/export/external-edit/copy/reveal: expected filesystem/platform failures become typed controller outcomes with durable logs and clear UI messages; unexpected exceptions logged with traceback
-- [ ] Wave 2: Composition tests — cross-thread worker failure, rotation/retention, shutdown responsiveness, full-config snapshot integrity, JSONL validity; run final gates
-- [ ] Closeout: `make check` + 100% coverage + ratio ≤ 75%, version bump 0.0.42 → 0.0.43 (all 4 registry locations), grep old version, update PROJECT.md/SUMMARY.md/TODOS.md, commit, push
+- [x] Wave 0: Core telemetry API in `application/app_logging.py` — JSONL formatter, custom bounded 10MB/14-day rotating handler (age + size pruning at startup and rollover), session/operation IDs, event schema; integrate existing crash/thread hooks; wire in `gui/app.py` and `cli/app.py`
+- [x] Wave 1A: Worker stability — typed terminal results for `LifecycleWorker`, `DiagnosticsWorker`, `ExternalControlWorker`; always emit exactly one result, always attempt `finish()`; MainWindow completion handlers clear busy flags before validating payloads; direct-test dialog worker converted to parentless ownership; responsive shutdown (no blocking `QThread.wait`)
+- [x] Wave 1B: Interaction audit — instrument button clicks (Qt event filter), field changes, dialog outcomes, selection changes, filter toggles, panel visibility, menu actions; emit pinned event shapes with full config snapshots
+- [x] Wave 1C: File-operation hardening — import/export/external-edit/copy/reveal: expected filesystem/platform failures become typed controller outcomes with durable logs and clear UI messages; unexpected exceptions logged with traceback
+- [x] Wave 2: Composition tests — cross-thread worker failure, rotation/retention, shutdown responsiveness, full-config snapshot integrity, JSONL validity; final gates green
+- [x] Closeout: `make check` (ruff + mypy strict + 624 tests) + 100% coverage + ratio 74.6089% (≤ 75%), version bump 0.0.42 → 0.0.43 (all 4 registry locations), stale-version grep, update PROJECT.md/SUMMARY.md/TODOS.md; commit and push remain gated on explicit approval
 
 ## Shutdown SIGSEGV Fix (DONE — v0.0.42)
 

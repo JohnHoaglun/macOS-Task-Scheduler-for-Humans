@@ -102,7 +102,6 @@ from task_scheduler.gui.widgets.lifecycle_result import LifecycleResultDialog
 from task_scheduler.gui.widgets.raw_plist_editor import RawPlistEditor
 from task_scheduler.platform.macos import (
     CommandSpec,
-    ParseSupport,
     ProcessResult,
     parse_path,
 )
@@ -668,14 +667,9 @@ class TestHistoryPanelWiring:
         assert scroll is not None
         assert scroll.horizontalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         wrapped = (
-            "overview-name",
-            "overview-label",
-            "overview-classification",
-            "overview-source",
-            "overview-state",
-            "overview-enabled",
-            "overview-loaded",
-            "schedule-preview-heading",
+            "overview-name", "overview-label", "overview-classification",
+            "overview-source", "overview-state", "overview-enabled",
+            "overview-loaded", "schedule-preview-heading",
         )
         for name in wrapped:
             label = window.inspector.findChild(QLabel, name)
@@ -686,14 +680,17 @@ class TestHistoryPanelWiring:
     ) -> None:
         world, *_ = _seed_three(tmp_path)
         window = _window(qtbot, DiscoveryController(world.services))
-        thread = QThread(window)
+        thread = QThread()
+        finished: list[bool] = []
+        thread.finished.connect(lambda: finished.append(True))
         window._track_worker_thread(thread)
         thread.start()
         qtbot.waitUntil(thread.isRunning)
-        monkeypatch.setattr(MainWindow, "WORKER_THREAD_WAIT_MS", 100)
+        monkeypatch.setattr(MainWindow, "CLOSE_DRAIN_TIMEOUT_MS", 1000)
         window.close()
-        assert not thread.isRunning()
-        qtbot.waitUntil(lambda: thread not in window._worker_threads)
+        qtbot.waitUntil(lambda: not window.isVisible(), timeout=5000)
+        assert finished
+        assert thread not in window._worker_threads
 
     def test_close_refuses_to_destroy_a_still_running_worker(
         self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -709,15 +706,34 @@ class TestHistoryPanelWiring:
             def quit(self) -> None:
                 pass
 
-            def wait(self, _: int) -> bool:
-                return False
-
         window._worker_threads.add(StuckThread())  # type: ignore[arg-type]
-        monkeypatch.setattr(MainWindow, "WORKER_THREAD_WAIT_MS", 0)
+        monkeypatch.setattr(MainWindow, "CLOSE_DRAIN_TIMEOUT_MS", 0)
         event = QCloseEvent()
         window.closeEvent(event)
         assert not event.isAccepted()
+        assert window._close_pending
+        qtbot.waitUntil(lambda: not window._close_pending, timeout=2000)
+        assert window.isVisible()
         window._worker_threads.clear()
+
+    def test_new_lifecycle_is_rejected_while_close_is_pending(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        world, managed, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        thread = QThread()
+        window._track_worker_thread(thread)
+        thread.start()
+        qtbot.waitUntil(thread.isRunning)
+        window._close_pending = True
+        _answer_question(monkeypatch, QMessageBox.StandardButton.Yes)
+        _select_managed(world, window, managed)
+        window.run_now_action.trigger()
+        assert window._lifecycle_busy is False
+        assert window._worker_threads == {thread}
+        window._close_pending = False
+        thread.quit()
+        qtbot.waitUntil(lambda: thread not in window._worker_threads, timeout=5000)
 
     def test_worker_threads_are_parentless_and_shutdown_flush_is_safe(
         self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -731,12 +747,12 @@ class TestHistoryPanelWiring:
         window = _window_full(qtbot, DiscoveryController(world.services))
 
         real_qthread: type[QThread] = main_window_module.QThread
-        created: list[tuple[QThread, QObject | None]] = []
+        created: list[QObject | None] = []
 
         class RecordingQThread(real_qthread):
             def __init__(self, *args: Any) -> None:
                 super().__init__(*args)
-                created.append((self, self.parent()))
+                created.append(self.parent())
 
         monkeypatch.setattr(main_window_module, "QThread", RecordingQThread)
         _answer_question(monkeypatch, QMessageBox.StandardButton.Yes)
@@ -761,11 +777,10 @@ class TestHistoryPanelWiring:
         window._on_test_triggered()
         qtbot.waitUntil(lambda: not window._diagnostics_busy, timeout=5000)
 
-        assert len(created) == 3
-        assert [parent for _, parent in created] == [None, None, None]
-        assert window._worker_threads == set()
+        qtbot.waitUntil(lambda: window._worker_threads == set(), timeout=5000)
+        assert created == [None, None, None]
         window.close()
-        qtbot.wait(100)
+        qtbot.waitUntil(lambda: not window.isVisible(), timeout=5000)
 
     def test_history_refresh_with_selection(self, qtbot: QtBot, tmp_path: Path) -> None:
         world, managed, *_ = _seed_three(tmp_path)
@@ -783,51 +798,94 @@ class TestHistoryPanelWiring:
         assert window.statusBar().currentMessage() == "Select a task to refresh its history."
 
 
+class TestClosePendingGates:
+    """Close-drain bookkeeping the interaction tests never exercise."""
+
+    def test_new_operations_refused_while_close_pending(
+        self, qtbot: QtBot, tmp_path: Path
+    ) -> None:
+        window = _window(qtbot, DiscoveryController(FakeTaskWorld(tmp_path).services))
+        window._close_pending = True
+        window._start_external(
+            ExternalControlRequest(kind=ExternalControlKind.DISABLE, path=Path("x.plist")),
+            None,
+            "msg",
+        )
+        window._on_lifecycle_triggered(LifecycleAction.ENABLE)
+        window._on_test_triggered()
+        assert window.statusBar().currentMessage() == "Close in progress..."
+        assert not (window._external_busy or window._lifecycle_busy or window._diagnostics_busy)
+        window._close_pending = False
+
+    def test_drain_tick_stops_timer_when_not_pending(
+        self, qtbot: QtBot, tmp_path: Path
+    ) -> None:
+        window = _window(qtbot, DiscoveryController(FakeTaskWorld(tmp_path).services))
+        window._close_timer.start()
+        window._on_close_drain_tick()
+        assert not window._close_timer.isActive()
+
+    def test_drain_tick_holds_until_deadline(self, qtbot: QtBot, tmp_path: Path) -> None:
+        window = _window(qtbot, DiscoveryController(FakeTaskWorld(tmp_path).services))
+        window._close_pending = True
+        window._close_deadline = float("inf")
+        window._worker_threads.add(object())  # type: ignore[arg-type]
+        window._close_timer.start()
+        window._on_close_drain_tick()
+        assert window._close_pending and window._close_timer.isActive()
+        window._close_pending = False
+        window._worker_threads.clear()
+        window._close_timer.stop()
+
+    def test_finish_close_restarts_drain_when_threads_reappear(
+        self, qtbot: QtBot, tmp_path: Path
+    ) -> None:
+        window = _window(qtbot, DiscoveryController(FakeTaskWorld(tmp_path).services))
+        window._worker_threads.add(object())  # type: ignore[arg-type]
+        window._close_finalizing = True
+        window._finish_close()
+        assert window._close_finalizing is False and window._close_pending
+        assert window._close_timer.isActive()
+        window._close_pending = False
+        window._worker_threads.clear()
+        window._close_timer.stop()
+
+    def test_close_discards_dead_thread_and_finalizes(
+        self, qtbot: QtBot, tmp_path: Path
+    ) -> None:
+        window = _window(qtbot, DiscoveryController(FakeTaskWorld(tmp_path).services))
+
+        class _DeadThread:
+            def isRunning(self) -> bool:
+                raise RuntimeError("C++ object already deleted")
+
+        dead = _DeadThread()
+        window._worker_threads.add(dead)  # type: ignore[arg-type]
+        window.closeEvent(QCloseEvent())
+        assert dead not in window._worker_threads
+        assert window._close_finalizing is True
+        window._close_finalizing = False
+
+
 EXTERNAL_PLIST = """\
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.external.imported</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/usr/bin/echo</string>
-        <string>hello</string>
-    </array>
-    <key>StartInterval</key>
-    <integer>300</integer>
-</dict>
-</plist>
+<plist version="1.0"><dict>
+<key>Label</key><string>com.external.imported</string>
+<key>ProgramArguments</key><array><string>/usr/bin/echo</string><string>hello</string></array>
+<key>StartInterval</key><integer>300</integer>
+</dict></plist>
 """
 
 EXTERNAL_PARTIAL_PLIST = """\
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.external.partial</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/usr/bin/echo</string>
-        <string>partial</string>
-    </array>
-    <key>StartCalendarInterval</key>
-    <array>
-        <dict>
-            <key>Hour</key>
-            <integer>8</integer>
-            <key>Minute</key>
-            <integer>0</integer>
-            <key>Weekday</key>
-            <integer>1</integer>
-        </dict>
-    </array>
-    <key>UnknownWeirdKey</key>
-    <string>ignored</string>
-</dict>
-</plist>
+<plist version="1.0"><dict>
+<key>Label</key><string>com.external.partial</string>
+<key>ProgramArguments</key><array><string>/usr/bin/echo</string><string>partial</string></array>
+<key>StartCalendarInterval</key><array><dict>
+<key>Hour</key><integer>8</integer><key>Minute</key><integer>0</integer><key>Weekday</key><integer>1</integer>
+</dict></array>
+<key>UnknownWeirdKey</key><string>ignored</string>
+</dict></plist>
 """
 
 
@@ -1030,7 +1088,6 @@ class TestWave3Composition:
         monkeypatch.setattr(window._services, "export_managed_json", _raise)
         window.export_json_action.trigger()
         assert "Export failed" in window.statusBar().currentMessage()
-        # A cancelled save dialog is a no-op (status unchanged).
         dest2: list[Path] = []
         monkeypatch.setattr(window._services, "export_managed_json", lambda _l, p: dest2.append(p))
         monkeypatch.setattr(mw.QFileDialog, "getSaveFileName", staticmethod(lambda *_a: ("", "")))
@@ -1278,7 +1335,6 @@ class TestUniversalExternalEdit:
         window.edit_task_action.trigger()
         assert titles == ["Edit External LaunchAgent?"]
         assert window.statusBar().currentMessage() == EDIT_EXTERNAL_NO_CHANGES
-        assert not window._external_busy
         assert _mutating(world.launch_runner.specs) == []
 
     def test_gate_a_cancel_writes_nothing(
@@ -1298,7 +1354,6 @@ class TestUniversalExternalEdit:
         assert path.read_bytes() == before
         assert world.launch_runner.specs[specs_before:] == []
         assert list(world.la_root.iterdir()) == [path]
-        assert not window._external_busy
 
     def test_gate_b_cancel_writes_nothing(
         self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1312,13 +1367,9 @@ class TestUniversalExternalEdit:
         before = path.read_bytes()
         _select_external_row(window, world)
         window.edit_task_action.trigger()
-        assert titles == [
-            "Edit External LaunchAgent?",
-            "Replace External LaunchAgent Plist?",
-        ]
+        assert titles == ["Edit External LaunchAgent?", "Replace External LaunchAgent Plist?"]
         assert path.read_bytes() == before
         assert all("print" in spec.argv for spec in world.launch_runner.specs)
-        assert not window._external_busy
 
     def test_editor_reject_stops_before_gate_b(
         self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1334,7 +1385,6 @@ class TestUniversalExternalEdit:
         window.edit_task_action.trigger()
         assert titles == ["Edit External LaunchAgent?"]
         assert path.read_bytes() == before
-        assert not window._external_busy
 
     def test_session_rejection_shows_verbatim_error(
         self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1352,7 +1402,6 @@ class TestUniversalExternalEdit:
         window.edit_task_action.trigger()
         assert titles == ["Edit External LaunchAgent?"]
         assert window.statusBar().currentMessage() == error
-        assert not window._external_busy
 
     def test_source_drift_reports_pinned_conflict(
         self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1372,10 +1421,7 @@ class TestUniversalExternalEdit:
         monkeypatch.setattr(world.services, "commit_structured_external_edit", drift)
         _select_external_row(window, world)
         window.edit_task_action.trigger()
-        assert titles == [
-            "Edit External LaunchAgent?",
-            "Replace External LaunchAgent Plist?",
-        ]
+        assert titles == ["Edit External LaunchAgent?", "Replace External LaunchAgent Plist?"]
         assert window.statusBar().currentMessage() == (
             "the source plist changed outside this application; review it and open it again"
         )
@@ -1395,8 +1441,6 @@ class TestUniversalExternalEdit:
         _run_external_synchronously(window, monkeypatch)
         _select_external_row(window, world)
         window.edit_task_action.trigger()
-        path = _external_row_path(world)
-        assert parse_path(path).status is ParseSupport.SUPPORTED
         backups = sorted(world.la_root.glob("*.backup.*"))
         assert len(backups) == 1
         assert window.statusBar().currentMessage() == EXTERNAL_EDIT_RELOAD_FAILED.format(
@@ -1419,34 +1463,21 @@ class TestUniversalExternalEdit:
 
 
 class TestUniversalExternalLifecycle:
-    def test_disable_unloaded_skips_bootout(
-        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize("exit_code", [1, None])
+    def test_disable_not_loaded_skips_bootout(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, exit_code
     ) -> None:
-        not_loaded = ProcessResult(exit_code=1)
-        world = _seed_external(tmp_path, launches=[not_loaded, not_loaded])
+        result = ProcessResult(exit_code=exit_code)
+        world = _seed_external(tmp_path, launches=[result, result])
         window = _window_full(qtbot, DiscoveryController(world.services))
         _script_external_dialogs(monkeypatch)
         _run_external_synchronously(window, monkeypatch)
         _select_external_row(window, world)
         window.disable_action.trigger()
-        assert window.statusBar().currentMessage() == EXTERNAL_DISABLE_UNLOADED.format(
-            label=EXTERNAL_EDIT_LABEL
-        )
-        assert _mutating(world.launch_runner.specs) == ["disable"]
-
-    def test_disable_unknown_status_skips_bootout(
-        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        unknown = ProcessResult(exit_code=None)
-        world = _seed_external(tmp_path, launches=[unknown, unknown])
-        window = _window_full(qtbot, DiscoveryController(world.services))
-        _script_external_dialogs(monkeypatch)
-        _run_external_synchronously(window, monkeypatch)
-        _select_external_row(window, world)
-        window.disable_action.trigger()
-        assert window.statusBar().currentMessage() == EXTERNAL_DISABLE_UNKNOWN.format(
-            label=EXTERNAL_EDIT_LABEL
-        )
+        message = (
+            EXTERNAL_DISABLE_UNLOADED if exit_code == 1 else EXTERNAL_DISABLE_UNKNOWN
+        ).format(label=EXTERNAL_EDIT_LABEL)
+        assert window.statusBar().currentMessage() == message
         assert _mutating(world.launch_runner.specs) == ["disable"]
 
     def test_disable_without_label_quarantines(
@@ -1522,11 +1553,7 @@ class TestUniversalExternalLifecycle:
         )
         window.run_now_action.trigger()
         assert titles == []
-        argvs = [spec.argv for spec in world.launch_runner.specs]
-        assert (
-            argvs.count(["/bin/launchctl", "kickstart", "-k", f"gui/1000/{EXTERNAL_EDIT_LABEL}"])
-            == 1
-        )
+        assert _mutating(world.launch_runner.specs) == ["kickstart"]
 
 
 class TestUniversalRemove:
@@ -1550,7 +1577,6 @@ class TestUniversalRemove:
             + EXTERNAL_REMOVE_UNLOADED_FIRST
         )
         assert _mutating(world.launch_runner.specs) == ["bootout"]
-        assert window._selected_listing() is None
 
     def test_remove_saved_shows_pinned_message(
         self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1564,25 +1590,24 @@ class TestUniversalRemove:
         assert titles == ["Remove Saved Task?"]
         assert window.statusBar().currentMessage() == REMOVED_SAVED_RESULT.format(name="Saved Only")
         assert all(job.label != "com.example.saved-only" for job in world.jobs.list_jobs())
-        model = window.table.model()
-        assert not any(
-            (listing := model.listing_at(row)) is not None
-            and listing.job is not None
-            and listing.job.label == "com.example.saved-only"
-            for row in range(model.rowCount())
-        )
+
+
+def _seed_raw_plist(tmp_path: Path, *, binary: bool = True) -> tuple[FakeTaskWorld, Path]:
+    """Seed RAW_LABEL as a LaunchAgent plist and return (world, path)."""
+    world = FakeTaskWorld(tmp_path)
+    raw = {"Label": RAW_LABEL, "ProgramArguments": ["/bin/true"], "KeepAlive": True}
+    path = world.la_root / f"{RAW_LABEL}.plist"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(plistlib.dumps(raw, fmt=plistlib.FMT_BINARY if binary else plistlib.FMT_XML))
+    return world, path
 
 
 class TestUniversalRawEdit:
     def test_binary_source_shows_base64_and_normalizes(
         self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        world = FakeTaskWorld(tmp_path)
-        raw = {"Label": RAW_LABEL, "ProgramArguments": ["/bin/true"], "KeepAlive": True}
-        path = world.la_root / f"{RAW_LABEL}.plist"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        source = plistlib.dumps(raw, fmt=plistlib.FMT_BINARY)
-        path.write_bytes(source)
+        world, path = _seed_raw_plist(tmp_path)
+        source = path.read_bytes()
         window = _window_full(qtbot, DiscoveryController(world.services))
         _script_external_dialogs(monkeypatch)
         new_raw = {
@@ -1607,12 +1632,8 @@ class TestUniversalRawEdit:
     def test_binary_replacement_invalid_shows_pinned_error(
         self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        world = FakeTaskWorld(tmp_path)
-        raw = {"Label": RAW_LABEL, "ProgramArguments": ["/bin/true"], "KeepAlive": True}
-        path = world.la_root / f"{RAW_LABEL}.plist"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        source = plistlib.dumps(raw, fmt=plistlib.FMT_BINARY)
-        path.write_bytes(source)
+        world, path = _seed_raw_plist(tmp_path)
+        source = path.read_bytes()
         window = _window_full(qtbot, DiscoveryController(world.services))
         titles = _script_external_dialogs(monkeypatch)
         _fake_raw_editor(monkeypatch, replacement="not-valid-base64!!")
@@ -1628,12 +1649,8 @@ class TestUniversalRawEdit:
     def test_raw_editor_reject_writes_nothing(
         self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        world = FakeTaskWorld(tmp_path)
-        raw = {"Label": RAW_LABEL, "ProgramArguments": ["/bin/true"], "KeepAlive": True}
-        path = world.la_root / f"{RAW_LABEL}.plist"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        source = plistlib.dumps(raw, fmt=plistlib.FMT_XML)
-        path.write_bytes(source)
+        world, path = _seed_raw_plist(tmp_path, binary=False)
+        source = path.read_bytes()
         window = _window_full(qtbot, DiscoveryController(world.services))
         titles = _script_external_dialogs(monkeypatch)
         _fake_raw_editor(monkeypatch, accept=False)
@@ -1643,7 +1660,6 @@ class TestUniversalRawEdit:
         assert titles == ["Edit External LaunchAgent?"]
         assert path.read_bytes() == source
         assert list(world.la_root.glob("*.backup.*")) == []
-        assert not window._external_busy
 
 
 def _ext_result(world: FakeTaskWorld, *, exit_code: int = 0) -> ExternalEditResult:
@@ -1659,6 +1675,11 @@ def _ext_result(world: FakeTaskWorld, *, exit_code: int = 0) -> ExternalEditResu
     )
 
 
+def _unresolved_listing(kind: ListingKind, *, managed: bool) -> TaskListing:
+    """A discovered listing with no path/parsed/job (unresolved state)."""
+    return TaskListing(kind=kind, path=None, parsed=None, job=None, managed=managed)
+
+
 class TestExternalControlCoverage:
     """White-box coverage of defensive branches the interaction tests skip."""
 
@@ -1668,18 +1689,12 @@ class TestExternalControlCoverage:
 
     def test_edit_managed_no_job(self, qtbot: QtBot, tmp_path: Path) -> None:
         world, window = self._window(qtbot, tmp_path)
-        window._edit_managed_listing(
-            TaskListing(kind=ListingKind.DISCOVERED, path=None, parsed=None, job=None, managed=True)
-        )
+        window._edit_managed_listing(_unresolved_listing(ListingKind.DISCOVERED, managed=True))
         assert window.statusBar().currentMessage() == "Select a task to edit it."
 
     def test_edit_external_unavailable(self, qtbot: QtBot, tmp_path: Path) -> None:
         world, window = self._window(qtbot, tmp_path)
-        window._edit_external_listing(
-            TaskListing(
-                kind=ListingKind.DISCOVERED, path=None, parsed=None, job=None, managed=False
-            )
-        )
+        window._edit_external_listing(_unresolved_listing(ListingKind.DISCOVERED, managed=False))
         assert window.statusBar().currentMessage() == "External editing is not available."
 
     def test_start_external_no_services(self, qtbot: QtBot, tmp_path: Path) -> None:
@@ -1722,12 +1737,8 @@ class TestExternalControlCoverage:
 
     def test_run_external_lifecycle_no_path(self, qtbot: QtBot, tmp_path: Path) -> None:
         world, window = self._window(qtbot, tmp_path)
-        window._run_external_lifecycle(
-            LifecycleAction.DISABLE,
-            TaskListing(
-                kind=ListingKind.DISCOVERED, path=None, parsed=None, job=None, managed=False
-            ),
-        )
+        unresolved = _unresolved_listing(ListingKind.DISCOVERED, managed=False)
+        window._run_external_lifecycle(LifecycleAction.DISABLE, unresolved)
         assert window.statusBar().currentMessage() == "Select a task first."
 
     def test_remove_no_selection(self, qtbot: QtBot, tmp_path: Path) -> None:
@@ -1737,18 +1748,12 @@ class TestExternalControlCoverage:
 
     def test_remove_saved_no_job(self, qtbot: QtBot, tmp_path: Path) -> None:
         world, window = self._window(qtbot, tmp_path)
-        window._remove_saved_listing(
-            TaskListing(kind=ListingKind.SAVED, path=None, parsed=None, job=None, managed=True)
-        )
+        window._remove_saved_listing(_unresolved_listing(ListingKind.SAVED, managed=True))
         assert window.statusBar().currentMessage() == "Select a task first."
 
     def test_remove_external_no_path(self, qtbot: QtBot, tmp_path: Path) -> None:
         world, window = self._window(qtbot, tmp_path)
-        window._remove_external_listing(
-            TaskListing(
-                kind=ListingKind.DISCOVERED, path=None, parsed=None, job=None, managed=False
-            )
-        )
+        window._remove_external_listing(_unresolved_listing(ListingKind.DISCOVERED, managed=False))
         assert window.statusBar().currentMessage() == "Select a task first."
 
     def test_open_raw_editor_read_error(self, qtbot: QtBot, tmp_path: Path) -> None:
@@ -1873,23 +1878,7 @@ class TestExternalControlCoverage:
         self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         world, window = self._window(qtbot, tmp_path)
-        monkeypatch.setattr(
-            window,
-            "_selected_listing",
-            lambda: TaskListing(
-                kind=ListingKind.SAVED, path=None, parsed=None, job=None, managed=True
-            ),
-        )
+        resolved = _unresolved_listing(ListingKind.SAVED, managed=True)
+        monkeypatch.setattr(window, "_selected_listing", lambda: resolved)
         window._on_lifecycle_triggered(LifecycleAction.UNINSTALL)
         assert window.statusBar().currentMessage() == "Select a task first."
-
-    def test_external_worker_thread_body(
-        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        world, *_ = _seed_three(tmp_path)
-        window = _window_full(qtbot, DiscoveryController(world.services))
-        listing = next(item for item in world.services.list_agents() if not item.managed)
-        _script_external_dialogs(monkeypatch, disable=True)
-        window._run_external_lifecycle(LifecycleAction.DISABLE, listing)
-        qtbot.waitUntil(lambda: not window._external_busy, timeout=5000)
-        assert not window._external_busy

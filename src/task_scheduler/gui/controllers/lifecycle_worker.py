@@ -30,6 +30,8 @@ class LifecycleWorker(QObject):
         """Execute the accepted request, restore the busy state, emit the outcome."""
         try:
             outcome = self._controller.execute()
+        except Exception:
+            outcome = None
         finally:
             self._controller.finish()
         self.finished.emit(outcome)

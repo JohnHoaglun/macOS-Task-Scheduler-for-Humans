@@ -35,6 +35,16 @@
 - Worker ownership/tracking (parentless QThread, shared registry) is assigned solely to Wave 1A.
 - Application log path is the only shared file resource; owned by Wave 0.
 
+**Pinned Wave 1A lifecycle contract (bound before implementation):**
+- Every GUI worker thread is constructed as `QThread()` with no Qt parent.
+- A strong registry owns every dispatched thread until its `destroyed` signal has been handled, never merely until `finished`.
+- Workers are non-cancellable: `QThread.quit()` only stops the thread event loop after the active queued slot returns.
+- Close is asynchronous and never calls `QThread.wait()` or blocks the GUI event loop.
+- The window closes only after tracked threads have drained and queued `deleteLater()` work has had at least one event-loop turn.
+- A shutdown timeout cancels the close attempt, leaves the application and all live threads alive, and displays a clear status message; it never terminates or destroys a live thread.
+- While close is pending, new `MainWindow` worker operations are rejected before a worker or thread is created.
+- `DirectTestDialog` retains the same public API and releases a closed dialog only after its worker thread has been destroyed.
+
 **Gates:**
 - Worker execution/cleanup failure regression tests: exactly one terminal result, busy flags clear, thread teardown.
 - MainWindow malformed-payload handling: busy flags cleared, user sees actionable message, event logged.
@@ -45,6 +55,22 @@
 - Rollover: daily and size-triggered rollover both work.
 - Expected filesystem errors become UI outcomes (not unhandled exceptions).
 - Final: `make check` (ruff + mypy strict + pytest), 100% coverage, test/source ratio ≤ 75%, version bump 0.0.42 → 0.0.43, all 4 registry locations updated, docs updated, commit, push.
+
+**Resolution after resumption (2026-09-19):**
+- Crash fix complete and full `make check` green: 624 tests, ruff, mypy strict, and whole-package coverage 100%.
+- Test/source ratio reduced to 74.6089% (`10,255 / 13,745`), under the hard 75% cap.
+- v0.0.43 version/docs closeout complete; commit and push remain gated on explicit approval.
+
+**Resumption lane map:**
+| Lane | Scope | Owned files | Stop condition |
+|---|---|---|---|
+| A: app_logging coverage/ratio | Cover defensive `app_logging` branches without expanding test bloat | `src/task_scheduler/application/app_logging.py`, `tests/unit/application/test_app_logging.py` | `app_logging.py` 100%; owned test file no larger than 373 lines; focused tests + ruff/mypy green |
+| B: MainWindow coverage/ratio | Cover close-pending/shutdown branches without expanding test bloat | `src/task_scheduler/gui/main_window.py`, `tests/unit/gui/test_main_window.py` | `main_window.py` 100%; owned test file no larger than 1916 lines; focused tests + ruff/mypy green |
+| C: version closeout | Bump current version and registry only | `pyproject.toml`, `src/task_scheduler/version.py`, `VERSIONS_LOCATIONS.md` | All registry locations report `0.0.43`; stale-current `0.0.42` references resolved |
+
+Wave order: A/B/C in parallel; composition gate after all lanes: full `make check`, whole-package coverage 100%, global ratio <= 75%, docs update, commit approval.
+
+Shared surfaces are pinned: no lane may edit the other lane’s source/test files, `TODOS.md`, `PROJECT.md`, `SUMMARY.md`, version files, or `HANDOFF_NOTES.md`. Coverage additions must be minimal; any new test lines must be offset by trimming redundant test lines inside the lane’s owned test file where possible.
 
 **Blockers:** none.
 

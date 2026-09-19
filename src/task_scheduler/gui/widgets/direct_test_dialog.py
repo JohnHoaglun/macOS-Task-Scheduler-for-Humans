@@ -40,6 +40,7 @@ class DirectTestDialog(QDialog):
     """
 
     _closing_dialogs: ClassVar[list[DirectTestDialog]] = []
+    _active_threads: ClassVar[set[QThread]] = set()
 
     def __init__(
         self,
@@ -78,14 +79,14 @@ class DirectTestDialog(QDialog):
             return
         worker = DiagnosticsWorker(self._controller)
         self._worker = worker
-        thread = QThread(self)
+        thread = QThread()
         self._thread = thread
+        DirectTestDialog._active_threads.add(thread)
         worker.moveToThread(thread)
         worker.finished.connect(self._on_finished)
         worker.finished.connect(worker.deleteLater)
         worker.finished.connect(thread.quit)
         thread.finished.connect(thread.deleteLater)
-        thread.finished.connect(self._on_thread_finished)
         thread.destroyed.connect(self._on_thread_destroyed)
         thread.start()
         QMetaObject.invokeMethod(worker, "run", Qt.ConnectionType.QueuedConnection)
@@ -97,13 +98,12 @@ class DirectTestDialog(QDialog):
         self.panel.show_test_outcome(self._job, outcome)
         self._render_logs()
 
-    def _on_thread_finished(self) -> None:
-        """Release worker references once its event loop has stopped."""
-        self._worker = None
-        self._thread = None
-
     def _on_thread_destroyed(self) -> None:
-        """Release a closed dialog only after Qt has deleted its QThread."""
+        """Release the worker, drop the thread, then release a closed dialog after Qt deleted it."""
+        self._worker = None
+        if self._thread is not None:
+            DirectTestDialog._active_threads.discard(self._thread)
+            self._thread = None
         QTimer.singleShot(0, self._release_after_thread_deleted)
 
     def _release_after_thread_deleted(self) -> None:
@@ -123,10 +123,6 @@ class DirectTestDialog(QDialog):
     def closeEvent(self, event: QCloseEvent) -> None:
         """Drop any outcome arriving after the dialog has closed."""
         self._closing = True
-        if (
-            self._thread is not None
-            and self._thread.isRunning()
-            and self not in self._closing_dialogs
-        ):
+        if self._thread is not None and self not in self._closing_dialogs:
             self._closing_dialogs.append(self)
         super().closeEvent(event)

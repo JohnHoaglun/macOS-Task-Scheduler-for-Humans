@@ -2,6 +2,13 @@
 
 ## Changelog
 
+### v0.0.43
+- Stability-first structured logging and error handling: `src/task_scheduler/application/app_logging.py` now provides durable JSONL audit logging for UI actions and configuration changes, recording full configuration values with no redaction, session/operation IDs, and a custom bounded retention policy replacing size-only rotation with 10 MB aggregate / 14-day age limits pruned at startup and during rollover.
+- Worker/GUI stability: worker dispatch uses safe parentless `QThread` ownership, and Python worker wrappers remain retained until the owning thread is destroyed. Typed terminal worker results ensure lifecycle, diagnostics, import, and direct-test workflows emit exactly one user-visible outcome and do not leave busy states stuck. Close paths remain responsive and do not use blocking `QThread.wait()`.
+- File-operation hardening: import/export, external edit, copy, and reveal operations convert expected filesystem/platform failures into typed controller outcomes with durable logs and clear user-visible messages, while unexpected exceptions are logged with tracebacks.
+- Test coverage: new `tests/unit/gui/test_worker_exception_safety.py` covers worker exception safety; updated focused tests cover structured logging, retention/rollover, JSONL output, worker lifetimes, direct-test dialog behavior, and main-window stability paths.
+- Final verification: `make check` passed with ruff, mypy strict, and 624 tests; whole-suite coverage 100%; test/source ratio 74.6089% (10,255 test : 13,745 src, under the 75% cap); version 0.0.42 → 0.0.43 in all registry locations.
+
 ### v0.0.42
 - Reported crash (2026-09-18): the app occasionally segfaulted at shutdown. Root cause: `MainWindow` constructed its three worker threads (`_start_external_worker`, `_start_worker`, `_start_test_worker`) as `QThread(self)` — a QThread parented to the window is C++-owned by the window, so the window's destructor could free the thread while the worker's queued `deleteLater` (posted from the worker thread at completion) was still pending; the deferred delete then landed on freed memory during the shutdown event-loop flush.
 - `main_window.py`: all three dispatch sites now construct parentless `QThread()` workers, and `_track_worker_thread` documents the no-early-free invariant — a parentless thread is destroyed only by its own `deleteLater`, which the app's global event loop delivers before it ends. `direct_test_dialog.py`'s dialog-scoped worker is unchanged (the dialog outlives the worker by construction).
