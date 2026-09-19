@@ -2,6 +2,52 @@
 
 ## Current State
 
+### Approved v0.0.43 Stability-First Structured Logging and Error Handling (2026-09-19)
+
+**Goal:** Deliver v0.0.43 as a stability-first release: (1) durable structured JSONL logging of all UI actions, configuration changes, and operational outcomes with full configuration values (no redaction); (2) bounded 10 MB / 14-day log retention replacing the current ~3 MB size-only rotation; (3) robust worker/GUI error handling so failures produce user-visible outcomes instead of crashes, stuck busy states, or silent failures.
+
+**Confirmed decisions:**
+- Log full configuration content — commands, paths, environment values — no redaction. The log is sensitive local operational data (user-only permissions enforced).
+- Retention: hard 10 MB aggregate cap plus 14-day age cap. Replace `RotatingFileHandler` with a custom time-and-size rotating handler that prunes oldest records at startup and rollover.
+- Structured JSON Lines event stream at the existing `~/Library/Logs/macOS Task Scheduler for Humans/app.log` path. Each record: UTC timestamp, session ID, monotonic sequence, event type, UI source, selected task identity (where applicable), full configuration snapshot (where applicable), outcome, and exception type/message/traceback/correlated operation ID for unexpected failures.
+- Event categories: `app.*`, `ui.button_clicked`, `ui.menu_triggered`, `ui.dialog_*`, `ui.field_changed`, `ui.selection_changed`, `ui.table_row_*`, `config.snapshot`, `operation.*`, `worker.protocol_error`, `worker.unexpected_exception`, `crash.*`.
+- Qt event filter for button clicks + semantic signal/slot instrumentation for field names, values, job context, and outcomes.
+- P0 worker-boundary fix: `LifecycleWorker.run()` and `DiagnosticsWorker.run()` must always emit exactly one typed terminal result (success or failure) and always attempt `finish()`, catching `Exception` (not `BaseException`).
+- MainWindow completion handlers must clear busy flags/worker refs before validating payloads; malformed payloads are logged and surfaced as a generic actionable failure.
+- Direct-test dialog worker converted to parentless ownership/shared registry consistent with MainWindow workers.
+- Shutdown: replace blocking `QThread.wait()` with responsive close-pending polling; bounded "finishing active operation" UI; never destroy a still-running Qt thread.
+- File-operation hardening: import/export/external-edit/copy/reveal expected filesystem/platform failures become typed controller outcomes with durable logs and clear UI messages; unexpected exceptions are logged with traceback.
+- Defer broader responsiveness work (startup refresh, selection inspection, history reads, diagnostics log reads) until P0/P1 contracts are green.
+
+**Parallelization decision:** multi-lane parallel build. Wave 0 is sequential (foundational); Waves 1A/1B/1C are independent and can run in parallel; Wave 2 is the composition/integration gate.
+
+| Wave | Scope | Files owned | Stop condition |
+|---|---|---|---|
+| 0 (sequential) | Core telemetry API, JSONL formatter, bounded 10MB/14-day rotating handler, crash/thread hook integration | `application/app_logging.py`, `gui/app.py`, `cli/app.py`, `tests/unit/application/test_app_logging.py` | Valid JSONL records, stable path, deterministic cap/age pruning, existing crash hooks preserved |
+| 1A (parallel) | Worker stability: typed terminal results, MainWindow busy recovery, responsive shutdown, direct-test supervision | `gui/controllers/lifecycle_worker.py`, `gui/controllers/diagnostics_worker.py`, `gui/controllers/external_control_worker.py`, `gui/main_window.py`, `gui/widgets/direct_test_dialog.py`, `tests/unit/gui/test_main_window.py`, `tests/unit/gui/test_direct_test_dialog.py` | Every terminal path emits exactly one typed result; busy flags always clear; thread teardown verified; close stays responsive |
+| 1B (parallel) | Interaction audit: editor, controls, filters, dialogs, panels | `gui/widgets/job_editor.py`, `gui/main_window.py`, `tests/unit/gui/test_job_editor.py`, `tests/unit/gui/test_main_window.py` | Every configured click/change surface emits pinned event shape |
+| 1C (parallel) | File-operation hardening: import/export/edit/copy/reveal typed outcomes | `gui/controllers/import_controller.py`, `gui/main_window.py`, `tests/unit/gui/test_import_controller.py`, `tests/unit/gui/test_main_window.py` | Expected filesystem/platform failures cannot escape a Qt slot; all outcomes logged |
+| 2 (sequential) | Composition tests: rotation, retention, shutdown, exception paths, full-config snapshot | Cross-cutting integration tests | Final gates green: `make check`, 100% coverage, ratio ≤ 75% |
+
+**Pinned shared surfaces:**
+- `application.app_logging` exclusively owns handler creation, retention logic, event schema, session IDs, operation IDs, and serialization. Other layers import concrete telemetry functions only.
+- Typed worker terminal-result contract (enum/dataclass with outcome + error fields) is defined in Wave 0 or the first commit of Wave 1A; all three workers and MainWindow handlers conform to it.
+- Worker ownership/tracking (parentless QThread, shared registry) is assigned solely to Wave 1A.
+- Application log path is the only shared file resource; owned by Wave 0.
+
+**Gates:**
+- Worker execution/cleanup failure regression tests: exactly one terminal result, busy flags clear, thread teardown.
+- MainWindow malformed-payload handling: busy flags cleared, user sees actionable message, event logged.
+- Direct-test shutdown: worker supervised, no orphan threads.
+- Audit records: full config snapshots present in JSONL for every operation.
+- JSONL validity: every line parses as valid JSON.
+- 14-day expiration and 10 MB cap: deterministic pruning under test.
+- Rollover: daily and size-triggered rollover both work.
+- Expected filesystem errors become UI outcomes (not unhandled exceptions).
+- Final: `make check` (ruff + mypy strict + pytest), 100% coverage, test/source ratio ≤ 75%, version bump 0.0.42 → 0.0.43, all 4 registry locations updated, docs updated, commit, push.
+
+**Blockers:** none.
+
 ### Approved v0.0.41 Job-Editor Label Kept on a Single Line (2026-09-18)
 
 **Goal:** user's annotated screenshot (2026-09-18 20:59, red box around the **Label** row in the New Task dialog, value `io.github.macos-task-scheduler.user.daily-131a4035`): the label text is not readable — the v0.0.40 word-wrapping label wrapped to two lines and the `QFormLayout` row clipped it vertically (same root-cause class as the v0.0.37 inspector clipping: a wrapped label's `heightForWidth` not being honoured inside a clipped row). User decision: keep the label to a single line.

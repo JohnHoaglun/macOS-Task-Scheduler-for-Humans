@@ -1,5 +1,16 @@
 # TODOS.md (v0.0.42)
 
+## Stability-First Structured Logging and Error Handling (IN PROGRESS — v0.0.43)
+
+User-requested (2026-09-19): durable structured logging of every button click and configuration-change event with full configuration content (no redaction), bounded 10 MB / 14-day log retention, and robust worker/GUI error handling so failures produce user-visible outcomes instead of crashes or stuck busy states.
+
+- [ ] Wave 0: Core telemetry API in `application/app_logging.py` — JSONL formatter, custom bounded 10MB/14-day rotating handler (age + size pruning at startup and rollover), session/operation IDs, event schema; integrate existing crash/thread hooks; wire in `gui/app.py` and `cli/app.py`
+- [ ] Wave 1A: Worker stability — typed terminal results for `LifecycleWorker`, `DiagnosticsWorker`, `ExternalControlWorker`; always emit exactly one result, always attempt `finish()`; MainWindow completion handlers clear busy flags before validating payloads; direct-test dialog worker converted to parentless ownership; responsive shutdown (no blocking `QThread.wait`)
+- [ ] Wave 1B: Interaction audit — instrument button clicks (Qt event filter), field changes, dialog outcomes, selection changes, filter toggles, panel visibility, menu actions; emit pinned event shapes with full config snapshots
+- [ ] Wave 1C: File-operation hardening — import/export/external-edit/copy/reveal: expected filesystem/platform failures become typed controller outcomes with durable logs and clear UI messages; unexpected exceptions logged with traceback
+- [ ] Wave 2: Composition tests — cross-thread worker failure, rotation/retention, shutdown responsiveness, full-config snapshot integrity, JSONL validity; run final gates
+- [ ] Closeout: `make check` + 100% coverage + ratio ≤ 75%, version bump 0.0.42 → 0.0.43 (all 4 registry locations), grep old version, update PROJECT.md/SUMMARY.md/TODOS.md, commit, push
+
 ## Shutdown SIGSEGV Fix (DONE — v0.0.42)
 
 User-reported crash (2026-09-18): the app occasionally segfaults at shutdown. Root cause: `MainWindow` constructed its three worker threads (`_start_external_worker`, `_start_worker`, `_start_test_worker`) as `QThread(self)` — a QThread parented to the window is C++-owned by the window, so the window's destructor could free the thread while the worker's queued `deleteLater` (posted from the worker thread at completion) was still pending; the deferred delete then landed on freed memory during the shutdown event-loop flush.
