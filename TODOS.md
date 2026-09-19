@@ -1,4 +1,13 @@
-# TODOS.md (v0.0.38)
+# TODOS.md (v0.0.39)
+
+## Diagnostics/History Panels Hidden by Default with View-Menu Toggles (DONE — v0.0.39)
+
+User request (annotated screenshot, 2026-09-18 20:08, red box around the two collapsed panel headers at the bottom of the right pane): the **Diagnostics** and **History** header buttons should be removed from the default view.
+
+- [x] `gui/main_window.py`: `DiagnosticLogsPanel` + `HistoryPanel` hidden at startup; new checkable `show_diagnostics_action` ("Show Diagnostics") and `show_history_action` ("Show History") in the **View** menu (File, Edit, View, Actions, Diagnostics, Lifecycle), each `toggled -> setVisible` on its panel; panels keep their existing behavior and re-showing restores current contents
+- [x] Tests: `TestPanelToggles` in `test_main_window.py` — panels hidden by default; actions checkable and initially unchecked; toggle round-trip (show → hide) keeps action state and panel visibility in sync; `TestHistoryPanelWiring` splitter sizes assertion updated for the hidden-by-default state
+- [x] Docs: `docs/architecture.md` GUI section — "Panel visibility" paragraph
+- [x] Closeout: `make check` (full suite + ruff + mypy strict + 100% coverage — 604 tests, 7,011 statements), ratio 10,020:13,406 = 74.74% (under cap), version 0.0.38 → 0.0.39 (all 4 registry locations), stale-version grep, SUMMARY/PROJECT/TODOS, commit, push
 
 ## Filter Bar Hidden by Default with View-Menu Toggle (DONE — v0.0.38)
 

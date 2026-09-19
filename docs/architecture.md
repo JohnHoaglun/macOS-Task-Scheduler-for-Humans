@@ -996,6 +996,20 @@ re-showing reveals the same state — and the empty-state Clear action keeps
 calling the controls' `reset()` while the bar is hidden. The preference is
 not persisted: the bar starts hidden in every session.
 
+**Panel visibility.** The `DiagnosticLogsPanel` and `HistoryPanel`
+(the collapsed **Diagnostics** / **History** headers docked at the bottom
+of the right vertical splitter) are **hidden by default** so the right pane
+is just the task inspector. Checkable `show_diagnostics_action` ("Show
+Diagnostics") and `show_history_action` ("Show History") in the View menu
+toggle each panel via `toggled -> setVisible`. Hiding is a pure host-side
+visibility change — the panels keep their existing behavior (the
+Diagnostics panel auto-expands when a test outcome / log refresh /
+environment comparison renders; history renders on selection and expands
+on demand) — and re-showing restores each panel with its current contents.
+The right splitter keeps the inspector dominant
+(`setSizes([1000, 40, 40])`). The preference is not persisted: the panels
+start hidden in every session.
+
 ### Eager Read-Only Loaded-Status Refresh
 
 The loaded status is refreshed eagerly during `list_agents()` by reading

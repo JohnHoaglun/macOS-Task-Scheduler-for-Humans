@@ -2,7 +2,30 @@
 
 ## Current State
 
-### Approved v0.0.38 Filter Bar Hidden by Default with View-Menu Toggle (2026-09-18)
+### Approved v0.0.39 Diagnostics/History Panels Hidden by Default with View-Menu Toggles (2026-09-18)
+
+**Goal:** user's annotated screenshot (2026-09-18 20:08, red box around the two collapsed panel headers stacked at the bottom of the right pane): the **Diagnostics** and **History** header buttons should be removed from the default view.
+
+**Confirmed decisions:**
+- `MainWindow` constructs the `DiagnosticLogsPanel` and `HistoryPanel` **hidden at startup** (the right vertical splitter keeps its widget order and sizes, so the inspector owns the pane).
+- Two checkable actions in the existing **View** menu (menu order: File, Edit, View, Actions, Diagnostics, Lifecycle): **Show Diagnostics** (`show_diagnostics_action`) and **Show History** (`show_history_action`), each initially unchecked; `toggled → setVisible` on the respective panel. No persistence (the app has no QSettings layer): the panels start hidden in every session.
+- The panels keep their existing behavior (the Diagnostics panel auto-expands when a test outcome / log refresh / environment comparison renders; history renders on selection and expands on demand); re-showing restores each panel with its current contents.
+- Tests in `test_main_window.py` (`TestPanelToggles`): panels hidden by default; the two actions are checkable and initially unchecked; triggering each shows the panel and checks itself, triggering again hides it. `TestHistoryPanelWiring.test_right_pane_sections_are_vertically_resizable` sizes assertion updated for the hidden-by-default state.
+- Version 0.0.38 → 0.0.39; standard closeout (make check, 100% coverage, ratio ≤ 75%, docs, commit, push).
+
+**Parallelization decision:** single serial pass (solo work — cited blocker: one host file plus its host test and docs; smaller than delegation overhead).
+
+| Lane | Scope | Files owned | Stop condition |
+|---|---|---|---|
+| build (solo) | View-menu actions + hidden-by-default panels, tests, docs, closeout | `gui/main_window.py`, `tests/unit/gui/test_main_window.py`, `docs/architecture.md` | `make check` green (full suite, ruff, mypy strict, 100% coverage), ratio ≤ 75%, version 0.0.38 → 0.0.39, commit, push |
+
+**Gates:** hidden-by-default panels verified in the new tests; toggle round-trips (show → hide) verified for both panels; `make check` green with 100% coverage.
+
+**Blockers:** none.
+
+### Historical State (superseded by v0.0.39 above)
+
+#### v0.0.38 Filter Bar Hidden by Default with View-Menu Toggle (2026-09-18)
 
 **Goal:** user's annotated screenshot (2026-09-18 16:37, red box around the top filter bar): the Search / State / Installed / Enabled / Loaded / Command / Clear-filters row is "overly complex" for users at first startup. Requested: an app-menu option to enable or disable the entire filter bar; **hidden by default**.
 
@@ -22,8 +45,6 @@
 **Gates:** default-hidden bar verified in the new tests; toggle round-trip (show → hide) verified; `make check` green with 100% coverage.
 
 **Blockers:** none.
-
-### Historical State (superseded by v0.0.38 above)
 
 #### v0.0.37 Inspector Row-Clipping Fix and Readability Regression Gate (2026-09-16)
 

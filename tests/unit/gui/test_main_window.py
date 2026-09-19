@@ -605,6 +605,38 @@ class TestFilterBarToggle:
         assert not window.show_filters_action.isChecked()
 
 
+class TestPanelToggles:
+    """Diagnostics/History panels are hidden at startup and toggled from the View menu."""
+
+    def test_panels_are_hidden_by_default(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        assert window.panel.isHidden()
+        assert window.history_panel.isHidden()
+        assert window.show_diagnostics_action.isCheckable()
+        assert not window.show_diagnostics_action.isChecked()
+        assert window.show_history_action.isCheckable()
+        assert not window.show_history_action.isChecked()
+
+    def test_view_menu_toggles_show_and_hide_the_panels(
+        self, qtbot: QtBot, tmp_path: Path
+    ) -> None:
+        world, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        window.show_diagnostics_action.trigger()
+        assert window.panel.isVisible()
+        assert window.show_diagnostics_action.isChecked()
+        window.show_diagnostics_action.trigger()
+        assert window.panel.isHidden()
+        assert not window.show_diagnostics_action.isChecked()
+        window.show_history_action.trigger()
+        assert window.history_panel.isVisible()
+        assert window.show_history_action.isChecked()
+        window.show_history_action.trigger()
+        assert window.history_panel.isHidden()
+        assert not window.show_history_action.isChecked()
+
+
 class TestHistoryPanelWiring:
     def test_right_pane_sections_are_vertically_resizable(
         self, qtbot: QtBot, tmp_path: Path
@@ -618,9 +650,9 @@ class TestHistoryPanelWiring:
             window.panel,
             window.history_panel,
         ]
-        # Collapsed diagnostics/history: the inspector owns the bulk of the pane.
+        # Diagnostics/history hidden at startup: the inspector owns the pane.
         sizes = splitter.sizes()
-        assert sizes[0] > sizes[1] and sizes[0] > sizes[2]
+        assert sizes[0] > 0 and sizes[1] == 0 and sizes[2] == 0
 
     def test_inspector_pane_is_wider_than_the_task_list(self, qtbot: QtBot, tmp_path: Path) -> None:
         """The freed list-pane space goes to the inspector: right starts larger."""

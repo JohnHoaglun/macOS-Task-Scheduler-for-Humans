@@ -2,6 +2,13 @@
 
 ## Changelog
 
+### v0.0.39
+- User request (annotated screenshot, 2026-09-18 20:08, red box around the two collapsed panel headers stacked at the bottom of the right pane): the **Diagnostics** and **History** header buttons should be removed from the default view.
+- `MainWindow` now constructs the `DiagnosticLogsPanel` and `HistoryPanel` **hidden at startup** (the right vertical splitter keeps its widget order and sizes, so the inspector owns the pane), so the two bare headers no longer show. The **View** menu (menu order: File, Edit, View, Actions, Diagnostics, Lifecycle) gains two checkable actions, `show_diagnostics_action` ("Show Diagnostics") and `show_history_action` ("Show History"), each initially unchecked; `toggled` drives `setVisible` on the respective panel.
+- Contract: hiding is a pure host-side visibility change — the panels keep their existing behavior (the Diagnostics panel auto-expands when a test outcome / log refresh / environment comparison renders; history renders on selection and expands on demand) and re-showing restores the panel with its current contents. No persistence (the app has no QSettings layer): the panels start hidden in every session.
+- Files: `gui/main_window.py` (two View-menu actions + panels hidden at startup), `tests/unit/gui/test_main_window.py` (`TestPanelToggles`: panels hidden by default, actions checkable + initially unchecked, show → hide round-trip keeps action state and panel visibility in sync; `TestHistoryPanelWiring` splitter sizes assertion updated for the hidden-by-default state), `docs/architecture.md` (GUI section: "Panel visibility" paragraph).
+- Verification: `make check` clean (ruff / mypy strict / 604 tests, 100% coverage — 7,011 statements; pre-existing collection, Qt deprecation, and Pydantic serializer warnings only). Test/code ratio 10,020 test : 13,406 src (74.74%, under the 75% cap).
+
 ### v0.0.38
 - User request (annotated screenshot, 2026-09-18 16:37 — the same shot that confirmed the v0.0.37 inspector fix working on the user's Retina display): the top filter row (Search box, State / Installed / Enabled / Loaded / Command combos, Clear Filters) is "overly complex" for the user at first startup — add an app-menu option to enable or disable the whole row, **hidden by default**.
 - `MainWindow` now constructs the `AgentFilterControls` row **hidden at startup**, so first-time users see only the task table and the inspector. A new **View** menu (menu order: File, Edit, View, Actions, Diagnostics, Lifecycle) holds a single checkable `show_filters_action` ("Show Filters", initially unchecked) whose `toggled` signal drives `setVisible` on the whole row.
