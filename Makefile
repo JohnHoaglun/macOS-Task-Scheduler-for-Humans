@@ -31,8 +31,23 @@ run-gui:
 	$(PYTHON) -m task_scheduler.gui.app
 
 # Builds the standalone macOS .app bundle into dist/ via pyside6-deploy.
+# macOS-only: requires the Xcode command-line tools (plutil, codesign) and the
+# project .venv's pyside6-deploy. Fails early on other hosts or missing tools.
+# Deploys against a transient copy in the gitignored deployment/ directory so
+# tool-generated values never mutate the tracked pysidedeploy.spec.
 package:
-	.venv/bin/pyside6-deploy -c pysidedeploy.spec -f
+	@case "$$(uname -s)" in Darwin) ;; *) \
+		echo "error: 'make package' is macOS-only (requires Darwin + Xcode command-line tools)" >&2; exit 1;; esac
+	@[ -x .venv/bin/pyside6-deploy ] || { \
+		echo "error: .venv/bin/pyside6-deploy not found; (re)create the .venv first" >&2; exit 1; }
+	@command -v plutil >/dev/null 2>&1 || { \
+		echo "error: plutil not found; install the Xcode command-line tools (xcode-select --install)" >&2; exit 1; }
+	@command -v codesign >/dev/null 2>&1 || { \
+		echo "error: codesign not found; install the Xcode command-line tools (xcode-select --install)" >&2; exit 1; }
+	@mkdir -p deployment
+	@cp pysidedeploy.spec deployment/pysidedeploy.spec
+	@shasum -a 256 pysidedeploy.spec > deployment/.spec.before.sha256
+	.venv/bin/pyside6-deploy -c deployment/pysidedeploy.spec -f
 	@echo "Patching Info.plist identity fields..."
 	plutil -replace CFBundleIdentifier -string "io.github.macos-task-scheduler" \
 		"dist/macOS Task Scheduler for Humans.app/Contents/Info.plist"
@@ -42,4 +57,8 @@ package:
 		"dist/macOS Task Scheduler for Humans.app/Contents/Info.plist"
 	@echo "Re-signing bundle..."
 	codesign --force --sign - "dist/macOS Task Scheduler for Humans.app"
+	@echo "Verifying the tracked pysidedeploy.spec is unchanged..."
+	@shasum -a 256 pysidedeploy.spec > deployment/.spec.after.sha256
+	@cmp -s deployment/.spec.before.sha256 deployment/.spec.after.sha256 || { \
+		echo "error: deployment modified the tracked pysidedeploy.spec" >&2; exit 1; }
 	@echo "Done."

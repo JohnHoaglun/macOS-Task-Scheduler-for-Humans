@@ -16,12 +16,12 @@ exec_directory = dist
 project_file = 
 
 # application icon (empty = PySide6 fallback icon until an approved asset exists)
-icon = /Users/johnhoaglun/opencode/projects/macOS Task Scheduler for Humans/.venv/lib/python3.14/site-packages/PySide6/scripts/deploy_lib/pyside_icon.icns
+icon =
 
 [python]
 
-# python path
-python_path = /Users/johnhoaglun/opencode/projects/macOS Task Scheduler for Humans/.venv/bin/python3.14
+# python path (empty = resolve the active virtualenv's interpreter at deploy time)
+python_path =
 
 # python packages to install
 packages = Nuitka==4.1.1
