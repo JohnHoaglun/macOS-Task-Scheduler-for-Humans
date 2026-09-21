@@ -28,11 +28,23 @@ class FakeFailingService:
         raise JobNotFoundError("com.example.missing")
 
 
+class FakeOSErrorService:
+    def history(self, label: str, *, limit: int = 50):
+        raise OSError("storage unavailable")
+
+
 class TestHistoryController:
     def test_service_error_passthrough(self):
         svc = FakeService(error="execution history unavailable")
         ctrl = HistoryController(svc)
         outcome = ctrl.history_for("com.example.job")
         assert outcome.error == "execution history unavailable"
+        assert outcome.events == ()
+        assert outcome.label == "com.example.job"
+
+    def test_os_error_returns_error_outcome(self):
+        ctrl = HistoryController(FakeOSErrorService())
+        outcome = ctrl.history_for("com.example.job")
+        assert outcome.error == "storage unavailable"
         assert outcome.events == ()
         assert outcome.label == "com.example.job"

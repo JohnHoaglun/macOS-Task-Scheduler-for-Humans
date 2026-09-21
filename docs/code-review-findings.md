@@ -5,6 +5,7 @@ Date: **2026-09-20**
 Baseline commit: **`78f1326`**
 Branch: **`sched_dev_opencode`**
 Project version at review time: **0.0.43**
+Current remediation status (2026-09-20): **CR-03, CR-04, CR-13, and CR-14 resolved in v0.0.45**
 
 This document records the full set of findings from the code review so they can be planned, scoped, and implemented in a later cycle. It is intentionally written as a durable backlog, not as an active implementation plan.
 
@@ -269,6 +270,10 @@ Use a durable write pattern:
 
 This is a classic durability fix and should be paired with the create-only race fix.
 
+#### Resolution (v0.0.45)
+
+Resolved. `JsonJobRepository.save()` now writes a same-directory temporary file, `flush()`es and `fsync()`s it, and publishes with `os.replace()`. A failed publish leaves the original destination intact and removes the temporary file. `JsonJobRepository.save_new()` adds the create-only durable variant used by import/export.
+
 ---
 
 ### CR-04 — High — Create-only JSON import/export has a TOCTOU gap
@@ -309,6 +314,10 @@ or an equivalent app-level lock, and re-check conflicts immediately before the d
 #### Planning notes
 
 This should be implemented in the same cycle as CR-03 because both are about durable JSON persistence.
+
+#### Resolution (v0.0.45)
+
+Resolved. `JobService.import_job()` now holds an exclusive `fcntl.flock` on `<catalog-root>/.catalog.lock` while re-checking conflicts and publishing through `JsonJobRepository.save_new()`, and `TaskCommandService.export_managed_json()` publishes through `save_new()`. The create-only `os.link()` publish removes the `exists()`-then-write gap: an existing destination raises `FileExistsError` (mapped to `JobConflictError` in catalog import) instead of being overwritten.
 
 ---
 
@@ -672,6 +681,10 @@ A disk failure during import can escape as an unhandled GUI exception.
 
 This is a small controller hardening fix.
 
+#### Resolution (v0.0.45)
+
+Resolved. `ImportController.commit()` catches `OSError` as well as `ValueError` and `JobConflictError`, returning `ImportCommitOutcome.error` with the stable storage-failure message.
+
 ---
 
 ### CR-14 — Medium — `HistoryController.history_for()` does not fully convert storage failures into safe outcomes
@@ -710,6 +723,10 @@ History view failures can become unhandled GUI exceptions.
 #### Planning notes
 
 This should be planned with the other controller hardening items.
+
+#### Resolution (v0.0.45)
+
+Resolved. `HistoryController.history_for()` catches `OSError` as well as `JobNotFoundError`, returning `HistoryOutcome.error` with the stable storage-failure message.
 
 ---
 
@@ -1011,6 +1028,8 @@ Suggested order within Cycle A:
 ### Cycle B — Durable storage and logging robustness
 
 Goal: make persistence and logging reliable under failure conditions.
+
+**Completed in v0.0.45:** CR-03, CR-04, CR-13, and CR-14. Remaining for the next logging-resilience slice: CR-05, CR-06, CR-07, and CR-18.
 
 Include:
 

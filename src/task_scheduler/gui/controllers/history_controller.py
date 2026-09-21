@@ -39,7 +39,7 @@ class HistoryController:
         """Return the most recent history events for *label* (up to 50)."""
         try:
             result = self._services.history(label)
-        except JobNotFoundError as exc:
+        except (JobNotFoundError, OSError) as exc:
             return HistoryOutcome(label=label, events=(), error=str(exc))
         if result.error is not None:
             return HistoryOutcome(label=label, events=(), error=result.error)

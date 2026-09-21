@@ -6,7 +6,7 @@
 
 **Goal:** implement the approved v0.0.45 slice of `docs/code-review-findings.md`: durable atomic JSON writes, race-safe create-only import/export, and safe GUI controller outcomes for import/history storage failures.
 
-**Baseline:** v0.0.44 at commit `41ded10`; current version `0.0.44`.
+**Baseline:** v0.0.44 at commit `41ded10`; release target `0.0.45`.
 
 **Scope:**
 - CR-03: `JsonJobRepository.save()` writes to a same-directory temporary file, `fsync`s it, and atomically replaces the destination; failures leave the original destination intact and remove the temporary file.
@@ -56,6 +56,8 @@
 - v0.0.47: CR-08, CR-09, CR-12, CR-16, CR-17, CR-21.
 
 **Blockers:** none.
+
+**Resolution (2026-09-20):** complete. `make check` green (ruff, mypy strict, 628 tests, 100% coverage); test/source ratio 74.8702% (10,383 test : 13,868 src); version/docs closeout 0.0.44 → 0.0.45.
 
 ### Approved v0.0.44 Code-Review Remediation (2026-09-20)
 

@@ -438,14 +438,18 @@ after launchctl's own output.
 
 Managed-JSON transfer (`export-json` / `import-json`) is catalog-only: it
 writes or reads managed JSON without touching deployed plists, `launchctl`,
-or log files.
+or log files. Catalog writes are durable and atomic, and create-only
+imports/exports use an exclusive-create publish path, so a failed write leaves
+the previous file intact and an existing destination is never silently
+overwritten.
 
 ```bash
 mactask export-json <label> <destination>
 ```
 
 Exports the managed job identified by *label* to a strict managed-JSON file
-at *destination*. Refuses to overwrite an existing destination. Returns exit
+at *destination*. Refuses to overwrite an existing destination using an
+exclusive-create publish path. Returns exit
 `0` on success (prints a summary line to stdout); returns exit `2` when the
 label is not managed, the label is ambiguous, or the destination already
 exists.
@@ -455,8 +459,9 @@ mactask import-json <source>
 ```
 
 Imports a strict managed-JSON file into the catalog. The import is
-create-only: no plist is written, no `launchctl` is invoked, no logs are
-created. Preserves the immutable UUID and label from the source file; legacy
+create-only and serialized under the catalog lock: no plist is written, no
+`launchctl` is invoked, no logs are created, and concurrent imports of the
+same UUID or label produce exactly one winner. Preserves the immutable UUID and label from the source file; legacy
 v1 payloads are normalized to canonical v2 before validation. Rejects a
 UUID conflict (a different managed job already holds the same id) and a label
 conflict (a different managed job already claims the same label). Returns

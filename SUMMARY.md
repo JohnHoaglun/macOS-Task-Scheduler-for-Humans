@@ -2,6 +2,15 @@
 
 ## Changelog
 
+### v0.0.45
+- Code-review remediation (CR-03, CR-04, CR-13, CR-14): JSON catalog and managed-JSON export writes are now durable and failure-safe, create-only import/export is race-safe, and import/history controller storage failures return safe GUI outcomes instead of escaping as `OSError`.
+- `JsonJobRepository.save()` writes to a same-directory temporary file, flushes and `fsync`s it, and publishes with `os.replace()`, so a crash or disk failure cannot leave a truncated catalog or export destination. A failed publish leaves the original destination intact and removes the temporary file.
+- `JsonJobRepository.save_new()` uses the same durable temporary-file pattern but publishes with `os.link()`, so an existing destination — including a directory or symlink at the destination path — is never replaced and raises `FileExistsError`.
+- `JobService.import_job()` serializes conflict re-checks and the create-only publish with an exclusive `fcntl.flock` on `<catalog-root>/.catalog.lock`, uses `save_new()`, and maps `FileExistsError` to `JobConflictError`; concurrent imports of the same UUID or label produce exactly one winner.
+- `TaskCommandService.export_managed_json()` now creates its destination through `save_new()` and preserves `FileExistsError` without relying on a separate pre-write `exists()` check.
+- `ImportController.commit()` catches `OSError` in addition to `ValueError` and `JobConflictError`, and `HistoryController.history_for()` catches `OSError` in addition to `JobNotFoundError`, returning the corresponding typed error outcome.
+- Verification: `make check` passed with ruff, mypy strict, 628 tests, 100% whole-suite coverage (7,277 statements), and test/source ratio 74.8702% (10,383 test : 13,868 src, under the 75% cap); version 0.0.44 → 0.0.45 in all registry locations.
+
 ### v0.0.44
 - Code-review remediation (CR-11, CR-10, CR-01, CR-15, CR-02): `make check` now enforces lint, strict typecheck, pytest with 100% coverage, and the ≤75% test/source ratio, while `make test` remains fast.
 - Inspector raw plist inspection renders through `QPlainTextEdit` / `setPlainText()`, preserving the existing object name and presentation behavior.

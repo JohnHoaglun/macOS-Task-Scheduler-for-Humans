@@ -250,7 +250,9 @@ builds the in-memory `JobDefinition` for a new managed job — label from
 nothing.
 `JobService.save()` is the catalog's update path: it overwrites the record
 for the job's own immutable id, and raises `JobConflictError` when a
-different managed job already claims the label.
+different managed job already claims the label. The repository write is
+durable — same-directory temporary file, `fsync`, then atomic `os.replace` —
+so a failed publish leaves the previous catalog file intact.
 `TaskCommandService.save_managed_job()` re-validates and delegates to
 `save()`, so a save is catalog JSON only — no plist write, no `launchctl`,
 no log directory creation.
@@ -857,10 +859,12 @@ created, and `launchctl` is never invoked.  An imported job appears as
 lifecycle path.
 
 **Create-only semantics.** `JobService.import_job` is strictly create: it
-raises `FileExistsError` when the destination catalog JSON already exists for
-the new job id, and raises `JobConflictError` when a **different** managed
-record already claims the same label.  Existing catalog records are never
-overwritten by import.
+holds an exclusive `.catalog.lock` while re-checking conflicts and publishing
+through `JsonJobRepository.save_new()`. It raises `JobConflictError` when the
+destination catalog JSON already exists for the new job id (the repository's
+`FileExistsError` is mapped at the service boundary), and raises
+`JobConflictError` when a **different** managed record already claims the same
+label.  Existing catalog records are never overwritten by import.
 
 **Label-conflict guard.** A duplicate label — i.e. another managed job that
 already owns the label the import candidate would use — is rejected with
@@ -908,19 +912,22 @@ UUID preserved), `normalized_schema_version`, `id_conflict_path`,
 
 * `export_managed_json(label, destination)` — resolves the managed catalog
   job by label (raises `JobNotFoundError` on missing or ambiguous label),
-  refuses to overwrite an existing destination (`FileExistsError`), writes
-  the canonical pretty JSON, and returns `destination`.  Never modifies the
-  catalog, plist store, `launchctl`, logs, or test processes.
+  creates the destination through the durable create-only
+  `JsonJobRepository.save_new()` path, and raises `FileExistsError` when the
+  destination already exists (including a directory or symlink) without
+  relying on a separate pre-write `exists()` check. It writes the canonical
+  pretty JSON and returns `destination`. Never modifies the catalog, plist
+  store, `launchctl`, logs, or test processes.
 * `preview_managed_json_import(source)` — strictly decodes `source`, then
   checks whether the candidate's UUID path already exists in the catalog
   and whether a *different* catalog record already owns the candidate's
   label; populates the conflict fields.  No write.
 * `import_managed_json(preview)` — re-checks both conflicts at commit time
   (a conflict that appeared after preview aborts with no write via
-  `JobConflictError`); uses the create-only `JobService.import_job()`;
-  preserves the immutable UUID exactly; writes exactly one catalog JSON
-  file.  Never creates a plist, never invokes `launchctl`, never creates
-  logs.
+  `JobConflictError`); uses the serialized, create-only
+  `JobService.import_job()` path under `.catalog.lock`; preserves the
+  immutable UUID exactly; writes exactly one catalog JSON file. Never creates
+  a plist, never invokes `launchctl`, never creates logs.
 
 UUID and label conflicts remain *distinct* in the preview/result data even
 though `JobService.import_job()` collapses them into one `JobConflictError`;
@@ -934,9 +941,10 @@ original `id`, not a regenerated UUID.  This is the inverse of §61's
 external-plist import, which regenerates a new durable UUID at commit and
 keeps only the label.  The create-only guarantee means an import cannot
 overwrite an existing catalog record: if the destination JSON already exists
-for the candidate's UUID, `FileExistsError` is raised; if a *different*
-managed record already claims the candidate's label, `JobConflictError` is
-raised.
+for the candidate's UUID, `JobConflictError` is raised (the repository's
+`FileExistsError` is mapped at the `JobService.import_job()` boundary); if a
+*different* managed record already claims the candidate's label,
+`JobConflictError` is raised.
 
 ### Finder Reveal Port
 

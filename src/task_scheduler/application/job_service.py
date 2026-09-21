@@ -8,7 +8,11 @@ the application database (spec lines 1307-1326).
 
 from __future__ import annotations
 
+import contextlib
+import fcntl
+import os
 import re
+from collections.abc import Iterator
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -192,13 +196,15 @@ class JobService:
         (the destination file exists) or when a different managed job already
         claims ``job.label``.
         """
-        owner = self.find(job.label)
-        if owner is not None and owner.id != job.id:
-            raise JobConflictError(label=job.label, path=self._path_for(owner.id))
-        path = self._path_for(job.id)
-        if path.exists():
-            raise JobConflictError(label=job.label, path=path)
-        self._repository.save(job, path, create_parent=True)
+        with self._catalog_lock():
+            owner = self.find(job.label)
+            if owner is not None and owner.id != job.id:
+                raise JobConflictError(label=job.label, path=self._path_for(owner.id))
+            path = self._path_for(job.id)
+            try:
+                self._repository.save_new(job, path, create_parent=True)
+            except FileExistsError as exc:
+                raise JobConflictError(label=job.label, path=path) from exc
         return path
 
     def save(self, job: JobDefinition) -> Path:
@@ -230,3 +236,18 @@ class JobService:
 
     def _path_for(self, job_id: UUID) -> Path:
         return self._root / f"{job_id}.json"
+
+    @contextlib.contextmanager
+    def _catalog_lock(self) -> Iterator[None]:
+        """Serialize catalog create-only imports on this catalog root."""
+        self._root.mkdir(parents=True, exist_ok=True)
+        fd = os.open(self._root / ".catalog.lock", os.O_CREAT | os.O_RDWR, 0o600)
+        locked = False
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            locked = True
+            yield
+        finally:
+            if locked:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            os.close(fd)

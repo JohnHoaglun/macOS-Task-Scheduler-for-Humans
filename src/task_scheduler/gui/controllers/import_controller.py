@@ -85,5 +85,5 @@ class ImportController:
                 acknowledge_partial=acknowledge_partial,
             )
             return ImportCommitOutcome(job=job, error=None)
-        except (ValueError, JobConflictError) as exc:
+        except (ValueError, JobConflictError, OSError) as exc:
             return ImportCommitOutcome(job=None, error=str(exc))

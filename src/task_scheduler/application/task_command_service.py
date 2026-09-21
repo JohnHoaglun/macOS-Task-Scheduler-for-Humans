@@ -476,9 +476,10 @@ class TaskCommandService:
         managed and ``FileExistsError`` when *destination* already exists.
         """
         job = self._jobs.resolve(label)
-        if destination.exists():
-            raise FileExistsError(f"destination already exists: {destination}")
-        self._repository.save(job, destination, create_parent=True)
+        try:
+            self._repository.save_new(job, destination, create_parent=True)
+        except FileExistsError as exc:
+            raise FileExistsError(f"destination already exists: {destination}") from exc
         return destination
 
     def preview_managed_json_import(self, source: Path) -> ManagedJsonImportPreview:

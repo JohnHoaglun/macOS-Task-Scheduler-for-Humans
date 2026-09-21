@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from tests.conftest import make_job
+
 from task_scheduler.application import ExternalPlistImportPreview
 from task_scheduler.domain import JobDefinition
 from task_scheduler.gui.controllers.import_controller import (
@@ -52,3 +54,21 @@ class TestCommitSuccess:
         )
         result = ImportController(FakeImportService()).commit(outcome)
         assert result.job is None and result.error == "no preview available to commit"
+
+
+def test_commit_os_error_returns_error() -> None:
+    candidate = make_job()
+    preview = ExternalPlistImportPreview(
+        source_path=Path("/tmp/x.plist"),
+        candidate=candidate,
+        warnings=(),
+        unsupported_keys=(),
+        requires_acknowledgement=False,
+    )
+    outcome = ImportOutcome(
+        source_path=Path("/tmp/x.plist"), candidate=candidate, _preview=preview
+    )
+    service = FakeImportService(import_error=OSError("catalog unavailable"))
+    result = ImportController(service).commit(outcome)
+    assert result.job is None
+    assert result.error == "catalog unavailable"
