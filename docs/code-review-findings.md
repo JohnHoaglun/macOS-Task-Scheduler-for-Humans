@@ -1,11 +1,11 @@
 # Code Review Findings — Planning Input
 
-Status: **planning input for next cycle**
+Status: **all findings resolved (v0.0.44–v0.0.47); retained as a durable remediation record**
 Date: **2026-09-20**
 Baseline commit: **`78f1326`**
 Branch: **`sched_dev_opencode`**
 Project version at review time: **0.0.43**
-Current remediation status (2026-09-20): **CR-03, CR-04, CR-13, and CR-14 resolved in v0.0.45; CR-05, CR-06, CR-07, CR-18, CR-19, and CR-20 resolved in v0.0.46**
+Current remediation status (2026-09-21): **CR-01, CR-02, CR-10, CR-11, and CR-15 resolved in v0.0.44; CR-03, CR-04, CR-13, and CR-14 resolved in v0.0.45; CR-05, CR-06, CR-07, CR-18, CR-19, and CR-20 resolved in v0.0.46; CR-08, CR-09, CR-12, CR-16, CR-17, and CR-21 resolved in v0.0.47**
 
 This document records the full set of findings from the code review so they can be planned, scoped, and implemented in a later cycle. It is intentionally written as a durable backlog, not as an active implementation plan.
 
@@ -489,6 +489,10 @@ A predictable temp path is weaker than the “exclusive” name implies. If a lo
 
 Real-world risk is lower in a user-owned directory, but this is still a design-safety mismatch.
 
+#### Resolution (v0.0.47)
+
+Resolved. `create_exclusive()` now writes through a new `_write_private_file()` helper: an unpredictable temp name (`.{pid}.{secrets.token_hex(8)}.tmp`) opened with `O_CREAT | O_EXCL | O_WRONLY` (plus `O_NOFOLLOW` where available), so a pre-created symlink or file at the path cannot be followed or overwritten. The file is verified to be a regular file via `fstat` before writing, created `0600`, fully written, and `fsync`ed before its path is returned for publish; the owned temp is removed on any failure.
+
 ---
 
 ### CR-09 — High — `replace_verified()` and `read_snapshot()` are weaker than their names imply
@@ -539,6 +543,10 @@ or
 #### Planning notes
 
 This is partly a design decision, not just a bug fix.
+
+#### Resolution (v0.0.47)
+
+Resolved (direction 2 — align the API with reality — plus a descriptor-coherent read). `read_snapshot()` now derives the bytes, SHA-256, and `st_dev`/`st_ino`/`st_size` identity from a single open file descriptor, so a path swapped between `stat` and read cannot mix identity and payload from different files (symlinks and non-regular files raise `ValueError`; a missing path raises `FileNotFoundError`). `replace_verified()` and `remove_verified()` are documented and tested as best-effort re-checks, not compare-and-swap: they re-read and compare immediately before the atomic publish but hold no lock, so a concurrent non-cooperating writer is not excluded; drift raises `SourceChangedError`.
 
 ---
 
@@ -653,6 +661,10 @@ Packaging is not portable to another machine, user, venv, or Python patch versio
 #### Planning notes
 
 This is less urgent than correctness issues, but it blocks portable release work.
+
+#### Resolution (v0.0.47)
+
+Resolved. `pysidedeploy.spec` no longer contains developer-machine absolute paths: the `icon` and `python_path` entries are left empty and resolved at deploy time, and `make package` copies the spec into a transient, gitignored `deployment/` copy so `pyside6-deploy -f` never mutates the tracked spec. Packaging now runs from a clean checkout.
 
 ---
 
@@ -816,6 +828,10 @@ Concurrent modification can make the quarantine operation less trustworthy.
 
 This belongs in the platform-hardening cycle.
 
+#### Resolution (v0.0.47)
+
+Resolved. `quarantine_external()` now takes a `snapshot: SourceSnapshot` and writes the quarantined file from `snapshot.payload` (never re-reading the source) via `create_exclusive()`, then removes the source only through a best-effort verified remove (`remove_verified(path, snapshot)`). On drift the source is left intact and the quarantine candidate is deleted, so no orphan artifact is left behind.
+
 ---
 
 ### CR-17 — Medium — Python interpreter detection runs synchronously on every script-path keystroke
@@ -856,6 +872,10 @@ Typing a path on a slow filesystem or network volume can make the editor feel la
 #### Planning notes
 
 This is a UX/performance improvement rather than a safety fix.
+
+#### Resolution (v0.0.47)
+
+Resolved (debounce, no new `QThread`). The job editor's script-path `textChanged` now routes through a single-shot `QTimer` (`_SCRIPT_DETECTION_DEBOUNCE_MS = 300`, injectable via a `detection_debounce_ms` constructor argument). Rapid typing coalesces into one final detection; a blank path cancels the pending detection immediately; the final value still triggers exactly one detection. Detection remains synchronous on the GUI thread (no worker added) but is no longer executed per keystroke.
 
 ---
 
@@ -996,6 +1016,10 @@ This is expected for a macOS app, but it means packaging is not portable by desi
 
 This is mostly a documentation/portability note.
 
+#### Resolution (v0.0.47)
+
+Resolved. `make package` now runs a preflight check that fails fast when the platform is not Darwin or when `pyside6-deploy`, `plutil`, or `codesign` are missing, and the platform/toolchain assumptions are documented. Packaging remains macOS-specific by design, but the dependency on a specific local toolchain layout is now explicit and validated before any packaging work begins.
+
 ---
 
 ## 6. Strengths to preserve
@@ -1100,7 +1124,7 @@ Include:
 - **CR-20** — document full-config logging policy
 - **CR-21** — document packaging platform assumptions
 
-**Completed in v0.0.46:** CR-19 and CR-20. Remaining Cycle C items: CR-08, CR-09, CR-12, CR-16, CR-17, and CR-21.
+**Completed in v0.0.46:** CR-19 and CR-20. **Completed in v0.0.47:** CR-08, CR-09, CR-12, CR-16, CR-17, and CR-21. No Cycle C items remain.
 
 Why this grouping works:
 
@@ -1253,7 +1277,9 @@ For the highest-risk items, explicitly add tests for:
 
 ## 11. Documentation status
 
-This file is the planning input for the next cycle.
+As of v0.0.47, every finding in this document is resolved (CR-01–CR-21 across v0.0.44–v0.0.47); the planning notes below are retained for reference.
+
+This file was originally the planning input for the next cycle.
 
 It is **not** yet:
 

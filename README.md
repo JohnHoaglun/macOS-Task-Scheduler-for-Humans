@@ -624,15 +624,20 @@ user's ad-hoc identity.
 make package
 ```
 
-This runs `.venv/bin/pyside6-deploy -c pysidedeploy.spec -f`, then
-post-processes the generated `Contents/Info.plist` to set:
+This is macOS-only and first checks that the host is Darwin and that
+`.venv/bin/pyside6-deploy`, `plutil`, and `codesign` are available. It
+deploys against a transient copy of the spec in the gitignored `deployment/`
+directory (`.venv/bin/pyside6-deploy -c deployment/pysidedeploy.spec -f`), so
+the tracked `pysidedeploy.spec` is never mutated, then post-processes the
+generated `Contents/Info.plist` to set:
 
 * `CFBundleIdentifier`: `io.github.macos-task-scheduler`
 * `CFBundleName`: `macOS Task Scheduler for Humans`
 * `CFBundleDisplayName`: `macOS Task Scheduler for Humans`
 
-Then re-signing (`codesign --force --sign -`) so the bundle is
-executable without Terminal or an activated venv.
+Then re-signs (`codesign --force --sign -`) so the bundle is executable
+without Terminal or an activated venv, and verifies the tracked
+`pysidedeploy.spec` is unchanged.
 
 The resulting artifact is:
 
@@ -707,7 +712,9 @@ The dialog is a scrollable form with the following sections:
    wide). For an existing job the label is fixed and is shown.
 * **Command** — a Python / Shell / Executable selector with a page per
   kind, each with a row table of arguments. On the Python page, editing
-  the script path runs interpreter detection: candidates are listed as
+  the script path runs interpreter detection (debounced: rapid typing coalesces
+  into a single detection of the final value, and a cleared path cancels any
+  pending detection): candidates are listed as
   `path (source)` (sources: `.venv`, `venv`, `current`, `path`); a
   candidate also found by a project-root detector (uv, Poetry, Pipenv,
   pyenv, or Conda) is annotated with those detectors (for example

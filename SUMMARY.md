@@ -2,6 +2,17 @@
 
 ## Changelog
 
+### v0.0.47
+- Code-review remediation (CR-08, CR-09, CR-12, CR-16, CR-17, CR-21): the remaining filesystem-safety, packaging-portability, and editor-performance findings are now resolved.
+- CR-08 — `LocalFilesystem.create_exclusive()` writes through a new `_write_private_file()` helper that opens an unpredictable temp name (`.{pid}.{secrets.token_hex(8)}.tmp`) with `O_CREAT | O_EXCL | O_WRONLY` (plus `O_NOFOLLOW` where available), verifies via `fstat` that the created path is a regular file, creates it `0600`, and `fsync`s it before its path is returned for publish; a pre-created symlink or file at the path can no longer be followed or overwritten, and the owned temp is removed on any failure.
+- CR-09 — `read_snapshot()` is now descriptor-coherent: the bytes, SHA-256, and `st_dev`/`st_ino`/`st_size` identity are all taken from a single open file descriptor, so a path swapped between `stat` and read cannot mix identity and payload from different files. `replace_verified()` and `remove_verified()` are documented and tested as best-effort re-checks rather than compare-and-swap (no lock is held; drift raises `SourceChangedError`).
+- CR-16 — `quarantine_external()` now takes a `SourceSnapshot` and writes the quarantined file from `snapshot.payload` (never re-reading the source), removing the source only through a best-effort verified remove; on drift the source is left intact and the quarantine candidate is deleted, leaving no orphan artifact.
+- CR-12 — `pysidedeploy.spec` no longer hardcodes developer-machine paths: `icon` and `python_path` are left empty and resolved at deploy time, and `make package` copies the spec into a transient, gitignored `deployment/` directory so `pyside6-deploy -f` never mutates the tracked spec.
+- CR-17 — the job editor's script-path interpreter detection is debounced through a single-shot `QTimer` (300 ms, injectable via `detection_debounce_ms`): rapid typing coalesces into one final detection, a blank path cancels the pending detection immediately, and no new `QThread` is introduced.
+- CR-21 — `make package` runs a preflight check that fails fast when the platform is not Darwin or when `pyside6-deploy`, `plutil`, or `codesign` are unavailable, making the packaging platform/toolchain assumptions explicit.
+- Test/coverage closeout: added filesystem failure-cleanup coverage (`os.replace` / `os.fstat` error paths) and the `JobEditor` detection-coalescing test; trimmed genuinely redundant test content (a dead helper and verbose comments) with no coverage or assertion loss to hold the 75% ratio cap.
+- Verification: `make check` passed with ruff, mypy strict, 654 tests, 100% whole-suite coverage (7,478 statements), and test/source ratio 74.9665% (10,640 test : 14,193 src, under the 75% cap); version 0.0.46 → 0.0.47 in all registry locations.
+
 ### v0.0.46
 - Code-review remediation (CR-05, CR-06, CR-07, CR-18, CR-19, CR-20): application logging startup is now failure-tolerant, secure, bounded, and path-aware, with user-visible degraded-logging disclosure in the GUI and degraded-safe crash-dialog wording.
 - `configure_logging()` no longer aborts GUI or CLI startup when the secure log directory/file cannot be created or opened. It returns the intended log path, installs exactly one tagged structured JSONL stderr fallback handler, and emits one structured `app.logging_degraded` warning through stderr.

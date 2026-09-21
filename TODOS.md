@@ -1,13 +1,13 @@
 # TODOS.md (v0.0.47)
 
-## Filesystem Safety, Packaging Portability, and Editor Debounce (ACTIVE — v0.0.47)
+## Filesystem Safety, Packaging Portability, and Editor Debounce (DONE — v0.0.47)
 
 Approved scope from `docs/code-review-findings.md`: CR-08, CR-09, CR-12, CR-16, CR-17, CR-21.
 
 - [x] Wave A: secure `create_exclusive()` (unpredictable temp, `O_EXCL`, `0600`, `fsync` before publish), descriptor-coherent `read_snapshot()`, honest best-effort `replace_verified` / `remove_verified` semantics, and snapshot-based `quarantine_external(path, snapshot)` (8a31c44)
 - [x] Wave B: portable `pysidedeploy.spec` (no absolute paths; empty `icon`/`python_path` resolved at deploy time), transient ignored `deployment/` spec copy, and `make package` Darwin + `pyside6-deploy`/`plutil`/`codesign` preflight (7d2ff65)
-- [ ] Wave C: debounced Python detection in `JobEditor` (one final detection per burst, blank cancels, no new `QThread`)
-- [ ] Closeout: resolve CR-08/09/12/16/17/21, correct v0.0.44 review-status header, full `make check`, 100% coverage, ratio ≤75%, version 0.0.46 → 0.0.47, docs, commit, push
+- [x] Wave C: debounced Python detection in `JobEditor` (single-shot 300 ms `QTimer`, one final detection per burst, blank cancels, no new `QThread`); plus filesystem failure-cleanup coverage and redundant-test trim to hold the 75% ratio cap (56c4b7d)
+- [x] Closeout: resolved CR-08/09/12/16/17/21 in `docs/code-review-findings.md` and corrected the review-status header; full `make check` (ruff, mypy strict, 654 tests, 100% coverage); test/source ratio 74.9665% (≤75%); version 0.0.46 → 0.0.47 (all 4 registry locations); docs (findings/README/architecture/development/PLAN/TODOS); commit, push
 
 ## Logging Resilience and Security (DONE — v0.0.46)
 

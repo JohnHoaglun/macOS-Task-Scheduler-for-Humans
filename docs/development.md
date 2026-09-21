@@ -265,8 +265,11 @@ tests never touch the host database (the real
   file: …` for symlinks and directories; `replace_verified` raises
   `SourceChangedError` when source is absent, destination is absent, or the
   current sha256 or `(st_dev, st_ino)` differs from the expected snapshot;
-  `remove_verified` follows the same contract — rejects on drift or absence,
-  otherwise unlinks.
+`remove_verified` follows the same contract — rejects on drift or absence,
+otherwise unlinks. Both verified ops are best-effort re-checks, not
+compare-and-swap (no lock is held); `read_snapshot` is descriptor-coherent,
+so the bytes, SHA-256, and `st_dev`/`st_ino` identity all come from a single
+open descriptor (a path swapped between `stat` and read cannot mix files).
 * Service-level tests use `FakeTaskWorld` (real `JobService`,
   `LaunchAgentStore`, `LaunchAgentBackend` over a scripted `FakeProcessRunner`,
   `DirectTestService`, `PlistCodec`, `ExecutionHistoryRepository` — all rooted
@@ -384,16 +387,23 @@ user's ad-hoc identity.
 make package
 ```
 
-This runs `.venv/bin/pyside6-deploy -c pysidedeploy.spec -f`, which:
+`make package` is macOS-only and first runs a preflight that fails fast when
+the host is not Darwin or when `.venv/bin/pyside6-deploy`, `plutil`, or
+`codesign` are missing. It copies the tracked spec into the gitignored
+`deployment/` directory (recording its SHA-256 first) and runs
+`.venv/bin/pyside6-deploy -c deployment/pysidedeploy.spec -f` against that
+copy, which:
 
 1. Installs Nuitka==4.1.1 into a temporary Python environment
 2. Compiles `src/task_scheduler/gui/app.py` into a standalone `.app`
 3. Copies the bundle to `dist/macOS Task Scheduler for Humans.app`
-4. Rewrites `pysidedeploy.spec` with the resolved modules/plugins
+4. Rewrites `deployment/pysidedeploy.spec` (the copy) with the resolved
+   modules/plugins — the tracked `pysidedeploy.spec` is never mutated
 
 The Makefile then post-processes the generated `Contents/Info.plist` to set
 the correct `CFBundleIdentifier`/`CFBundleName`/`CFBundleDisplayName` values
-(Nuitka defaults to the executable stem `app`), and re-signs:
+(Nuitka defaults to the executable stem `app`), re-signs, and verifies the
+tracked `pysidedeploy.spec` is byte-identical to before:
 
 ```bash
 codesign --force --sign - "dist/macOS Task Scheduler for Humans.app"

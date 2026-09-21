@@ -393,8 +393,9 @@ structured (stage → bootout → backup → activate → bootstrap).
 
 **`disable_external(path)`** — containment check (`path is outside the
 LaunchAgent root: {path}`); parses payload; if no usable label,
-`quarantine_external(path)` (move to `.task-scheduler-disabled`
-subdirectory); otherwise the plist's `Disabled` key is the durable,
+`quarantine_external(path, snapshot)` (move the `snapshot` payload to the
+`.task-scheduler-disabled` subdirectory via a best-effort verified remove);
+otherwise the plist's `Disabled` key is the durable,
 human-visible source of truth: when not already set, it is written to
 `true` through the staged replace (stage → backup → activate; a source
 drift raises `SourceChangedError`, a `ValueError`, before launchd is
@@ -1057,10 +1058,15 @@ are issued, and no history events are recorded for the internal status
 calls.
 
 The application runtime has no packaging logic. The `.app` bundle is built
-by `pyside6-deploy` (Nuitka standalone mode) using a version-controlled
-`pysidedeploy.spec` config at the repository root. The Makefile target
-`make package` invokes the deploy tool and then post-processes the generated
-`Contents/Info.plist` to set the Launch Services identity fields
+by `pyside6-deploy` (Nuitka standalone mode) using a version-controlled,
+portable `pysidedeploy.spec` config at the repository root (no
+developer-machine absolute paths; the `icon` and `python_path` entries are
+left empty and resolved at deploy time). The Makefile target `make package`
+is macOS-only, runs a preflight for `pyside6-deploy`, `plutil`, and `codesign`,
+then deploys against a transient copy of the spec in the gitignored
+`deployment/` directory so tool-generated values never mutate the tracked
+spec. It post-processes the generated `Contents/Info.plist` to set the Launch
+Services identity fields
 (`CFBundleIdentifier` → `io.github.macos-task-scheduler`,
 `CFBundleName`/`CFBundleDisplayName` → `macOS Task Scheduler for Humans`)
 and re-signs with the current user's ad-hoc identity:
@@ -1069,7 +1075,8 @@ and re-signs with the current user's ad-hoc identity:
 codesign --force --sign - "dist/macOS Task Scheduler for Humans.app"
 ```
 
-This post-processing step is the only exception to the "spec-only deployment
+It then verifies the tracked `pysidedeploy.spec` is unchanged. This
+post-processing step is the only exception to the "spec-only deployment
 fixes" decision — it is build tooling (never runtime code), required because
 Nuitka derives the bundle identifier from the `app.py` stem.
 
