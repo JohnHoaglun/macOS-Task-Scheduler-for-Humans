@@ -2,6 +2,67 @@
 
 ## Current State
 
+### Approved v0.0.46 Logging Resilience and Security (2026-09-20)
+
+**Goal:** implement the approved v0.0.46 slice of `docs/code-review-findings.md`: failure-tolerant logging startup, verified secure permissions, bounded active-log retention, controlled write-failure recovery, path-aware configuration, and documented full-configuration logging policy.
+
+**Baseline:** v0.0.45 at commit `4660547`; release target `0.0.46`.
+
+**Scope:**
+- CR-05: `configure_logging()` never aborts GUI or CLI startup because the secure log directory/file cannot be created or opened.
+- CR-05: add `logging_degraded_reason() -> str | None` as the only application-level degraded-logging status consumed by the GUI.
+- CR-06: apply and verify mode `0600` on the active log and retained archives after creation and rollover; permission enforcement failure is a logging fault.
+- CR-07: include the active `app.log` in the aggregate 10 MiB / 14-day retention policy; an oversized active file is rolled over before pruning.
+- CR-18: after a file write/flush/rollover failure, perform one guarded recovery attempt; if it fails, disable file logging and activate the fallback without default `Handler.handleError()` traceback noise.
+- CR-19: make `configure_logging()` idempotent per log path; same path reuses the healthy handler, while a different path replaces only the tagged application handler.
+- CR-20: document the approved sensitivity policy: full task configuration, including environment values, is intentionally logged without redaction, and the selected fallback can expose those values on stderr while file logging is degraded.
+
+**Pinned decisions:**
+- `configure_logging(log_path: Path | None = None) -> Path` retains its public signature and returns the intended application log path even when the secure file handler is degraded.
+- The fallback is a tagged structured JSONL `StreamHandler` writing to `sys.stderr`, not a plain-text handler and not a null handler.
+- Exactly one tagged application root handler exists at a time: the secure file handler when healthy or the stderr fallback when degraded. Unrelated root handlers are preserved.
+- `logging_degraded_reason()` returns `None` when healthy or one of the stable non-sensitive categories `log-directory-unavailable`, `log-file-unavailable`, `log-permissions-unavailable`, `log-rollover-failed`, or `log-write-failed`.
+- Both handlers emit the existing JSONL event schema. Internal logging faults must not recursively invoke the logging system.
+- `0600` is applied and re-verified after active-file creation, rollover, and recovery; archives are verified during startup and rollover pruning.
+- The aggregate retention footprint is active file plus archives, bounded by 10 MiB and 14 days. An active file above the cap is archived under the normal rollover naming before prune; prune removes oldest archives until the footprint complies.
+- A transient stream failure closes the stream best-effort, reopens it, reapplies and re-verifies `0600`, and retries the already-rendered event once under the existing handler lock.
+- A failed recovery removes/disables the file handler, installs the stderr fallback exactly once, records the stable degraded reason, and emits one structured `app.logging_degraded` warning through stderr.
+- Reconfiguration to a different path constructs and verifies the new secure handler before removing the previous tagged handler; if replacement fails, a previous healthy handler remains active.
+- The GUI displays both a one-time modal warning and a persistent `MainWindow.statusBar()` notice after `QApplication` exists. Its wording is generic and does not expose paths, environment values, or exception details.
+- The GUI crash dialog must not claim crash details were written to `app.log` when the secure file handler is degraded.
+- Full configuration logging without redaction remains the product policy. README and architecture documentation state that stderr fallback can expose full configuration values in terminal output.
+
+**Parallelization decision:** single serial pass (solo work — the logging core defines the shared permission, retention, recovery, handler-tag, and status contracts; GUI integration and documentation depend on those contracts, and the separate `smarter` dispatch target is unavailable in this runtime).
+
+| Wave | Scope | Files owned | Stop condition |
+|---|---|---|---|
+| 0 | Logging resilience core | `src/task_scheduler/application/app_logging.py`, `tests/unit/application/test_app_logging.py` | Startup failure falls back safely; `0600` is verified; active file obeys aggregate retention; one recovery attempt works; reconfiguration is path-aware |
+| 1A | GUI degraded-logging integration | `src/task_scheduler/gui/app.py`, `tests/unit/gui/test_app.py` | GUI starts after logging failure, shows modal + status notice, and crash wording is degraded-safe |
+| 1B | Logging policy documentation | `README.md`, `docs/architecture.md` | Documents full-configuration logging, secure permissions, bounded active-file retention, stderr fallback exposure, and degraded notices |
+| 2 | Review resolution, version/docs closeout, composition verification | `PLAN.md`, `TODOS.md`, `PROJECT.md`, `SUMMARY.md`, `VERSIONS_LOCATIONS.md`, `pyproject.toml`, `src/task_scheduler/version.py`, `docs/code-review-findings.md`, `docs/development.md` | CR-05/06/07/18/19/20 resolved, version registry is `0.0.46`, stale-version grep clean, `make check` green, commit/pushed |
+
+**Shared-surface inventory:**
+- `app_logging.py` exclusively owns tagged handler installation/removal, active stream lifecycle, retention operations, permission enforcement, recovery, degraded state, and JSONL serialization.
+- `gui/app.py` owns startup ordering and user-visible notices; it may call `configure_logging()` and `logging_degraded_reason()` but may not inspect logging handlers.
+- `cli/app.py` remains a read-only consumer of the same `configure_logging()` contract and gains no handler-specific logic.
+- Documentation owns user-facing policy wording and consumes the finalized behavior contract.
+- The global test/source ratio is unowned by Waves 0–1B; Wave 2 trims redundant test lines before closeout if the 75% cap is breached.
+
+**Gates:**
+- Uncreatable log directory or unopenable log file does not raise from `configure_logging()`; the stderr fallback is installed exactly once and `logging_degraded_reason()` reports the stable category.
+- A failed `chmod()` or a non-`0600` verified mode never leaves a secure file handler attached.
+- An active-only `app.log` above 10 MiB produces a rolled-over archive plus fresh active file whose aggregate footprint is `<= 10 MiB`; rollover failure activates the fallback.
+- A one-time write/flush failure retries the original rendered record after reopen/repermission and preserves it; permanent failure disables the file handler without invoking default `handleError()`.
+- Same-path `configure_logging()` is idempotent; different-path reconfiguration moves future events to the new path, preserves unrelated root handlers, and retains the old healthy handler if replacement fails.
+- GUI degraded startup shows exactly one modal warning and the status-bar notice, continues normal window creation, and crash-dialog wording does not claim `app.log` capture while degraded.
+- Docs state that full configuration and environment values are intentionally logged and may appear on stderr during degraded operation.
+- Final: `make check` green (ruff, mypy strict, 100% coverage, ratio ≤75%), version `0.0.46` in all registry locations, docs updated, commit pushed.
+
+**Deferred:**
+- v0.0.47: CR-08, CR-09, CR-12, CR-16, CR-17, CR-21.
+
+**Blockers:** none.
+
 ### Approved v0.0.45 Storage Durability and Controller Hardening (2026-09-20)
 
 **Goal:** implement the approved v0.0.45 slice of `docs/code-review-findings.md`: durable atomic JSON writes, race-safe create-only import/export, and safe GUI controller outcomes for import/history storage failures.

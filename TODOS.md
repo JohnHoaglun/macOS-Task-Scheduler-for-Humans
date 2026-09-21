@@ -1,4 +1,13 @@
-# TODOS.md (v0.0.45)
+# TODOS.md (v0.0.46)
+
+## Logging Resilience and Security (ACTIVE — v0.0.46)
+
+Approved scope from `docs/code-review-findings.md`: CR-05, CR-06, CR-07, CR-18, CR-19, CR-20.
+
+- [ ] Wave 0: make `configure_logging()` failure-tolerant with a structured JSONL stderr fallback, `logging_degraded_reason()` status, verified `0600` permissions, active-file retention, one-attempt write recovery, and path-aware idempotent reconfiguration
+- [ ] Wave 1A: show a one-time GUI modal warning plus persistent status-bar notice when logging is degraded and make crash-dialog wording degraded-safe
+- [ ] Wave 1B: document full-configuration logging, stderr fallback exposure, secure permissions, and bounded active-log retention in README and architecture docs
+- [ ] Closeout: resolve CR-05/06/07/18/19/20, full `make check`, 100% coverage, ratio ≤75%, version 0.0.45 → 0.0.46, docs, commit, push
 
 ## Storage Durability and Controller Hardening (DONE — v0.0.45)
 
