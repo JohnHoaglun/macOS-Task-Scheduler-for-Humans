@@ -53,7 +53,7 @@
 **Deferred:**
 - v0.0.48: remaining Run-phase increments (24–29) and any new findings.
 
-**Blockers:** none.
+**Blockers:** none. (v0.0.47 coverage gate, discovered 2026-09-21 during Wave C composition and resolved the same turn: full `make check` (100% coverage) was RED at `7d2ff65` because Wave A (`8a31c44`) was verified with focused pytest/ruff/mypy only, so `filesystem.py` lines 120-122, 142, and 147-150 were committed uncovered, and Wave C's `job_editor.py:305` blank guard was also uncovered. Fix: added `TestFilesystemFailureCleanup` (`tests/unit/platform/test_filesystem.py`) covering the `os.replace`/`os.fstat` failure paths, exercised the `_run_script_detection` blank guard in the JobEditor burst test, and trimmed genuinely redundant test content to satisfy the 75% ratio cap (a dead `_install_result` helper in `tests/unit/application/test_diagnostic_service.py`, a 4-line reference comment in `tests/unit/domain/test_schedule.py`, and 6 redundant inline comments across `test_main_window.py`, `test_history_presenter.py`, and `test_filesystem.py`). `make check` is green (654 passed, 100% coverage, ratio 10640:14193 = 74.9665%); the full composition gate now runs before every v0.0.47 commit. Gate gap recorded: Wave A was committed without the full composition gate; remedy added: run full `make check` before every v0.0.47 commit.)
 
 ### Approved v0.0.46 Logging Resilience and Security (2026-09-20)
 

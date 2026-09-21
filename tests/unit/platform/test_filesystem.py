@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import stat
 from pathlib import Path
 
@@ -22,7 +23,6 @@ class TestLocalFilesystemReplaceVerified:
         source = tmp_path / "source.plist"
         source.write_bytes(b"replacement")
         snap = fs.read_snapshot(dest)
-        # Mutate destination via a separate replace
         dest.write_bytes(b"mutated")
         with pytest.raises(SourceChangedError):
             fs.replace_verified(source, dest, snap)
@@ -81,3 +81,23 @@ class TestReadSnapshotDescriptorCoherent:
         snap = LocalFilesystem().read_snapshot(dest)
         assert snap.payload == b"0123456789" and snap.st_size == 10
         assert snap.st_ino == dest.stat().st_ino
+
+
+def _raise_oserror(*_args: object, **_kwargs: object) -> None:
+    raise OSError("injected failure")
+
+
+class TestFilesystemFailureCleanup:
+    def test_replace_cleans_temp_when_os_replace_fails(self, tmp_path: Path, monkeypatch) -> None:
+        source = tmp_path / "s"
+        source.write_bytes(b"x")
+        monkeypatch.setattr(os, "replace", _raise_oserror)
+        with pytest.raises(OSError):
+            LocalFilesystem().replace(source, tmp_path / "d")
+        assert not [p for p in tmp_path.iterdir() if p.name.endswith(".tmp")]
+
+    def test_create_refuses_non_regular_and_cleans_temp(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.setattr(os, "fstat", lambda _fd: tmp_path.stat())
+        with pytest.raises(OSError, match="non-regular"):
+            LocalFilesystem().create_exclusive(tmp_path / "x", b"p")
+        assert not [p for p in tmp_path.iterdir() if p.name.endswith(".tmp")]

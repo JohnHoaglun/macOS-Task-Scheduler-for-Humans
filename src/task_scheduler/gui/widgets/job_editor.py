@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import cast
 
 from pydantic import ValidationError
-from PySide6.QtCore import QObject, QSize, QThread
+from PySide6.QtCore import QObject, QSize, QThread, QTimer
 from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import (
     QApplication,
@@ -76,6 +76,9 @@ DAY_NAMES = (
 )
 DAY_LABELS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 _SCHEDULE_UNIT_SECONDS = (1, 60, 3600, 86400)
+# Debounce for script interpreter detection: coalesce a burst of keystrokes
+# into a single filesystem/PATH probe after the user pauses.
+_SCRIPT_DETECTION_DEBOUNCE_MS = 300
 # The Identity Name field defaults to a cramped ~15 characters in the
 # QFormLayout; widen it to roughly double that so names read comfortably.
 _IDENTITY_FIELD_WIDTH_CHARS = 30
@@ -94,12 +97,15 @@ class JobEditor(QDialog):
         *,
         clock: Callable[[], datetime] | None = None,
         on_test_worker_started: Callable[[QThread, QObject], None] | None = None,
+        detection_debounce_ms: int = _SCRIPT_DETECTION_DEBOUNCE_MS,
     ) -> None:
         """Build the scrollable form, hidden error pane, and the action button row.
 
         With a *diagnostics* controller the Test Draft button runs a direct
         test of the validated draft; without one the button stays disabled.
         The *clock* supplies the local time for the schedule preview.
+        *detection_debounce_ms* delays script interpreter detection until the
+        script field has been quiet for that many milliseconds.
         """
         super().__init__(parent)
         self._controller = controller
@@ -114,6 +120,10 @@ class JobEditor(QDialog):
         self._dirty_fields: frozenset[ExternalEditField] = frozenset()
         self._external_mode = False
         self._working_dir_hint: Path | None = None
+        self._detection_timer = QTimer(self)
+        self._detection_timer.setSingleShot(True)
+        self._detection_timer.setInterval(detection_debounce_ms)
+        self._detection_timer.timeout.connect(self._run_script_detection)
         content = QWidget()
         self._external_banner = QLabel(content)
         self._external_banner.setObjectName("editor-external-banner")
@@ -274,13 +284,24 @@ class JobEditor(QDialog):
         self._stack.setCurrentIndex(index)
 
     def _on_script_changed(self, text: str) -> None:
-        """Detect interpreter candidates for the current script path."""
-        text = text.strip()
-        if not text:
+        """Debounce interpreter detection; reset the candidates immediately on blank input.
+
+        Each keystroke restarts a single-shot timer so a burst of edits runs
+        detection once with the final path; blanking cancels and clears now.
+        """
+        self._detection_timer.stop()
+        if not text.strip():
             self._candidates.clear()
             self._use_candidate.setEnabled(False)
             self._working_dir_hint = None
             self._detection_note.setText("Select a script to detect its interpreter.")
+            return
+        self._detection_timer.start()
+
+    def _run_script_detection(self) -> None:
+        """Populate interpreter candidates from detection of the settled script path."""
+        text = self._script.text().strip()
+        if not text:
             return
         result = self._controller.detect_python(Path(text))
         self._working_dir_hint = result.working_directory

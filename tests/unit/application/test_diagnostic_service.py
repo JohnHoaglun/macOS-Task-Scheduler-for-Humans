@@ -54,18 +54,6 @@ def _launch_failure(kind: LaunchFailureKind, message: str = "boom") -> ProcessRe
     )
 
 
-def _install_result(job: JobDefinition, exit_code: int) -> InstallResult:
-    process = ProcessResult(exit_code=exit_code, stderr="denied")
-    return InstallResult(
-        job=job,
-        plist_path=Path("/tmp/a.plist"),
-        process=process,
-        phases=(InstallPhase("bootstrap", process),),
-        completed_phases=("bootstrap",) if exit_code == 0 else (),
-        retained_artifacts=(),
-    )
-
-
 class TestRuleCoverage:
     def test_permission_denied_static_positive(self, tmp_path: Path) -> None:
         job, interpreter, _ = _healthy_job(tmp_path)

@@ -54,12 +54,6 @@ class TestUnionAndRendering:
         assert human_interval(seconds) == expected
 
 
-# Weekday anchors (verified against the 2026 calendar):
-# 2026-08-26 Wed, 2026-08-30 Sun, 2026-08-31 Mon, 2026-09-02 Wed,
-# 2026-09-04 Fri, 2026-09-05 Sat, 2026-09-06 Sun, 2026-09-07 Mon,
-# 2026-09-09 Wed, 2026-09-14 Mon, 2026-09-16 Wed, 2026-09-21 Mon
-
-
 class TestUpcomingOccurrences:
     MONDAY_0730 = CalendarSchedule(times=["07:30"], weekdays={Weekday.MONDAY})
 

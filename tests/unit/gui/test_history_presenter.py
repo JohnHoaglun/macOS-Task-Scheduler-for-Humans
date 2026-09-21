@@ -27,7 +27,6 @@ def _event(**overrides) -> HistoryEvent:
         "diagnostic_codes": (),
     }
     kwargs.update(overrides)
-    # Ensure job_id is UUID
     from uuid import UUID
 
     if isinstance(kwargs["job_id"], str):

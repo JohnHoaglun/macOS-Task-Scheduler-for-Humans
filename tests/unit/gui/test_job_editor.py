@@ -58,7 +58,7 @@ def make_editor(
     """A dialog bound to a world's services, opened on the given job or empty."""
     world = FakeTaskWorld(tmp_path)
     controller = EditorController(world.services)
-    editor = JobEditor(controller)
+    editor = JobEditor(controller, detection_debounce_ms=0)
     qtbot.addWidget(editor)
     if job is None:
         editor.open_new()
@@ -393,6 +393,7 @@ class TestPythonDetection:
             working_directory=Path("/tmp/proj"),
         )
         editor.findChild(QLineEdit, "editor-script").setText("/tmp/proj/main.py")
+        qtbot.wait(50)
         combo = editor.findChild(QComboBox, "editor-candidates")
         assert combo is not None
         assert line_edit(editor, "editor-interpreter").text() == "/tmp/proj/.venv/bin/python"
@@ -416,12 +417,26 @@ class TestPythonDetection:
             notes=[DetectionNote(detector=DetectorKind.POETRY, message="poetry note line")],
         )
         editor.findChild(QLineEdit, "editor-script").setText("/tmp/proj/main.py")
+        qtbot.wait(50)
         note = editor.findChild(QLabel, "editor-detection-note")
         assert note is not None
         assert note.text() == (
             "No interpreters detected for this script. Type the interpreter path above.\n"
             "poetry note line"
         )
+
+    def test_rapid_edits_coalesce_to_one_detection(self, qtbot: QtBot, tmp_path: Path) -> None:
+        _, editor, _ = make_editor(qtbot, tmp_path)
+        seen: list[str] = []
+        editor._controller.detect_python = lambda s: (seen.append(s), _detection_result("", []))[1]
+        for fragment in ("/tmp/", "/tmp/ma"):
+            line_edit(editor, "editor-script").setText(fragment)
+        line_edit(editor, "editor-script").setText("")
+        editor._run_script_detection()
+        assert seen == []
+        line_edit(editor, "editor-script").setText("/tmp/main.py")
+        qtbot.wait(50)
+        assert seen == [Path("/tmp/main.py")]
 
 
 def make_test_draft_editor(
@@ -690,6 +705,7 @@ class TestExternalMode:
             [InterpreterCandidate(path=Path("/tmp/proj/python"), source=CandidateSource.VENV)],
         )
         line_edit(editor, "editor-script").setText("/tmp/proj/main.py")
+        qtbot.wait(50)
         assert line_edit(editor, "editor-interpreter").text() == ""
 
     def test_external_mode_hides_log_directory_and_keeps_manual_paths(

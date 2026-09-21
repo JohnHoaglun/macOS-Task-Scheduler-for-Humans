@@ -975,7 +975,6 @@ class TestWave3Composition:
 
         refreshed: list[int] = []
         monkeypatch.setattr(window, "refresh", lambda: refreshed.append(1))
-        # Cancelled dialog open: no-op.
         monkeypatch.setattr(mw.QFileDialog, "getOpenFileName", staticmethod(lambda *_a: ("", "")))
         window.import_json_action.trigger()
         assert refreshed == []
@@ -984,18 +983,15 @@ class TestWave3Composition:
             "getOpenFileName",
             staticmethod(lambda *_a: ("/tmp/in.json", "")),
         )
-        # Preview error: reported, no commit.
         bad = JsonImportOutcome(source_path=Path("/tmp/in.json"), error="bad")
         monkeypatch.setattr(window._json_transfer, "preview_import", lambda _p: bad)
         window.import_json_action.trigger()
         assert "Cannot import" in window.statusBar().currentMessage()
-        # Rejected dialog: no commit.
         good = JsonImportOutcome(source_path=Path("/tmp/in.json"))
         monkeypatch.setattr(window._json_transfer, "preview_import", lambda _p: good)
         monkeypatch.setattr(JsonTransferDialog, "exec", lambda self: QDialog.DialogCode.Rejected)
         window.import_json_action.trigger()
         assert refreshed == []
-        # Commit error: reported, no refresh.
         monkeypatch.setattr(JsonTransferDialog, "exec", lambda self: QDialog.DialogCode.Accepted)
         monkeypatch.setattr(
             window._json_transfer,
