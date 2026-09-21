@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "macos-task-scheduler"
-version = "0.0.43"
+version = "0.0.44"
 description = "A human-friendly macOS task scheduler built on top of Apple's launchd"
 readme = "README.md"
 license = "MIT"
@@ -49,6 +49,7 @@ source = ["task_scheduler"]
 [tool.coverage.report]
 show_missing = true
 skip_covered = true
+fail_under = 100
 
 [tool.ruff]
 line-length = 100

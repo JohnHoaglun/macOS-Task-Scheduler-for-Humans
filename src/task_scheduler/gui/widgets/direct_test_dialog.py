@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import ClassVar
 
 from PySide6.QtCore import QMetaObject, QSize, Qt, QThread, QTimer
@@ -47,10 +48,13 @@ class DirectTestDialog(QDialog):
         controller: DiagnosticsController,
         job: JobDefinition,
         parent: QWidget | None = None,
+        *,
+        on_worker_started: Callable[[QThread, DiagnosticsWorker], None] | None = None,
     ) -> None:
         super().__init__(parent)
         self._controller = controller
         self._job = job
+        self._on_worker_started = on_worker_started
         self._closing = False
         self._worker: DiagnosticsWorker | None = None
         self._thread: QThread | None = None
@@ -88,6 +92,8 @@ class DirectTestDialog(QDialog):
         worker.finished.connect(thread.quit)
         thread.finished.connect(thread.deleteLater)
         thread.destroyed.connect(self._on_thread_destroyed)
+        if self._on_worker_started is not None:
+            self._on_worker_started(thread, worker)
         thread.start()
         QMetaObject.invokeMethod(worker, "run", Qt.ConnectionType.QueuedConnection)
 

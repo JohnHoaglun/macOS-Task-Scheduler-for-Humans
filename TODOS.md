@@ -1,4 +1,14 @@
-# TODOS.md (v0.0.43)
+# TODOS.md (v0.0.44)
+
+## Code-Review Remediation (DONE — v0.0.44)
+
+Approved scope from `docs/code-review-findings.md`: CR-11, CR-10, CR-01, CR-15, CR-02.
+
+- [x] Wave 1A: add coverage and test/source ratio gates to `make check`; keep `make test` fast
+- [x] Wave 1B: render the inspector raw plist with `QPlainTextEdit`
+- [x] Wave 2: prevent external plist removal after failed `bootout` and make GUI remove/disable/enable messages derive from `completed_phases`
+- [x] Wave 3: register `DirectTestDialog` worker threads with `MainWindow` close drain
+- [x] Closeout: full `make check`, 100% coverage, ratio 74.3196% (≤75%), version 0.0.43 → 0.0.44, docs, commit, push
 
 ## Stability-First Structured Logging and Error Handling (DONE — v0.0.43)
 

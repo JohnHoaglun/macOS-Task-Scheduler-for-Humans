@@ -6,7 +6,7 @@ import threading
 from pathlib import Path
 
 import pytest
-from PySide6.QtCore import QSize
+from PySide6.QtCore import QSize, QThread
 from PySide6.QtWidgets import QApplication, QLabel, QPlainTextEdit
 from pytestqt.qtbot import QtBot
 from tests.conftest import make_job
@@ -68,6 +68,25 @@ class TestDirectTestDialog:
         assert _summary(dialog) == "Cannot test: invalid job."
         assert not controller.busy
         assert dialog._worker is None
+
+    def test_worker_registration_callback_receives_thread_and_worker(
+        self, qtbot: QtBot, tmp_path: Path
+    ) -> None:
+        world = FakeTaskWorld(tmp_path)
+        controller = DiagnosticsController(world.services, {})
+        seen: list[tuple[QThread, object]] = []
+        dialog = DirectTestDialog(
+            controller,
+            make_job(),
+            on_worker_started=lambda thread, worker: seen.append((thread, worker)),
+        )
+        qtbot.addWidget(dialog)
+        assert len(seen) == 1
+        assert seen[0][0] is dialog._thread
+        assert seen[0][1] is dialog._worker
+        qtbot.waitUntil(lambda: not controller.busy, timeout=5000)
+        dialog.close()
+        qtbot.waitUntil(lambda: dialog not in DirectTestDialog._closing_dialogs, timeout=5000)
 
     def test_initial_size_is_bounded_to_the_primary_screen(
         self, qtbot: QtBot, tmp_path: Path

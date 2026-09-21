@@ -2,6 +2,57 @@
 
 ## Current State
 
+### Approved v0.0.44 Code-Review Remediation (2026-09-20)
+
+**Goal:** implement the approved v0.0.44 slice of `docs/code-review-findings.md`: mechanical quality gates, plain-text raw-plist inspection, truthful external removal/messaging, and direct-test worker participation in the main-window close drain.
+
+**Baseline:** review commit `78f1326`; implementation starts at `4c6ef23` (v0.0.43 + findings doc).
+
+**Scope:**
+- CR-11: `make check` enforces lint, typecheck, 100% coverage, and the ≤75% test/source ratio.
+- CR-10: `AgentInspector` renders raw plist with `QPlainTextEdit` / `setPlainText()`.
+- CR-01: `remove_external()` aborts after failed `launchctl bootout`; source plist is preserved and the result is not `removed`.
+- CR-15: GUI external-result messages derive from `ExternalEditResult.completed_phases`, not stale pre-operation `loaded` values.
+- CR-02: `DirectTestDialog` worker threads are registered with `MainWindow` before starting and therefore participate in close drain.
+
+**Pinned decisions:**
+- `ExternalEditResult` remains the result contract.
+- `removed=True` only when the source plist was actually removed.
+- “Unloaded first” is claimed only when `"bootout" in completed_phases`.
+- “Loaded” is claimed only when `"bootstrap" in completed_phases` is relevant to the operation.
+- Failed bootout preserves the source plist and the backup artifact; no silent force-remove.
+- `make test` remains fast; `make check` is the release-quality gate.
+- `DirectTestDialog` receives an optional registration callback; `MainWindow` passes `_track_worker_thread`.
+- The existing parentless `QThread` and no-`QThread.wait()` close protocol remain unchanged.
+
+**Parallelization decision:** single serial pass (solo work — the changes share `MainWindow`, external-control tests, the test budget, and the release gate; the separate `smarter` dispatch target is unavailable in this runtime, and the remaining slices are small relative to coordination overhead).
+
+| Wave | Scope | Files owned | Stop condition |
+|---|---|---|---|
+| 1A | Build gates | `Makefile`, `pyproject.toml`, `scripts/check_test_ratio.py` | `make check` fails on missing coverage or bad ratio and passes on green state |
+| 1B | Inspector plain text | `src/task_scheduler/gui/widgets/agent_inspector.py`, `tests/unit/gui/test_agent_inspector.py` | raw plist is plain text; object name preserved |
+| 2 | External truthfulness | `src/task_scheduler/application/task_command_service.py`, `src/task_scheduler/gui/main_window.py`, focused tests | failed bootout preserves source; messages derive from `completed_phases` |
+| 3 | Direct-test close drain | `src/task_scheduler/gui/widgets/direct_test_dialog.py`, `src/task_scheduler/gui/widgets/job_editor.py`, `src/task_scheduler/gui/main_window.py`, focused tests | close drain waits for registered direct-test threads |
+| 4 | Closeout | docs, version registry | full `make check`, 100% coverage, ratio ≤75%, 0.0.43 → 0.0.44, commit/push |
+
+**Gates:**
+- `make check` includes ruff, mypy strict, pytest, coverage fail-under 100, and ratio ≤75%.
+- No new `QThread.wait()` or parented worker-thread lifecycle.
+- Failed external bootout: source remains, backup remains, `removed=False`, GUI does not claim unloaded.
+- Successful external removal: source removed, `removed=True`, GUI claims unloaded only when bootout completed.
+- Disable/enable messages distinguish durable plist changes from launchd alignment failures.
+- Direct-test worker running keeps `MainWindow` close pending until the thread drains or the existing bounded timeout fires.
+- Final: version `0.0.44` in all registry locations, docs updated, commit pushed.
+
+**Deferred:**
+- v0.0.45: CR-03, CR-04, CR-13, CR-14.
+- v0.0.46: CR-05, CR-06, CR-07, CR-18, CR-19, CR-20.
+- v0.0.47: CR-08, CR-09, CR-12, CR-16, CR-17, CR-21.
+
+**Resolution (2026-09-20):** complete. `make check` green (ruff, mypy strict, 621 tests, 100% coverage); test/source ratio 74.3196% (10,268 test : 13,816 src); version/docs closeout 0.0.43 → 0.0.44.
+
+**Blockers:** none.
+
 ### Approved v0.0.43 Stability-First Structured Logging and Error Handling (2026-09-19)
 
 **Goal:** Deliver v0.0.43 as a stability-first release: (1) durable structured JSONL logging of all UI actions, configuration changes, and operational outcomes with full configuration values (no redaction); (2) bounded 10 MB / 14-day log retention replacing the current ~3 MB size-only rotation; (3) robust worker/GUI error handling so failures produce user-visible outcomes instead of crashes, stuck busy states, or silent failures.

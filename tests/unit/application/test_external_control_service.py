@@ -546,6 +546,24 @@ class TestRemoveExternal:
         assert plist_path.exists()
         assert len(list(world.la_root.glob("*.backup.*"))) == 1
 
+    def test_failed_bootout_preserves_source_and_returns_not_removed(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(
+            tmp_path,
+            launches=[OK_PROCESS, ProcessResult(exit_code=1, stderr="bootout failed")],
+        )
+        _ensure_la_root(world)
+        plist_path = _write_plist(
+            world,
+            "com.example.rmf.plist",
+            {"Label": "com.example.rmf", "ProgramArguments": ["/bin/true"]},
+        )
+        result = world.services.remove_external(plist_path)
+        assert result.removed is False
+        assert result.completed_phases == ()
+        assert result.process is not None and result.process.exit_code == 1
+        assert plist_path.exists()
+        assert len(list(world.la_root.glob("*.backup.*"))) == 1
+
 
 # ---------------------------------------------------------------------------
 # Defensive status-ValueError branches and edge validations (coverage closeout)

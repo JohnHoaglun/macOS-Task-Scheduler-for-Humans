@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
 import pytest
+from PySide6.QtCore import QObject, QThread
 from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import (
     QApplication,
@@ -23,6 +25,7 @@ from pytestqt.qtbot import QtBot
 from tests.conftest import make_job
 from tests.fakes import FakeTaskWorld
 
+import task_scheduler.gui.widgets.job_editor as job_editor_module
 from task_scheduler.application.job_service import default_job_logs_root, managed_label
 from task_scheduler.domain import (
     JobDefinition,
@@ -422,12 +425,20 @@ class TestPythonDetection:
 
 
 def make_test_draft_editor(
-    qtbot: QtBot, tmp_path: Path, job: JobDefinition | None = None
+    qtbot: QtBot,
+    tmp_path: Path,
+    job: JobDefinition | None = None,
+    *,
+    on_test_worker_started: Callable[[QThread, QObject], None] | None = None,
 ) -> tuple[FakeTaskWorld, JobEditor]:
     """An editor with a diagnostics controller, ready to run Test Draft."""
     world = FakeTaskWorld(tmp_path)
     controller = EditorController(world.services)
-    editor = JobEditor(controller, diagnostics=DiagnosticsController(world.services, {}))
+    editor = JobEditor(
+        controller,
+        diagnostics=DiagnosticsController(world.services, {}),
+        on_test_worker_started=on_test_worker_started,
+    )
     qtbot.addWidget(editor)
     if job is None:
         editor.open_new()
@@ -474,6 +485,28 @@ class TestDirectTestDraft:
         assert len(opened) == 1
         assert opened[0].name == "Renamed Backup"
         assert opened[0].label == make_job().label
+
+    def test_test_draft_passes_worker_registration_callback(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def callback(_thread: QThread, _worker: QObject) -> None:
+            return None
+
+        _, editor = make_test_draft_editor(
+            qtbot, tmp_path, job=make_job(), on_test_worker_started=callback
+        )
+        created: dict[str, object] = {}
+
+        class FakeDialog:
+            def __init__(self, *args: object, **kwargs: object) -> None:
+                created["callback"] = kwargs.get("on_worker_started")
+
+            def exec(self) -> int:
+                return 1
+
+        monkeypatch.setattr(job_editor_module, "DirectTestDialog", FakeDialog)
+        button(editor, "editor-test-draft").click()
+        assert created["callback"] is callback
 
 
 PREVIEW_NOW = datetime(2026, 9, 4, 12, 0)  # Friday

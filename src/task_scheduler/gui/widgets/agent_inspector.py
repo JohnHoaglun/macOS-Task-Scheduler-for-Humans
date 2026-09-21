@@ -10,8 +10,8 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QGroupBox,
     QLabel,
+    QPlainTextEdit,
     QScrollArea,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -179,7 +179,7 @@ class AgentInspector(QWidget):
     def _build_advanced(self) -> QGroupBox:
         """The Advanced group: a read-only raw plist view."""
         box = QGroupBox("Advanced")
-        self._advanced_text = QTextEdit(self)
+        self._advanced_text = QPlainTextEdit(self)
         self._advanced_text.setObjectName("advanced-text")
         self._advanced_text.setReadOnly(True)
         QVBoxLayout(box).addWidget(self._advanced_text)
@@ -243,7 +243,7 @@ class AgentInspector(QWidget):
         if inspection:
             warnings_text = f"{warnings_text}\n\n{inspection}"
         self._warnings_text.setText(warnings_text)
-        self._advanced_text.setText(format_raw_plist(listing))
+        self._advanced_text.setPlainText(format_raw_plist(listing))
         self._message.hide()
         self._scroll.show()
 

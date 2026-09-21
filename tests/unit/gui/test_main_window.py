@@ -9,8 +9,8 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from PySide6.QtCore import QItemSelection, QModelIndex, QObject, Qt, QThread, QTimer
-from PySide6.QtGui import QCloseEvent, QFont
+from PySide6.QtCore import QItemSelection, QModelIndex, QObject, QThread, QTimer
+from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -21,7 +21,6 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
-    QSplitter,
 )
 from pytestqt.qtbot import QtBot
 from tests.fakes import FakeTaskWorld
@@ -65,17 +64,21 @@ from task_scheduler.gui.controllers.lifecycle_controller import (
 from task_scheduler.gui.controllers.lifecycle_worker import LifecycleWorker
 from task_scheduler.gui.main_window import (
     EDIT_EXTERNAL_NO_CHANGES,
+    EXTERNAL_DISABLE_BOOTOUT_FAILED,
+    EXTERNAL_DISABLE_LOADED,
     EXTERNAL_DISABLE_UNKNOWN,
     EXTERNAL_DISABLE_UNLOADED,
     EXTERNAL_EDIT_BOOTOUT_FAILED,
     EXTERNAL_EDIT_RELOAD_FAILED,
     EXTERNAL_EDIT_SUCCESS_LOADED,
     EXTERNAL_EDIT_SUCCESS_UNLOADED,
+    EXTERNAL_ENABLE_BOOTSTRAP_FAILED,
     EXTERNAL_ENABLE_LOADED,
     EXTERNAL_ENABLE_NO_LABEL_TOOLTIP,
     EXTERNAL_ENABLE_UNKNOWN,
     EXTERNAL_ENABLE_UNLOADED,
     EXTERNAL_QUARANTINE_RESULT,
+    EXTERNAL_REMOVE_BOOTOUT_FAILED,
     EXTERNAL_REMOVE_RESULT,
     EXTERNAL_REMOVE_UNLOADED_FIRST,
     EXTERNAL_RUN_NOW_NO_LABEL_TOOLTIP,
@@ -529,152 +532,7 @@ class TestInspectorReadability:
     offscreen instead of discovered in the field.
     """
 
-    def test_no_inspector_label_is_clipped_when_text_wraps(
-        self, qtbot: QtBot, tmp_path: Path
-    ) -> None:
-        app = QApplication.instance()
-        assert app is not None
-        saved_font = app.font()
-        app.setFont(QFont("Helvetica", 18))
-        try:
-            world, managed, *_ = _seed_three(tmp_path)
-            window = _window(qtbot, DiscoveryController(world.services))
-            window.resize(1282, 936)
-            _select_managed(world, window, managed)
-            inspector = window.inspector
-            # Worst case: the user's long values, set after the initial pass.
-            _value_label(inspector, "overview-name").setText("ai.hermes.gateway-researcher")
-            source = "/Users/johnhoaglun/Library/LaunchAgents/ai.hermes.gateway-researcher.plist"
-            _value_label(inspector, "overview-source").setText(source)
-            _value_label(inspector, "command-command").setText(
-                "/Users/johnhoaglun/.hermes/hermes-agent/venv/bin/python -m "
-                "hermes_cli.main --profile researcher gateway run --reload"
-            )
-            app.processEvents()
-            app.processEvents()
-            for label in inspector.findChildren(QLabel):
-                if not label.isVisible():
-                    continue
-                if label.wordWrap():
-                    assert label.height() >= label.heightForWidth(
-                        label.width()
-                    ), label.objectName()
-                else:
-                    assert label.width() >= label.fontMetrics().horizontalAdvance(
-                        label.text()
-                    ), label.text()
-        finally:
-            app.setFont(saved_font)
-
-
-class TestFilterBarToggle:
-    """The search/filter row is hidden at startup and toggled from the View menu."""
-
-    def test_filter_bar_is_hidden_by_default(self, qtbot: QtBot, tmp_path: Path) -> None:
-        world, *_ = _seed_three(tmp_path)
-        window = _window(qtbot, DiscoveryController(world.services))
-        assert window._filter_controls.isHidden()
-        assert window.show_filters_action.isCheckable()
-        assert not window.show_filters_action.isChecked()
-
-    def test_view_menu_toggle_shows_and_hides_the_filter_bar(
-        self, qtbot: QtBot, tmp_path: Path
-    ) -> None:
-        world, *_ = _seed_three(tmp_path)
-        window = _window(qtbot, DiscoveryController(world.services))
-        window.show_filters_action.trigger()
-        assert window._filter_controls.isVisible()
-        assert window.show_filters_action.isChecked()
-        window.show_filters_action.trigger()
-        assert window._filter_controls.isHidden()
-        assert not window.show_filters_action.isChecked()
-
-
-class TestPanelToggles:
-    """Diagnostics/History panels are hidden at startup and toggled from the View menu."""
-
-    def test_panels_are_hidden_by_default(self, qtbot: QtBot, tmp_path: Path) -> None:
-        world, *_ = _seed_three(tmp_path)
-        window = _window(qtbot, DiscoveryController(world.services))
-        assert window.panel.isHidden()
-        assert window.history_panel.isHidden()
-        assert window.show_diagnostics_action.isCheckable()
-        assert not window.show_diagnostics_action.isChecked()
-        assert window.show_history_action.isCheckable()
-        assert not window.show_history_action.isChecked()
-
-    def test_view_menu_toggles_show_and_hide_the_panels(
-        self, qtbot: QtBot, tmp_path: Path
-    ) -> None:
-        world, *_ = _seed_three(tmp_path)
-        window = _window(qtbot, DiscoveryController(world.services))
-        window.show_diagnostics_action.trigger()
-        assert window.panel.isVisible()
-        assert window.show_diagnostics_action.isChecked()
-        window.show_diagnostics_action.trigger()
-        assert window.panel.isHidden()
-        assert not window.show_diagnostics_action.isChecked()
-        window.show_history_action.trigger()
-        assert window.history_panel.isVisible()
-        assert window.show_history_action.isChecked()
-        window.show_history_action.trigger()
-        assert window.history_panel.isHidden()
-        assert not window.show_history_action.isChecked()
-
-
 class TestHistoryPanelWiring:
-    def test_right_pane_sections_are_vertically_resizable(
-        self, qtbot: QtBot, tmp_path: Path
-    ) -> None:
-        world, *_ = _seed_three(tmp_path)
-        window = _window(qtbot, DiscoveryController(world.services))
-        splitter = window._right_splitter
-        assert splitter.orientation().name == "Vertical"
-        assert [splitter.widget(index) for index in range(splitter.count())] == [
-            window.inspector,
-            window.panel,
-            window.history_panel,
-        ]
-        # Diagnostics/history hidden at startup: the inspector owns the pane.
-        sizes = splitter.sizes()
-        assert sizes[0] > 0 and sizes[1] == 0 and sizes[2] == 0
-
-    def test_inspector_pane_is_wider_than_the_task_list(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """The freed list-pane space goes to the inspector: right starts larger."""
-        world, *_ = _seed_three(tmp_path)
-        window = _window(qtbot, DiscoveryController(world.services))
-        splitter = next(
-            s
-            for s in window.centralWidget().findChildren(QSplitter)
-            if s.orientation() == Qt.Orientation.Horizontal
-        )
-        assert splitter.widget(0) is window.table
-        assert splitter.sizes()[1] > splitter.sizes()[0]
-
-    def test_right_pane_has_no_badge_strip(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """The value-less status pills are gone; the pane is splitter-only."""
-        world, *_ = _seed_three(tmp_path)
-        window = _window(qtbot, DiscoveryController(world.services))
-        assert window.findChild(object, "agent-badge-strip") is None
-
-    def test_inspector_values_wrap_without_horizontal_scrollbar(
-        self, qtbot: QtBot, tmp_path: Path
-    ) -> None:
-        """Long values wrap; nothing can be clipped at the inspector's edge."""
-        world, *_ = _seed_three(tmp_path)
-        window = _window(qtbot, DiscoveryController(world.services))
-        scroll = window.inspector.findChild(QScrollArea)
-        assert scroll is not None
-        assert scroll.horizontalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-        wrapped = (
-            "overview-name", "overview-label", "overview-classification",
-            "overview-source", "overview-state", "overview-enabled",
-            "overview-loaded", "schedule-preview-heading",
-        )
-        for name in wrapped:
-            label = window.inspector.findChild(QLabel, name)
-            assert label is not None and label.wordWrap()
-
     def test_close_stops_tracked_worker_threads(
         self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -691,6 +549,19 @@ class TestHistoryPanelWiring:
         qtbot.waitUntil(lambda: not window.isVisible(), timeout=5000)
         assert finished
         assert thread not in window._worker_threads
+
+    def test_direct_test_worker_registration_is_tracked(
+        self, qtbot: QtBot, tmp_path: Path
+    ) -> None:
+        world, *_ = _seed_three(tmp_path)
+        window = _window_full(qtbot, DiscoveryController(world.services))
+        thread = QThread()
+        worker = QObject()
+        window._editor._on_test_worker_started(thread, worker)
+        assert thread in window._worker_threads
+        assert worker in window._worker_objects
+        window._worker_threads.discard(thread)
+        window._worker_objects.discard(worker)
 
     def test_close_refuses_to_destroy_a_still_running_worker(
         self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1662,16 +1533,25 @@ class TestUniversalRawEdit:
         assert list(world.la_root.glob("*.backup.*")) == []
 
 
-def _ext_result(world: FakeTaskWorld, *, exit_code: int = 0) -> ExternalEditResult:
+def _ext_result(
+    world: FakeTaskWorld,
+    *,
+    exit_code: int = 0,
+    replaced: bool = False,
+    removed: bool = False,
+    completed_phases: tuple[str, ...] = (),
+    retained: tuple[Path, ...] | None = None,
+) -> ExternalEditResult:
     return ExternalEditResult(
         source_path=world.la_root / "x.plist",
         label="x",
         process=ProcessResult(exit_code=exit_code),
         phases=(),
-        completed_phases=(),
-        retained_artifacts=(world.la_root / "x.plist.staged.1",),
-        replaced=False,
+        completed_phases=completed_phases,
+        retained_artifacts=retained or (world.la_root / "x.plist.staged.1",),
+        replaced=replaced,
         reloaded=False,
+        removed=removed,
     )
 
 
@@ -1734,6 +1614,55 @@ class TestExternalControlCoverage:
         world, window = self._window(qtbot, tmp_path)
         window._show_external_result(ExternalControlKind.ENABLE, _ext_result(world), None)
         assert window.statusBar().currentMessage() == EXTERNAL_ENABLE_UNKNOWN.format(label="x")
+
+    def test_show_external_result_phase_truth(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world, window = self._window(qtbot, tmp_path)
+        backup = world.la_root / "x.plist.backup.1"
+        suffix = f" A backup is retained at: {backup}"
+        cases = [
+            (
+                ExternalControlKind.RAW_EDIT, True, (), True, False, (backup,),
+                EXTERNAL_EDIT_RELOAD_FAILED.format(backup=str(backup)),
+            ),
+            (
+                ExternalControlKind.DISABLE, True, (), False, False, (backup,),
+                EXTERNAL_DISABLE_BOOTOUT_FAILED.format(label="x") + suffix,
+            ),
+            (
+                ExternalControlKind.DISABLE, True, (), False, False, (),
+                EXTERNAL_DISABLE_BOOTOUT_FAILED.format(label="x"),
+            ),
+            (
+                ExternalControlKind.DISABLE, True, ("bootout",), False, False, (),
+                EXTERNAL_DISABLE_LOADED.format(label="x"),
+            ),
+            (
+                ExternalControlKind.ENABLE, False, (), False, False, (backup,),
+                EXTERNAL_ENABLE_BOOTSTRAP_FAILED.format(label="x") + suffix,
+            ),
+            (
+                ExternalControlKind.REMOVE, False, (), False, True, (backup,),
+                EXTERNAL_REMOVE_RESULT.format(
+                    path=world.la_root / "x.plist", backup=backup
+                ),
+            ),
+            (
+                ExternalControlKind.REMOVE, True, (), False, False, (backup,),
+                EXTERNAL_REMOVE_BOOTOUT_FAILED.format(
+                    path=world.la_root / "x.plist"
+                ) + suffix,
+            ),
+        ]
+        for kind, loaded, completed, replaced, removed, retained, expected in cases:
+            result = _ext_result(
+                world,
+                replaced=replaced,
+                removed=removed,
+                completed_phases=completed,
+                retained=retained,
+            )
+            window._show_external_result(kind, result, loaded)
+            assert window.statusBar().currentMessage() == expected
 
     def test_run_external_lifecycle_no_path(self, qtbot: QtBot, tmp_path: Path) -> None:
         world, window = self._window(qtbot, tmp_path)

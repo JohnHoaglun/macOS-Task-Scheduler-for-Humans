@@ -92,13 +92,16 @@ __all__ = [
     "EXTERNAL_EDIT_SUCCESS_UNLOADED",
     "EXTERNAL_EDIT_RELOAD_FAILED",
     "EXTERNAL_EDIT_BOOTOUT_FAILED",
+    "EXTERNAL_DISABLE_BOOTOUT_FAILED",
     "EXTERNAL_DISABLE_LOADED",
     "EXTERNAL_DISABLE_UNLOADED",
     "EXTERNAL_DISABLE_UNKNOWN",
     "EXTERNAL_QUARANTINE_RESULT",
+    "EXTERNAL_ENABLE_BOOTSTRAP_FAILED",
     "EXTERNAL_ENABLE_LOADED",
     "EXTERNAL_ENABLE_UNLOADED",
     "EXTERNAL_ENABLE_UNKNOWN",
+    "EXTERNAL_REMOVE_BOOTOUT_FAILED",
     "EXTERNAL_REMOVE_RESULT",
     "EXTERNAL_REMOVE_UNLOADED_FIRST",
     "REMOVED_SAVED_RESULT",
@@ -128,6 +131,9 @@ EXTERNAL_DISABLE_UNKNOWN = (
     "Disabled {label}: the plist is marked disabled. The loaded state could not be "
     "determined, so no unload was attempted."
 )
+EXTERNAL_DISABLE_BOOTOUT_FAILED = (
+    "The plist for {label} is marked disabled, but the running instance could not be unloaded."
+)
 EXTERNAL_QUARANTINE_RESULT = (
     "Quarantined {source} to {dest}. launchd will no longer load it from its original location."
 )
@@ -137,8 +143,14 @@ EXTERNAL_ENABLE_UNKNOWN = (
     "Enabled {label}: the plist is cleared. It could not be verified that it is loaded; "
     "it will start at the next login."
 )
+EXTERNAL_ENABLE_BOOTSTRAP_FAILED = (
+    "The plist for {label} no longer marks it disabled, but launchd could not load it."
+)
 EXTERNAL_REMOVE_RESULT = "Removed {path}. A backup is retained at: {backup}."
 EXTERNAL_REMOVE_UNLOADED_FIRST = " It was unloaded first."
+EXTERNAL_REMOVE_BOOTOUT_FAILED = (
+    "The LaunchAgent could not be unloaded, so {path} was not removed."
+)
 REMOVED_SAVED_RESULT = "Removed {name} from the catalog."
 RAW_REPLACEMENT_INVALID = "the replacement is not a valid plist"
 EXTERNAL_ENABLE_NO_LABEL_TOOLTIP = (
@@ -194,7 +206,11 @@ class MainWindow(QMainWindow):
         self._import_controller = import_ctrl
         self._services = services
         self._json_transfer = json_transfer
-        self._editor = JobEditor(editor, diagnostics=diagnostics)
+        self._editor = JobEditor(
+            editor,
+            diagnostics=diagnostics,
+            on_test_worker_started=self._track_worker_thread,
+        )
         self._model = AgentTableModel()
         self._proxy = AgentFilterProxyModel(self)
         self._proxy.setSourceModel(self._model)
@@ -724,7 +740,7 @@ class MainWindow(QMainWindow):
         """Show the pinned status-bar message for a finished external operation."""
         if kind in (ExternalControlKind.STRUCTURED_EDIT, ExternalControlKind.RAW_EDIT):
             if outcome.replaced:
-                if loaded is True and not outcome.reloaded:
+                if loaded is True and "bootstrap" not in outcome.completed_phases:
                     backup = self._backup_artifact(outcome)
                     self.statusBar().showMessage(EXTERNAL_EDIT_RELOAD_FAILED.format(backup=backup))
                 elif loaded is True:
@@ -744,7 +760,14 @@ class MainWindow(QMainWindow):
                 )
             else:
                 label = outcome.label or ""
-                if loaded is True:
+                if loaded is True and "bootout" not in outcome.completed_phases:
+                    self.statusBar().showMessage(
+                        self._with_backup(
+                            EXTERNAL_DISABLE_BOOTOUT_FAILED.format(label=label),
+                            outcome,
+                        )
+                    )
+                elif loaded is True:
                     self.statusBar().showMessage(EXTERNAL_DISABLE_LOADED.format(label=label))
                 elif loaded is False:
                     self.statusBar().showMessage(EXTERNAL_DISABLE_UNLOADED.format(label=label))
@@ -754,18 +777,33 @@ class MainWindow(QMainWindow):
             label = outcome.label or ""
             if loaded is True:
                 self.statusBar().showMessage(EXTERNAL_ENABLE_LOADED.format(label=label))
+            elif loaded is False and "bootstrap" not in outcome.completed_phases:
+                self.statusBar().showMessage(
+                    self._with_backup(
+                        EXTERNAL_ENABLE_BOOTSTRAP_FAILED.format(label=label),
+                        outcome,
+                    )
+                )
             elif loaded is False:
                 self.statusBar().showMessage(EXTERNAL_ENABLE_UNLOADED.format(label=label))
             else:
                 self.statusBar().showMessage(EXTERNAL_ENABLE_UNKNOWN.format(label=label))
         elif kind is ExternalControlKind.REMOVE:
-            message = EXTERNAL_REMOVE_RESULT.format(
-                path=outcome.source_path,
-                backup=self._backup_artifact(outcome),
-            )
-            if loaded is True:
-                message += EXTERNAL_REMOVE_UNLOADED_FIRST
-            self.statusBar().showMessage(message)
+            if outcome.removed:
+                message = EXTERNAL_REMOVE_RESULT.format(
+                    path=outcome.source_path,
+                    backup=self._backup_artifact(outcome),
+                )
+                if "bootout" in outcome.completed_phases:
+                    message += EXTERNAL_REMOVE_UNLOADED_FIRST
+                self.statusBar().showMessage(message)
+            else:
+                self.statusBar().showMessage(
+                    self._with_backup(
+                        EXTERNAL_REMOVE_BOOTOUT_FAILED.format(path=outcome.source_path),
+                        outcome,
+                    )
+                )
 
     def _backup_artifact(self, outcome: ExternalEditResult) -> str:
         """The retained .backup. sibling for *outcome*, or an empty string."""
@@ -777,6 +815,11 @@ class MainWindow(QMainWindow):
             ),
             "",
         )
+
+    def _with_backup(self, message: str, outcome: ExternalEditResult) -> str:
+        """Append the retained-backup location to *message* when one exists."""
+        backup = self._backup_artifact(outcome)
+        return f"{message} A backup is retained at: {backup}" if backup else message
 
     # -- external lifecycle and removal controls --------------------------------
 

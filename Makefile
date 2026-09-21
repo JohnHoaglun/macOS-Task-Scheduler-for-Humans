@@ -1,6 +1,6 @@
 PYTHON ?= .venv/bin/python
 
-.PHONY: test integration lint format typecheck check run-gui package
+.PHONY: test integration lint format typecheck check coverage ratio run-gui package
 
 test:
 	$(PYTHON) -m pytest tests/
@@ -18,7 +18,13 @@ format:
 typecheck:
 	$(PYTHON) -m mypy src/task_scheduler/
 
-check: lint typecheck test
+coverage:
+	$(PYTHON) -m pytest --cov=task_scheduler --cov-report=term tests/
+
+ratio:
+	$(PYTHON) scripts/check_test_ratio.py
+
+check: lint typecheck coverage ratio
 
 # Development startup of the GUI through the project virtual environment.
 run-gui:

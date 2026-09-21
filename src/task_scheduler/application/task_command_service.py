@@ -1204,7 +1204,11 @@ class TaskCommandService:
         )
 
     def remove_external(self, path: Path) -> ExternalEditResult:
-        """Remove an external LaunchAgent plist with backup."""
+        """Remove an external LaunchAgent plist with backup.
+
+        A failed ``bootout`` stops before the source is removed; the backup is
+        retained and ``removed`` stays ``False``.
+        """
         root = self._store.root
         if path.parent != root:
             raise ValueError(f"path is outside the LaunchAgent root: {path}")
@@ -1232,8 +1236,19 @@ class TaskCommandService:
             bo = self._backend.bootout(label)
             bootout_phase = ExternalEditPhase("bootout", bo.process)
             phases.append(bootout_phase)
-            if bo.process.exit_code == 0:
-                completed.append("bootout")
+            if bo.process.exit_code != 0:
+                return ExternalEditResult(
+                    source_path=path,
+                    label=label,
+                    process=bo.process,
+                    phases=tuple(phases),
+                    completed_phases=(),
+                    retained_artifacts=(backup,),
+                    replaced=False,
+                    reloaded=False,
+                    removed=False,
+                )
+            completed.append("bootout")
             bootout_result = bo.process
 
         # Re-verify

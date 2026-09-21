@@ -2,6 +2,14 @@
 
 ## Changelog
 
+### v0.0.44
+- Code-review remediation (CR-11, CR-10, CR-01, CR-15, CR-02): `make check` now enforces lint, strict typecheck, pytest with 100% coverage, and the ≤75% test/source ratio, while `make test` remains fast.
+- Inspector raw plist inspection renders through `QPlainTextEdit` / `setPlainText()`, preserving the existing object name and presentation behavior.
+- External removal is fail-closed: if `launchctl bootout` fails, `remove_external()` stops, preserves the source plist and backup artifact, and returns `removed=False` instead of deleting an unknown running state.
+- GUI external-control result messages derive from `ExternalEditResult.completed_phases` rather than stale pre-operation loaded state; successful remove claims “unloaded first” only when the `bootout` phase completed, and failed enable/disable/remove messages disclose the retained backup path when one exists.
+- `DirectTestDialog` worker threads are registered with `MainWindow` before starting via `JobEditor`'s `on_test_worker_started` callback, so a running Test Draft participates in the main-window close drain without adding `QThread.wait()` or parented-thread lifecycle.
+- Verification: `make check` passed with ruff, mypy strict, 621 tests, 100% whole-suite coverage, and test/source ratio 74.3196% (10,268 test : 13,816 src, under the 75% cap); version 0.0.43 → 0.0.44 in all registry locations.
+
 ### v0.0.43
 - Stability-first structured logging and error handling: `src/task_scheduler/application/app_logging.py` now provides durable JSONL audit logging for UI actions and configuration changes, recording full configuration values with no redaction, session/operation IDs, and a custom bounded retention policy replacing size-only rotation with 10 MB aggregate / 14-day age limits pruned at startup and during rollover.
 - Worker/GUI stability: worker dispatch uses safe parentless `QThread` ownership, and Python worker wrappers remain retained until the owning thread is destroyed. Typed terminal worker results ensure lifecycle, diagnostics, import, and direct-test workflows emit exactly one user-visible outcome and do not leave busy states stuck. Close paths remain responsive and do not use blocking `QThread.wait()`.

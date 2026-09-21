@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import cast
 
 from pydantic import ValidationError
-from PySide6.QtCore import QSize
+from PySide6.QtCore import QObject, QSize, QThread
 from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import (
     QApplication,
@@ -93,6 +93,7 @@ class JobEditor(QDialog):
         diagnostics: DiagnosticsController | None = None,
         *,
         clock: Callable[[], datetime] | None = None,
+        on_test_worker_started: Callable[[QThread, QObject], None] | None = None,
     ) -> None:
         """Build the scrollable form, hidden error pane, and the action button row.
 
@@ -104,6 +105,7 @@ class JobEditor(QDialog):
         self._controller = controller
         self._clock = clock or datetime.now
         self._diagnostics_controller = diagnostics
+        self._on_test_worker_started = on_test_worker_started
         self._draft: JobDraft | None = None
         self._saved_path: Path | None = None
         self._saved_label: str | None = None
@@ -739,7 +741,12 @@ class JobEditor(QDialog):
             self._show_errors(outcome)
             return
         job = self._controller.build_job(self._draft)
-        dialog = DirectTestDialog(self._diagnostics_controller, job, self)
+        dialog = DirectTestDialog(
+            self._diagnostics_controller,
+            job,
+            self,
+            on_worker_started=self._on_test_worker_started,
+        )
         dialog.exec()
 
     def _on_save(self) -> None:
