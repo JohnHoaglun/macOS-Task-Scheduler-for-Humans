@@ -1026,7 +1026,7 @@ class TaskCommandService:
                 label = candidate
 
         if label is None:
-            dest = self._store.quarantine_external(path)
+            dest = self._store.quarantine_external(path, snapshot)
             return ExternalEditResult(
                 source_path=path,
                 label=None,

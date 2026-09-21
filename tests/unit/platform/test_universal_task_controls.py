@@ -230,8 +230,9 @@ class TestQuarantineExternal:
         store = LaunchAgentStore(tmp_path / "agents")
         outside = tmp_path / "outside.plist"
         outside.write_bytes(b"data")
+        snap = SourceSnapshot(payload=b"x", sha256="x", st_dev=1, st_ino=1, st_size=1)
         with pytest.raises(ValueError, match="outside the LaunchAgent root"):
-            store.quarantine_external(outside)
+            store.quarantine_external(outside, snap)
 
     def test_exhaustion_raises(self, tmp_path: Path) -> None:
         plist = tmp_path / "agents" / "io.example.job.plist"
@@ -240,8 +241,37 @@ class TestQuarantineExternal:
             create_error=FileExistsError("no room"),
         )
         store = LaunchAgentStore(tmp_path / "agents", filesystem=fs)
+        snap = store.read_external(plist)
         with pytest.raises(RuntimeError, match="unique quarantine file"):
-            store.quarantine_external(plist)
+            store.quarantine_external(plist, snap)
+
+    def test_writes_candidate_from_snapshot_and_removes_source(self, tmp_path: Path) -> None:
+        payload = b"original-observed-by-caller"
+        plist = tmp_path / "agents" / "io.example.job.plist"
+        fs = FakeFilesystem(files={"io.example.job.plist": payload})
+        store = LaunchAgentStore(tmp_path / "agents", filesystem=fs)
+        snap = store.read_external(plist)
+        candidate = store.quarantine_external(plist, snap)
+        assert candidate.name == "io.example.job-1.plist"
+        assert candidate.parent.name == ".task-scheduler-disabled"
+        # Quarantined file holds exactly the snapshot payload; source removed.
+        assert fs.read_plist_bytes(candidate) == payload
+        assert plist.name in fs.removed
+
+    def test_source_drift_fails_cleanly(self, tmp_path: Path) -> None:
+        plist = tmp_path / "agents" / "io.example.job.plist"
+        fs = FakeFilesystem(files={"io.example.job.plist": b"observed"})
+        store = LaunchAgentStore(tmp_path / "agents", filesystem=fs)
+        snap = store.read_external(plist)
+        # A concurrent writer mutates the source after the snapshot was taken.
+        fs._files["io.example.job.plist"] = b"mutated"
+        with pytest.raises(SourceChangedError):
+            store.quarantine_external(plist, snap)
+        # Source left intact and no orphan quarantine artifact.
+        assert fs.read_plist_bytes(plist) == b"mutated"
+        quarantined = tmp_path / "agents" / ".task-scheduler-disabled" / "io.example.job-1.plist"
+        with pytest.raises(FileNotFoundError):
+            fs.read_plist_bytes(quarantined)
 
 
 class TestRemoveExternalVerified:

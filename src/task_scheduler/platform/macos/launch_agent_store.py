@@ -20,6 +20,7 @@ from task_scheduler.domain import JobDefinition
 from task_scheduler.platform.macos.filesystem import (
     LaunchAgentFilesystem,
     LocalFilesystem,
+    SourceChangedError,
     SourceSnapshot,
 )
 from task_scheduler.platform.macos.plist_codec import PlistCodec
@@ -240,11 +241,15 @@ class LaunchAgentStore:
                 continue
         raise RuntimeError(f"could not allocate a unique backup sibling for {path.name!r}")
 
-    def quarantine_external(self, path: Path) -> Path:
+    def quarantine_external(self, path: Path, snapshot: SourceSnapshot) -> Path:
         """Move an external plist into a quarantine directory.
 
-        Creates ``<root>/.task-scheduler-disabled`` if missing; the destination
-        file uses the pattern ``{stem}-{attempt}.plist``.
+        Writes the quarantined file from ``snapshot.payload`` (never re-reading
+        the source), then removes the source only when it still matches
+        ``snapshot`` (best-effort verified remove). On drift the source is left
+        intact and the quarantine candidate is deleted, leaving no orphan
+        artifact. Creates ``<root>/.task-scheduler-disabled`` if missing; the
+        destination uses the pattern ``{stem}-{attempt}.plist``.
         """
         if path.parent != self._root:
             raise ValueError(f"path is outside the LaunchAgent root: {path}")
@@ -254,13 +259,15 @@ class LaunchAgentStore:
         for attempt in range(1, 1001):
             candidate = quarantine_dir / f"{stem}-{attempt}.plist"
             try:
-                payload = self._filesystem.read_plist_bytes(path)
-                self._filesystem.create_exclusive(candidate, payload)
-                self._filesystem.replace(path, candidate)
-                self._filesystem.remove_file(path)
-                return candidate
+                self._filesystem.create_exclusive(candidate, snapshot.payload)
             except FileExistsError:
                 continue
+            try:
+                self._filesystem.remove_verified(path, snapshot)
+            except SourceChangedError:
+                self._filesystem.remove_file(candidate)
+                raise
+            return candidate
         raise RuntimeError(f"could not allocate a unique quarantine file for {path.name!r}")
 
     def remove_external_verified(self, path: Path, expected: SourceSnapshot) -> None:

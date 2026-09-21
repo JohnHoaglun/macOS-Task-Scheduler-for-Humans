@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import stat
 from pathlib import Path
 
 import pytest
@@ -40,3 +41,43 @@ class TestLocalFilesystemReplaceVerified:
         )
         with pytest.raises(SourceChangedError):
             fs.replace_verified(source, missing, snap)
+
+
+class TestCreateExclusiveSecure:
+    def test_0600_and_no_leftover_temp(self, tmp_path: Path) -> None:
+        dest = tmp_path / "dest.plist"
+        LocalFilesystem().create_exclusive(dest, b"payload")
+        assert dest.read_bytes() == b"payload"
+        assert stat.S_IMODE(dest.stat().st_mode) == 0o600
+        assert [p.name for p in tmp_path.iterdir()] == ["dest.plist"]
+
+    def test_refuses_preexisting_destination(self, tmp_path: Path) -> None:
+        fs = LocalFilesystem()
+        target = tmp_path / "target.plist"
+        target.write_bytes(b"victim")
+        (tmp_path / "link.plist").symlink_to(target)
+        pre = tmp_path / "pre.plist"
+        pre.write_bytes(b"existing")
+        for victim in (tmp_path / "link.plist", pre):
+            with pytest.raises(FileExistsError):
+                fs.create_exclusive(victim, b"new")
+        assert target.read_bytes() == b"victim" and pre.read_bytes() == b"existing"
+
+
+class TestReadSnapshotDescriptorCoherent:
+    def test_rejects_symlink_and_directory(self, tmp_path: Path) -> None:
+        real = tmp_path / "real.plist"
+        real.write_bytes(b"data")
+        (tmp_path / "link.plist").symlink_to(real)
+        fs = LocalFilesystem()
+        with pytest.raises(ValueError, match="non-symlink"):
+            fs.read_snapshot(tmp_path / "link.plist")
+        with pytest.raises(ValueError, match="non-symlink"):
+            fs.read_snapshot(tmp_path)
+
+    def test_payload_and_identity_are_coherent(self, tmp_path: Path) -> None:
+        dest = tmp_path / "dest.plist"
+        dest.write_bytes(b"0123456789")
+        snap = LocalFilesystem().read_snapshot(dest)
+        assert snap.payload == b"0123456789" and snap.st_size == 10
+        assert snap.st_ino == dest.stat().st_ino

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import hashlib
 import os
+import secrets
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -63,12 +65,24 @@ class LaunchAgentFilesystem(Protocol):
         """Return an immutable snapshot (bytes + hash + inode identity)."""
 
     def replace_verified(self, source: Path, destination: Path, expected: SourceSnapshot) -> None:
-        """Atomically replace ``destination`` with ``source`` only when
-        ``destination`` still matches ``expected``.
+        """Replace ``destination`` with ``source`` after a best-effort re-check.
+
+        The destination is re-read and compared to ``expected`` immediately
+        before the atomic publish. This guards against drift the caller has not
+        observed, but it is *not* a compare-and-swap: a writer that modifies the
+        destination between the check and the publish is not excluded, because
+        no advisory lock is held. Raises :class:`SourceChangedError` when the
+        check fails or the destination is inaccessible.
         """
 
     def remove_verified(self, path: Path, expected: SourceSnapshot) -> None:
-        """Remove ``path`` only when it still matches ``expected``."""
+        """Remove ``path`` after a best-effort re-check against ``expected``.
+
+        As with :meth:`replace_verified`, the file is re-read and compared to
+        ``expected`` immediately before removal, but the check-and-remove is not
+        atomic against non-cooperating writers. Raises :class:`SourceChangedError`
+        when the check fails or the file is inaccessible.
+        """
 
 
 class LocalFilesystem:
@@ -86,9 +100,8 @@ class LocalFilesystem:
         root.mkdir(parents=True, exist_ok=True)
 
     def create_exclusive(self, destination: Path, payload: bytes) -> None:
-        temporary = destination.with_name(f"{destination.name}.{os.getpid()}.tmp")
+        temporary = self._write_private_file(destination.parent, payload)
         try:
-            temporary.write_bytes(payload)
             os.link(temporary, destination)
         finally:
             temporary.unlink(missing_ok=True)
@@ -101,27 +114,93 @@ class LocalFilesystem:
         return True
 
     def replace(self, source: Path, destination: Path) -> None:
-        temporary = destination.with_name(f"{destination.name}.{os.getpid()}.tmp")
+        temporary = self._write_private_file(destination.parent, source.read_bytes())
         try:
-            temporary.write_bytes(source.read_bytes())
             os.replace(temporary, destination)
-        finally:
+        except BaseException:
             temporary.unlink(missing_ok=True)
+            raise
+
+    def _write_private_file(self, directory: Path, payload: bytes) -> Path:
+        """Create an unpredictable ``0600`` temp file in ``directory``.
+
+        The file is opened with ``O_CREAT | O_EXCL`` (and ``O_NOFOLLOW`` where
+        available) so an attacker-precreated symlink or file at the path cannot
+        be followed or overwritten; it is verified to be a regular file, then
+        fully written and ``fsync``ed before its path is returned for publish.
+        On any failure the owned temp file is removed.
+        """
+        name = f".{os.getpid()}.{secrets.token_hex(8)}.tmp"
+        temporary = directory / name
+        flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        fd = os.open(temporary, flags, 0o600)
+        try:
+            st = os.fstat(fd)
+            if not stat.S_ISREG(st.st_mode):
+                raise OSError(f"refusing to write through non-regular file: {temporary}")
+            view = memoryview(payload)
+            while view:
+                view = view[os.write(fd, view):]
+            os.fsync(fd)
+        except BaseException:
+            os.close(fd)
+            temporary.unlink(missing_ok=True)
+            raise
+        os.close(fd)
+        return temporary
 
     def read_snapshot(self, path: Path) -> SourceSnapshot:
-        if path.is_symlink() or not path.is_file():
-            raise ValueError(f"path is not a regular non-symlink file: {path}")
-        payload = path.read_bytes()
-        stat = path.stat()
+        """Descriptor-coherent snapshot: bytes, hash, and identity come from one
+        open file descriptor, so a path swapped between stat and read cannot
+        mix identity and payload from different files. Symlinks and non-regular
+        files raise :class:`ValueError`; a missing path raises
+        :class:`FileNotFoundError`.
+        """
+        flags = os.O_RDONLY
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        try:
+            fd = os.open(path, flags)
+        except FileNotFoundError:
+            raise
+        except OSError as exc:
+            # ``O_NOFOLLOW`` turns a pre-existing symlink into ELOOP; surface it
+            # as the established non-regular-file error callers already catch.
+            raise ValueError(f"path is not a regular non-symlink file: {path}") from exc
+        try:
+            st = os.fstat(fd)
+            if not stat.S_ISREG(st.st_mode):
+                raise ValueError(f"path is not a regular non-symlink file: {path}")
+            payload = self._read_all(fd)
+        finally:
+            os.close(fd)
         return SourceSnapshot(
             payload=payload,
             sha256=hashlib.sha256(payload).hexdigest(),
-            st_dev=stat.st_dev,
-            st_ino=stat.st_ino,
-            st_size=stat.st_size,
+            st_dev=st.st_dev,
+            st_ino=st.st_ino,
+            st_size=st.st_size,
         )
 
+    @staticmethod
+    def _read_all(fd: int) -> bytes:
+        chunks: list[bytes] = []
+        while True:
+            chunk = os.read(fd, 65536)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        return b"".join(chunks)
+
     def replace_verified(self, source: Path, destination: Path, expected: SourceSnapshot) -> None:
+        """Best-effort re-check against ``expected``, then an atomic publish.
+
+        Not a compare-and-swap: the destination is re-read and compared
+        immediately before :meth:`replace`, but no lock is held, so a concurrent
+        writer is not excluded (see the protocol docstring).
+        """
         try:
             current = self.read_snapshot(destination)
         except (FileNotFoundError, ValueError) as exc:
@@ -137,6 +216,12 @@ class LocalFilesystem:
         self.replace(source, destination)
 
     def remove_verified(self, path: Path, expected: SourceSnapshot) -> None:
+        """Best-effort re-check against ``expected``, then remove.
+
+        The file is re-read and compared immediately before removal, but the
+        check-and-remove is not atomic against non-cooperating writers (see the
+        protocol docstring).
+        """
         try:
             current = self.read_snapshot(path)
         except (FileNotFoundError, ValueError) as exc:
