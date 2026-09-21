@@ -63,6 +63,8 @@
 
 **Blockers:** none.
 
+**Resolution (2026-09-20):** complete. `make check` green (ruff, mypy strict, 645 tests, 100% coverage); test/source ratio 74.9716% (10,556 test : 14,080 src); version/docs closeout 0.0.45 → 0.0.46.
+
 ### Approved v0.0.45 Storage Durability and Controller Hardening (2026-09-20)
 
 **Goal:** implement the approved v0.0.45 slice of `docs/code-review-findings.md`: durable atomic JSON writes, race-safe create-only import/export, and safe GUI controller outcomes for import/history storage failures.

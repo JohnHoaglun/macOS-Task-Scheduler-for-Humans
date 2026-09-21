@@ -454,6 +454,31 @@ without PATH, venv, or source-checkout dependencies — it is self-contained.
   for direct tests and Finder reveal calls remain empty — the transfer path
   never invokes the process runner.
 
+## Logging Resilience Test Conventions (v0.0.46)
+
+* Application logging tests are rooted at `tmp_path` and isolate the root
+  logger by restoring original handlers and level after each test.
+* Failure-path tests monkeypatch the narrow `app_logging` seams (`mkdir`,
+  `open`, `os.chmod`, stream `write`, `flush`, and rollover support) and
+  assert both the stable `logging_degraded_reason()` value and the tagged
+  JSONL stderr fallback behavior.
+* Permission tests force `chmod` or `stat` verification failures and assert
+  that the secure file handler is not left active.
+* Retention tests exercise the active `app.log` together with dated archives
+  under the aggregate `10 MiB` / `14 day` policy, including an oversized
+  active file with no archives and a failed rollover.
+* Recovery tests simulate one transient write/flush/rollover failure, assert
+  exactly one guarded reopen/retry of the already-rendered event, and verify
+  that a permanent failure switches to the stderr fallback without
+  `Handler.handleError()` traceback behavior.
+* Path-aware reconfiguration tests verify same-path idempotence, replacement
+  only of the tagged application handler on a different path, preservation of
+  unrelated root handlers, and retention of a previous healthy handler when a
+  replacement fails.
+* GUI degraded-state tests assert the one-time modal warning, the persistent
+  status-bar notice, and degraded-safe crash-dialog wording without exposing
+  paths, environment values, or exception details.
+
 ## Current State
 
 Crawl increments 0–13 establish:

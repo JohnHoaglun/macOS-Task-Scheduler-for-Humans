@@ -9,7 +9,11 @@ from pathlib import Path
 from PySide6.QtCore import QSize
 from PySide6.QtWidgets import QApplication, QMessageBox
 
-from task_scheduler.application.app_logging import configure_logging, install_crash_hooks
+from task_scheduler.application.app_logging import (
+    configure_logging,
+    install_crash_hooks,
+    logging_degraded_reason,
+)
 from task_scheduler.application.task_command_service import TaskCommandService
 from task_scheduler.bootstrap import build_services, gui_environment
 from task_scheduler.gui.controllers.diagnostics_controller import DiagnosticsController
@@ -34,20 +38,35 @@ def startup_window_size(available_size: QSize | None) -> QSize:
     return MAIN_WINDOW_STARTUP_SIZE.boundedTo(available_size)
 
 
-def _show_crash_dialog(log_path: Path) -> None:
-    """Show a modal, top-level crash dialog naming the log file."""
-    QMessageBox.critical(
-        None,
-        "Unexpected error",
-        f"An unexpected error occurred. Details were written to:\n{log_path}",
-    )
+def _degraded_logging_notice() -> str:
+    """Return user-facing wording for degraded logging without revealing paths or details."""
+    return "Application logging is degraded. Some details may not be saved."
 
 
-def _make_crash_callback(app: QApplication | None, log_path: Path) -> Callable[[], None]:
+def _show_degraded_logging_warning() -> None:
+    """Show a one-time modal warning that logging is degraded."""
+    QMessageBox.warning(None, "Logging degraded", _degraded_logging_notice())
+
+
+def _show_crash_dialog(log_path: Path, degraded: bool = False) -> None:
+    """Show a modal, top-level crash dialog with degraded-safe wording."""
+    if degraded:
+        text = "An unexpected error occurred. Details may not have been saved."
+    else:
+        text = f"An unexpected error occurred. Details were written to:\n{log_path}"
+    QMessageBox.critical(None, "Unexpected error", text)
+
+
+def _make_crash_callback(
+    app: QApplication | None,
+    log_path: Path,
+    degraded_reason: str | None = None,
+) -> Callable[[], None]:
     """A crash callback that shows the dialog and then quits the application."""
+    degraded = degraded_reason is not None
 
     def _callback() -> None:
-        _show_crash_dialog(log_path)
+        _show_crash_dialog(log_path, degraded)
         if app is not None and hasattr(app, "quit"):
             app.quit()
 
@@ -73,8 +92,12 @@ def main() -> int:
     log_path = configure_logging()
     app = QApplication(sys.argv)
     install_qt_message_handler()
-    install_crash_hooks(on_crash=_make_crash_callback(app, log_path))
+    degraded_reason = logging_degraded_reason()
+    install_crash_hooks(on_crash=_make_crash_callback(app, log_path, degraded_reason))
     window = create_main_window(build_services())
+    if degraded_reason is not None:
+        _show_degraded_logging_warning()
+        window.statusBar().showMessage(_degraded_logging_notice())
     screen = app.primaryScreen()
     available_size = screen.availableGeometry().size() if screen is not None else None
     window.resize(startup_window_size(available_size))

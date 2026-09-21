@@ -148,28 +148,54 @@ Both entry points configure an application-level debug log before building
 services, so crashes are diagnosable after the fact.
 
 * `application/app_logging.py` (Qt-free, importable without PySide6):
-  * `configure_logging(log_path=None) -> Path` — idempotently attaches a single
-    size-rotating file handler (~1 MB, three backups) at `DEBUG` to the root
-    logger and returns the log path. Defaults to `app_log_path()`.
+  * `configure_logging(log_path=None) -> Path` — idempotently attaches the
+    single tagged application file handler at `DEBUG` to the root logger and
+    returns the intended log path. Defaults to `app_log_path()`. A same-path
+    call reuses the handler; a different-path call replaces only the tagged
+    application handler, preserving unrelated root handlers. If replacement
+    fails, a previous healthy handler remains active.
+  * `logging_degraded_reason() -> str | None` — returns `None` when healthy or
+    one of the stable categories `log-directory-unavailable`,
+    `log-file-unavailable`, `log-permissions-unavailable`,
+    `log-rollover-failed`, or `log-write-failed`.
   * `app_log_path()` — `~/Library/Logs/macOS Task Scheduler for Humans/app.log`
     (under `job_service.default_job_logs_root()`).
   * `install_crash_hooks(on_crash=None)` — wraps `sys.excepthook` (writes the
     full traceback, then invokes `on_crash` best-effort) and
     `sys.unraisablehook` (background "unraisable" failures). The previous
     hooks are preserved and still run.
+* Secure file logging:
+  * JSONL events are written to the active `app.log`, which rolls over daily or
+    after ~1 MB; archives are named `app.log.<YYYY-MM-DD>[-<N>]`.
+  * The active file plus archives is bounded by 10 MiB and 14 days; an
+    oversized active file is archived before pruning.
+  * `0600` is applied and re-verified after creation, rollover, and recovery.
+    Permission enforcement failure is a logging fault.
+  * A transient write/flush/rollover failure performs one guarded recovery
+    attempt. An unrecoverable failure disables the file handler, installs a
+    tagged JSONL `sys.stderr` fallback exactly once, records the degraded
+    reason, and emits one `app.logging_degraded` warning.
 * `gui/qt_message_logging.py` (PySide6) — `install_qt_message_handler()`
   installs a Qt message handler (`qInstallMessageHandler`) that forwards
-  `qDebug`/`qWarning`/`qCritical`/`qFatal` into the same log, so C++-side
-  failures that abort without raising a Python exception are captured.
+  `qDebug`/`qWarning`/`qCritical`/`qFatal` into the same logging system, so
+  C++-side failures that abort without raising a Python exception are
+  captured.
 * `gui/app.py` wiring: `configure_logging()` → `QApplication` →
-  `install_qt_message_handler()` → `install_crash_hooks(on_crash=...)`. The
-  GUI `on_crash` shows a modal, top-level dialog naming the log file and then
-  quits. The dialog has no widget parent (a `QApplication` is not a
-  `QWidget`).
+  `install_qt_message_handler()` → `logging_degraded_reason()` →
+  `install_crash_hooks(on_crash=...)`. When degraded, the GUI shows one modal
+  warning and a persistent `MainWindow.statusBar()` notice after the window is
+  created, using wording that does not expose paths, environment values, or
+  exception details. The GUI `on_crash` shows a modal, top-level dialog and
+  then quits; it names the log file only when logging is healthy and otherwise
+  states that details may not have been saved.
 * `cli/app.py` wiring: `configure_logging()` + `install_crash_hooks()` with no
-  dialog; unhandled command failures are recorded in the log.
+  dialog; unhandled command failures are recorded through the active logging
+  handler.
 * The log records application-level diagnostics only; it never contains job
   stdout/stderr or environment values (those live in each job's own log paths).
+  Full task configuration, including environment values, is intentionally
+  logged without redaction; the stderr fallback can expose those values in
+  terminal output while file logging is degraded.
 
 ## Editor Contracts (Increment 10)
 

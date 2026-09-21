@@ -5,7 +5,7 @@ Date: **2026-09-20**
 Baseline commit: **`78f1326`**
 Branch: **`sched_dev_opencode`**
 Project version at review time: **0.0.43**
-Current remediation status (2026-09-20): **CR-03, CR-04, CR-13, and CR-14 resolved in v0.0.45**
+Current remediation status (2026-09-20): **CR-03, CR-04, CR-13, and CR-14 resolved in v0.0.45; CR-05, CR-06, CR-07, CR-18, CR-19, and CR-20 resolved in v0.0.46**
 
 This document records the full set of findings from the code review so they can be planned, scoped, and implemented in a later cycle. It is intentionally written as a durable backlog, not as an active implementation plan.
 
@@ -359,6 +359,10 @@ A local permissions or filesystem problem in the log path should not make the en
 
 This is likely a small fix with high reliability value.
 
+#### Resolution (v0.0.46)
+
+Resolved. `configure_logging()` isolates directory/file setup failures, returns the intended log path, installs a tagged structured JSONL stderr fallback handler, and emits one structured `app.logging_degraded` warning. GUI and CLI startup no longer abort when file logging cannot start; `logging_degraded_reason()` exposes the stable degraded category.
+
 ---
 
 ### CR-06 — High — `chmod` failures on `app.log` are silently suppressed
@@ -396,6 +400,10 @@ If `chmod` fails, the log may remain accessible to other local users while the a
 #### Planning notes
 
 This is a small fix, but it matters because log contents include full configuration values.
+
+#### Resolution (v0.0.46)
+
+Resolved. `app.log` is enforced to `0600` after creation, rollover, and recovery. `chmod` or `stat` verification failure raises a structured logging fault, removes the file handler, activates the stderr fallback, and records `log-permissions-unavailable` through `logging_degraded_reason()`.
 
 ---
 
@@ -435,6 +443,10 @@ The documented retention guarantee is not fully enforced for the active file.
 #### Planning notes
 
 This is a correctness fix for an existing product invariant.
+
+#### Resolution (v0.0.46)
+
+Resolved. Retention now applies to the active `app.log` as well as dated archives. An oversized active file is rolled over under the normal archive naming convention before aggregate `10 MiB` / `14 day` pruning, and rollover failure is reported through the structured degraded-logging path.
 
 ---
 
@@ -880,6 +892,10 @@ After a transient disk failure, logging may stop working for the rest of the pro
 
 This is a resilience improvement for the logging subsystem.
 
+#### Resolution (v0.0.46)
+
+Resolved. A write/flush/rollover failure performs one guarded recovery: close the stream best-effort, reopen it, reapply and reverify `0600`, then retry the already-rendered event once. A permanent failure disables the file handler, activates the stderr fallback, and records `log-write-failed` instead of using the default `Handler.handleError()` traceback path.
+
 ---
 
 ### CR-19 — Low — `configure_logging()` is idempotent per handler, not per log path
@@ -914,6 +930,10 @@ This is a subtle API trap, even if the current app only calls it once.
 
 Low urgency, but easy to clean up if touching logging.
 
+#### Resolution (v0.0.46)
+
+Resolved. `configure_logging()` is path-aware: the same path is idempotent, a different path replaces only the tagged application handler, and unrelated root handlers are preserved. A failed replacement leaves a previous healthy handler active.
+
 ---
 
 ### CR-20 — Low — Full configuration logging may include sensitive user data by design
@@ -942,6 +962,10 @@ This is an intentional product decision, but it means environment values or othe
 #### Planning notes
 
 No code change is required unless the product decision changes.
+
+#### Resolution (v0.0.46)
+
+Resolved by documentation. The approved product decision to log full configuration content without redaction is recorded in README and architecture documentation, including the user-facing implication that the stderr fallback can expose configuration values in terminal output while file logging is degraded.
 
 ---
 
@@ -1029,7 +1053,7 @@ Suggested order within Cycle A:
 
 Goal: make persistence and logging reliable under failure conditions.
 
-**Completed in v0.0.45:** CR-03, CR-04, CR-13, and CR-14. Remaining for the next logging-resilience slice: CR-05, CR-06, CR-07, and CR-18.
+**Completed in v0.0.45 and v0.0.46:** CR-03, CR-04, CR-05, CR-06, CR-07, CR-13, CR-14, and CR-18. No Cycle B items remain.
 
 Include:
 
@@ -1075,6 +1099,8 @@ Include:
 - **CR-19** — clarify logging idempotency semantics
 - **CR-20** — document full-config logging policy
 - **CR-21** — document packaging platform assumptions
+
+**Completed in v0.0.46:** CR-19 and CR-20. Remaining Cycle C items: CR-08, CR-09, CR-12, CR-16, CR-17, and CR-21.
 
 Why this grouping works:
 

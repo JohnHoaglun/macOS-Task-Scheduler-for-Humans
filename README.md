@@ -541,20 +541,32 @@ behaviour can be diagnosed after the fact (previously an unhandled GUI error
 printed a traceback to stderr, which a macOS GUI app discards).
 
 * **Location:** `~/Library/Logs/macOS Task Scheduler for Humans/app.log`
-* **Level:** `DEBUG`, written to a size-rotating file (~1 MB per file, three
-  backups retained).
+* **Level:** `DEBUG`, written as JSON Lines. The active file rolls over daily or
+  after ~1 MB; the active file plus dated archives is bounded by 10 MiB and
+  14 days.
+* **Permissions:** the active log and retained archives are kept at mode `0600`.
+  If permissions cannot be applied and verified, file logging degrades instead
+  of silently continuing.
 * **Crash capture:** every unhandled Python exception is written to the log
   with its full traceback. Background failures that cannot be raised
   ("unraisable" exceptions) and Qt C++-side messages (`qWarning`, `qCritical`,
   `qFatal`) are captured too.
-* **GUI:** when an unexpected error occurs, a dialog shows the log location and
-  the application exits. Open the named file to inspect the traceback.
+* **Degraded logging:** if the secure log directory, file, permissions,
+  rollover, or stream cannot be established or recovered, startup continues and
+  structured JSONL events are written to `sys.stderr` instead. The GUI shows a
+  one-time modal warning and a persistent status-bar notice with generic
+  wording.
+* **GUI:** when an unexpected error occurs, a dialog identifies whether crash
+  details were written to the log or may not have been saved while logging is
+  degraded; the application then exits.
 * **CLI:** `mactask` configures the same log; unhandled command failures are
   recorded there as well (no dialog in the terminal).
 
 The log records application-level diagnostics only — it does not contain job
 stdout/stderr or environment values, which are stored in each job's own log
-paths.
+paths. Full task configuration, including environment values, is intentionally
+logged without redaction; while file logging is degraded, those values may
+instead appear on `stderr`.
 
 ## Graphical Interface
 

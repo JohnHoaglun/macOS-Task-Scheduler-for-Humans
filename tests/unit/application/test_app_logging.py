@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -12,17 +11,7 @@ from types import SimpleNamespace, TracebackType
 
 import pytest
 
-from task_scheduler.application import app_logging
-from task_scheduler.application.app_logging import (
-    APP_LOG_FILENAME,
-    app_log_path,
-    configure_logging,
-    emit_error,
-    emit_event,
-    install_crash_hooks,
-    new_operation_id,
-    session_id,
-)
+from task_scheduler.application import app_logging as al
 from task_scheduler.application.job_service import default_job_logs_root
 
 
@@ -62,44 +51,35 @@ def _record() -> logging.LogRecord:
 
 
 def test_app_log_path_lives_under_default_logs_root() -> None:
-    assert app_log_path() == default_job_logs_root() / APP_LOG_FILENAME
+    assert al.app_log_path() == default_job_logs_root() / al.APP_LOG_FILENAME
 
 
 def test_configure_logging_creates_and_is_idempotent(tmp_path: Path) -> None:
     path = tmp_path / "app.log"
-    first = configure_logging(path)
+    first = al.configure_logging(path)
     handlers = len(logging.getLogger().handlers)
-    assert configure_logging(path) == first
+    assert al.configure_logging(path) == first
     assert len(logging.getLogger().handlers) == handlers
     assert path.exists()
 
 
-def test_configure_logging_uses_default_path(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(app_logging, "app_log_path", lambda: tmp_path / "app.log")
-    assert configure_logging() == tmp_path / "app.log"
+def test_configure_logging_uses_default_path(tmp_path, monkeypatch):
+    monkeypatch.setattr(al, "app_log_path", lambda: tmp_path / "app.log")
+    assert al.configure_logging() == tmp_path / "app.log"
 
 
 def test_ids_are_stable_and_unique() -> None:
-    assert session_id() == session_id() and len(session_id()) == 32
-    first, second = new_operation_id(), new_operation_id()
+    assert al.session_id() == al.session_id() and len(al.session_id()) == 32
+    first, second = al.new_operation_id(), al.new_operation_id()
     assert first != second and len(first) == 12
 
 
 def test_emit_event_writes_valid_jsonl_with_all_field_kinds(tmp_path: Path) -> None:
     path = tmp_path / "app.log"
-    configure_logging(path)
+    al.configure_logging(path)
     config = {"command": "/bin/echo", "args": ["hi"], "env": {"PATH": "/bin"}}
-    emit_event(
-        "config.snapshot",
-        source="job_editor",
-        task_id="com.example.task",
-        config=config,
-        outcome="success",
-        menu="View",
-        action="show_filters",
-    )
+    al.emit_event("config.snapshot", source="job_editor", task_id="com.example.task",
+                  config=config, outcome="success", menu="View", action="show_filters")
     rec = _event(path, "config.snapshot")
     assert rec["source"] == "job_editor"
     assert rec["task_id"] == "com.example.task"
@@ -113,18 +93,13 @@ def test_emit_event_writes_valid_jsonl_with_all_field_kinds(tmp_path: Path) -> N
 
 def test_emit_error_includes_exception_details(tmp_path: Path) -> None:
     path = tmp_path / "app.log"
-    configure_logging(path)
-    op = new_operation_id()
+    al.configure_logging(path)
+    op = al.new_operation_id()
     try:
         raise RuntimeError("operation failed")
     except RuntimeError as exc:
-        emit_error(
-            "operation.lifecycle",
-            source="main_window",
-            exc=exc,
-            op_id=op,
-            task_id="com.example.task",
-        )
+        al.emit_error("operation.lifecycle", source="main_window", exc=exc, op_id=op,
+                      task_id="com.example.task")
     rec = _event(path, "operation.lifecycle")
     assert rec["level"] == "ERROR"
     assert rec["op_id"] == op
@@ -136,14 +111,12 @@ def test_emit_error_includes_exception_details(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("with_callback", [True, False])
-def test_crash_hook_writes_structured_traceback(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, with_callback: bool
-) -> None:
+def test_crash_hook_writes_structured_traceback(tmp_path, monkeypatch, with_callback):
     path = tmp_path / "crash.log"
-    configure_logging(path)
+    al.configure_logging(path)
     monkeypatch.setattr(sys, "excepthook", lambda *args: None)
     shown: list[str] = []
-    install_crash_hooks(on_crash=lambda: shown.append("dialog") if with_callback else None)
+    al.install_crash_hooks(on_crash=lambda: shown.append("dialog") if with_callback else None)
     sys.excepthook(*_exc_and_tb())
     rec = _event(path, "crash.unhandled_exception")
     assert rec["error"]["type"] == "ValueError"
@@ -152,40 +125,30 @@ def test_crash_hook_writes_structured_traceback(
     assert shown == (["dialog"] if with_callback else [])
 
 
-def test_crash_hook_callback_failure_does_not_mask_crash(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_crash_hook_callback_failure_does_not_mask_crash(tmp_path, monkeypatch):
     path = tmp_path / "crash.log"
-    configure_logging(path)
+    al.configure_logging(path)
 
-    def broken() -> None:
+    def broken():
         raise RuntimeError("ui callback failed")
 
     monkeypatch.setattr(sys, "excepthook", lambda *args: None)
-    install_crash_hooks(on_crash=broken)
+    al.install_crash_hooks(on_crash=broken)
     sys.excepthook(*_exc_and_tb())
     assert _event(path, "crash.unhandled_exception")["error"]["type"] == "ValueError"
     assert "crash callback failed" in json.dumps(_read_jsonl(path))
 
 
-def test_unraisable_hook_writes_structured_log(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_unraisable_hook_writes_structured_log(tmp_path, monkeypatch):
     if not hasattr(sys, "unraisablehook"):
         pytest.skip("sys.unraisablehook unavailable")
     path = tmp_path / "unraisable.log"
-    configure_logging(path)
+    al.configure_logging(path)
     monkeypatch.setattr(sys, "unraisablehook", lambda unraisable: None)
-    install_crash_hooks()
-    sys.unraisablehook(
-        SimpleNamespace(
-            err_msg="background failure",
-            description="legacy",
-            exc_type=ValueError,
-            exc_value=ValueError("bg"),
-            exc_traceback=None,
-        )
-    )
+    al.install_crash_hooks()
+    sys.unraisablehook(SimpleNamespace(
+        err_msg="background failure", description="legacy", exc_type=ValueError,
+        exc_value=ValueError("bg"), exc_traceback=None))
     rec = _event(path, "crash.unraisable_exception")
     assert rec["error"]["type"] == "ValueError"
     assert rec["error"]["message"] == "background failure"
@@ -201,7 +164,7 @@ def test_retention_prunes_old_archives_and_skips_unusable_entries(tmp_path: Path
     invalid.write_text("x\n", encoding="utf-8")
     short = tmp_path / "app.log.2026"
     short.write_text("x\n", encoding="utf-8")
-    app_logging._prune_archives(tmp_path)
+    al._prune_archives(tmp_path)
     assert not old_archive.exists()
     assert directory.is_dir()
     assert invalid.exists()
@@ -212,28 +175,28 @@ def test_retention_enforces_size_cap(tmp_path: Path) -> None:
     date = (datetime.now(UTC) - timedelta(days=1)).strftime("%Y-%m-%d")
     for i in range(15):
         (tmp_path / f"app.log.{date}-{i + 1:03d}").write_bytes(b"x" * 800_000)
-    app_logging._prune_archives(tmp_path)
-    remaining = [p for p in tmp_path.iterdir() if p.name.startswith(f"{APP_LOG_FILENAME}.")]
-    assert sum(p.stat().st_size for p in remaining) <= app_logging._MAX_TOTAL_BYTES
+    al._prune_archives(tmp_path)
+    remaining = [p for p in tmp_path.iterdir() if p.name.startswith(f"{al.APP_LOG_FILENAME}.")]
+    assert sum(p.stat().st_size for p in remaining) <= al._MAX_TOTAL_BYTES
 
 
 def test_rollover_on_new_day_uses_segment_and_collision_free_names(tmp_path: Path) -> None:
     path = tmp_path / "app.log"
     path.write_text("old\n", encoding="utf-8")
-    handler = app_logging._BoundedJSONLHandler(path)
+    handler = al._BoundedJSONLHandler(path)
     old_date = (datetime.now(UTC) - timedelta(days=1)).strftime("%Y-%m-%d")
     handler._current_date = old_date
     handler._segment_count = 1
     (path.parent / f"app.log.{old_date}-2").write_text("x\n", encoding="utf-8")
     handler.emit(_record())
-    archives = {p.name for p in path.parent.glob(f"{APP_LOG_FILENAME}.*")}
+    archives = {p.name for p in path.parent.glob(f"{al.APP_LOG_FILENAME}.*")}
     handler.close()
     assert f"app.log.{old_date}-2-2" in archives
     assert path.exists()
 
 
 def test_rollover_archive_name_without_segment_count(tmp_path: Path) -> None:
-    handler = app_logging._BoundedJSONLHandler(tmp_path / "app.log")
+    handler = al._BoundedJSONLHandler(tmp_path / "app.log")
     handler._current_date = "2026-01-02"
     try:
         assert handler._archive_name() == tmp_path / "app.log.2026-01-02"
@@ -242,7 +205,7 @@ def test_rollover_archive_name_without_segment_count(tmp_path: Path) -> None:
 
 
 def test_rollover_needed_when_log_file_is_missing(tmp_path: Path) -> None:
-    handler = app_logging._BoundedJSONLHandler(tmp_path / "app.log")
+    handler = al._BoundedJSONLHandler(tmp_path / "app.log")
     (tmp_path / "app.log").unlink()
     try:
         assert handler._rollover_needed()
@@ -250,32 +213,191 @@ def test_rollover_needed_when_log_file_is_missing(tmp_path: Path) -> None:
         handler.close()
 
 
-def test_emit_failure_is_routed_to_handler_error(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    handler = app_logging._BoundedJSONLHandler(tmp_path / "app.log")
-    monkeypatch.setattr(logging, "raiseExceptions", False)
+def _tagged_handlers() -> list[logging.Handler]:
+    return [
+        handler
+        for handler in logging.getLogger().handlers
+        if getattr(handler, al._TAG_ATTR, False)
+    ]
 
-    def broken(record: logging.LogRecord) -> str:
+
+def _raise_permission_error(*_args: object, **_kwargs: object) -> None:
+    raise PermissionError
+
+
+@pytest.mark.parametrize(("fault", "expected"), [
+    (al._LoggingFault("log-directory-unavailable"), "log-directory-unavailable"),
+    (OSError("open failed"), "log-file-unavailable"),
+])
+def test_startup_fault_installs_stderr_fallback(tmp_path, monkeypatch, capfd, fault, expected):
+    def broken(_path):
+        raise fault
+
+    monkeypatch.setattr(al, "_BoundedJSONLHandler", broken)
+    target = tmp_path / "app.log"
+    assert al.configure_logging(target) == target
+    tagged = _tagged_handlers()
+    assert len(tagged) == 1 and getattr(tagged[0], al._KIND_ATTR) == "stderr"
+    assert al.logging_degraded_reason() == expected
+    lines = [json.loads(line) for line in capfd.readouterr().err.splitlines() if line.strip()]
+    assert any(rec.get("event") == "app.logging_degraded" and rec.get("reason") == expected
+               for rec in lines)
+
+
+def test_failed_replacement_preserves_existing_handler(tmp_path, monkeypatch):
+    first = tmp_path / "first.log"
+    al.configure_logging(first)
+
+    def broken(_path):
+        raise OSError("replacement failed")
+
+    monkeypatch.setattr(al, "_BoundedJSONLHandler", broken)
+    second = tmp_path / "second.log"
+    assert al.configure_logging(second) == second
+    tagged = _tagged_handlers()
+    assert len(tagged) == 1 and getattr(tagged[0], al._PATH_ATTR) == first
+    assert al.logging_degraded_reason() is None
+
+
+def test_reconfiguration_replaces_tagged_handler(tmp_path: Path) -> None:
+    first = tmp_path / "first.log"
+    second = tmp_path / "second.log"
+    al.configure_logging(first)
+    assert al.configure_logging(second) == second
+    tagged = _tagged_handlers()
+    assert len(tagged) == 1 and getattr(tagged[0], al._PATH_ATTR) == second
+    assert first.exists() and second.exists() and al.logging_degraded_reason() is None
+
+
+def test_handler_init_reports_unavailable_log_directory(tmp_path: Path) -> None:
+    blocker = tmp_path / "blocked"
+    blocker.write_text("x", encoding="utf-8")
+    with pytest.raises(al._LoggingFault) as exc:
+        al._BoundedJSONLHandler(blocker / "app.log")
+    assert exc.value.reason == "log-directory-unavailable"
+
+
+def test_handler_init_reports_unavailable_log_file(tmp_path: Path) -> None:
+    log_path = tmp_path / "app.log"
+    log_path.mkdir()
+    with pytest.raises(al._LoggingFault) as exc:
+        al._BoundedJSONLHandler(log_path)
+    assert exc.value.reason == "log-file-unavailable"
+
+
+def test_handler_init_reports_permission_fault(tmp_path, monkeypatch):
+    monkeypatch.setattr(al.os, "chmod", _raise_permission_error)
+    with pytest.raises(al._LoggingFault) as exc:
+        al._BoundedJSONLHandler(tmp_path / "app.log")
+    assert exc.value.reason == "log-permissions-unavailable"
+
+
+def test_handler_init_reports_retention_fault(tmp_path, monkeypatch):
+    (tmp_path / "app.log").write_text("x", encoding="utf-8")
+    monkeypatch.setattr(al, "_prune_archives", lambda _dir: al._MAX_TOTAL_BYTES + 1)
+    with pytest.raises(al._LoggingFault) as exc:
+        al._BoundedJSONLHandler(tmp_path / "app.log")
+    assert exc.value.reason == "log-rollover-failed"
+
+
+def test_handler_init_reports_retention_oserror(tmp_path, monkeypatch):
+    def broken_retention(_self):
+        raise OSError("retention failed")
+
+    monkeypatch.setattr(al._BoundedJSONLHandler, "_enforce_retention", broken_retention)
+    with pytest.raises(al._LoggingFault) as exc:
+        al._BoundedJSONLHandler(tmp_path / "app.log")
+    assert exc.value.reason == "log-rollover-failed"
+
+
+def test_emit_recovers_and_degrades_after_persistent_fault(tmp_path, monkeypatch):
+    handler = al._BoundedJSONLHandler(tmp_path / "app.log")
+    logging.getLogger().addHandler(handler)
+
+    def broken_fault(_record):
+        raise al._LoggingFault("log-rollover-failed")
+
+    monkeypatch.setattr(al, "_serialize", broken_fault)
+    handler.emit(_record())
+    assert al.logging_degraded_reason() == "log-rollover-failed"
+    handler.emit(_record())
+
+
+def test_emit_degrades_when_stream_recovery_fails(tmp_path, monkeypatch):
+    handler = al._BoundedJSONLHandler(tmp_path / "app.log")
+    logging.getLogger().addHandler(handler)
+
+    def broken_stream(_record):
         raise RuntimeError("write failed")
 
-    monkeypatch.setattr(handler, "_serialize", broken)
+    def broken_recovery():
+        raise OSError("reopen failed")
+
+    monkeypatch.setattr(al, "_serialize", broken_stream)
+    monkeypatch.setattr(handler, "_recover_stream", broken_recovery)
+    handler.emit(_record())
+    assert al.logging_degraded_reason() == "log-write-failed"
+
+
+def test_stderr_handler_swallows_write_failure() -> None:
+    handler = al._StderrJSONLHandler()
+
+    def broken_write(*_args, **_kwargs):
+        raise OSError("stderr failed")
+
+    handler.stream = SimpleNamespace(write=broken_write, flush=lambda: None)
+    handler.emit(_record())
+
+
+def test_enforce_user_only_rejects_unverifiable_permissions(tmp_path, monkeypatch):
+    path = tmp_path / "file"
+    path.write_text("x", encoding="utf-8")
+    monkeypatch.setattr(al.os, "chmod", lambda *_a: None)
+    monkeypatch.setattr(al.os, "stat",
+                        lambda *_a: SimpleNamespace(st_mode=0o644, st_size=1))
+    with pytest.raises(OSError):
+        al._enforce_user_only(path)
+
+
+def test_prune_reports_unreadable_directory(tmp_path: Path) -> None:
+    file = tmp_path / "file"
+    file.write_text("x", encoding="utf-8")
+    with pytest.raises(al._LoggingFault) as exc:
+        al._prune_archives(file)
+    assert exc.value.reason == "log-directory-unavailable"
+
+
+@pytest.mark.parametrize("active_present", [True, False])
+def test_prune_reports_permission_fault(tmp_path, monkeypatch, active_present):
+    if active_present:
+        (tmp_path / al.APP_LOG_FILENAME).write_text("x", encoding="utf-8")
+    else:
+        date = (datetime.now(UTC) - timedelta(days=1)).strftime("%Y-%m-%d")
+        (tmp_path / f"app.log.{date}").write_text("x", encoding="utf-8")
+    monkeypatch.setattr(al.os, "chmod", _raise_permission_error)
+    with pytest.raises(al._LoggingFault) as exc:
+        al._prune_archives(tmp_path)
+    assert exc.value.reason == "log-permissions-unavailable"
+
+
+def test_retention_rolls_over_oversized_active_log(tmp_path: Path) -> None:
+    path = tmp_path / "app.log"
+    path.write_bytes(b"x" * (al._MAX_TOTAL_BYTES + 1))
+    handler = al._BoundedJSONLHandler(path)
     try:
         handler.emit(_record())
     finally:
         handler.close()
-
-
-def test_log_file_permissions_are_user_only(tmp_path: Path) -> None:
-    path = configure_logging(tmp_path / "app.log")
-    assert os.stat(path).st_mode & 0o777 == 0o600
+    total = sum(p.stat().st_size for p in tmp_path.iterdir() if p.is_file())
+    assert total <= al._MAX_TOTAL_BYTES
+    assert path.exists()
 
 
 def test_sequence_numbers_increase(tmp_path: Path) -> None:
     path = tmp_path / "app.log"
-    configure_logging(path)
-    emit_event("seq.a", source="t")
-    emit_event("seq.b", source="t")
+    al.configure_logging(path)
+    al.emit_event("seq.a", source="t")
+    al.emit_event("seq.b", source="t")
     seqs = [
         str(record["seq"])
         for record in _read_jsonl(path)
@@ -285,4 +407,4 @@ def test_sequence_numbers_increase(tmp_path: Path) -> None:
 
 
 def test_format_exception_without_value() -> None:
-    assert app_logging._format_exception(None, None, None) == "no exception value available"
+    assert al._format_exception(None, None, None) == "no exception value available"

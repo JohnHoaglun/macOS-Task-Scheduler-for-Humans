@@ -2,6 +2,18 @@
 
 ## Changelog
 
+### v0.0.46
+- Code-review remediation (CR-05, CR-06, CR-07, CR-18, CR-19, CR-20): application logging startup is now failure-tolerant, secure, bounded, and path-aware, with user-visible degraded-logging disclosure in the GUI and degraded-safe crash-dialog wording.
+- `configure_logging()` no longer aborts GUI or CLI startup when the secure log directory/file cannot be created or opened. It returns the intended log path, installs exactly one tagged structured JSONL stderr fallback handler, and emits one structured `app.logging_degraded` warning through stderr.
+- `logging_degraded_reason()` exposes the healthy/degraded state using stable non-sensitive categories: `log-directory-unavailable`, `log-file-unavailable`, `log-permissions-unavailable`, `log-rollover-failed`, or `log-write-failed`.
+- Active `app.log` files and retained archives are enforced to mode `0600` after creation, rollover, and recovery; permission enforcement or verification failure is treated as a logging fault and prevents a secure file handler from remaining attached.
+- The active `app.log` now participates in the aggregate `10 MiB` / `14 day` retention policy. An oversized active file is rolled over under the normal archive naming convention before pruning, so the combined active-file-plus-archives footprint remains bounded.
+- A transient write/flush/rollover failure performs one guarded recovery: close the stream best-effort, reopen it, reapply and reverify `0600`, then retry the already-rendered event once. A permanent failure disables the file handler and activates the stderr fallback without default `Handler.handleError()` traceback noise.
+- `configure_logging()` is idempotent for the same log path and replaces only the tagged application handler when reconfigured to a different path; unrelated root handlers are preserved, and a failed replacement leaves a previous healthy handler active.
+- GUI startup shows a one-time modal warning and a persistent `MainWindow.statusBar()` notice when logging is degraded, using generic wording that does not expose paths, environment values, or exception details. The GUI crash dialog names `app.log` only when logging is healthy and otherwise states that details may not have been saved.
+- README and architecture documentation record the approved full-configuration logging policy: task configuration, including environment values, is intentionally logged without redaction, and the stderr fallback can expose those values in terminal output while file logging is degraded.
+- Verification: `make check` passed with ruff, mypy strict, 645 tests, 100% whole-suite coverage (7,423 statements), and test/source ratio 74.9716% (10,556 test : 14,080 src, under the 75% cap); version 0.0.45 → 0.0.46 in all registry locations.
+
 ### v0.0.45
 - Code-review remediation (CR-03, CR-04, CR-13, CR-14): JSON catalog and managed-JSON export writes are now durable and failure-safe, create-only import/export is race-safe, and import/history controller storage failures return safe GUI outcomes instead of escaping as `OSError`.
 - `JsonJobRepository.save()` writes to a same-directory temporary file, flushes and `fsync`s it, and publishes with `os.replace()`, so a crash or disk failure cannot leave a truncated catalog or export destination. A failed publish leaves the original destination intact and removes the temporary file.

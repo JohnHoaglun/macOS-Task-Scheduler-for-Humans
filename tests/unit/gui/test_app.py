@@ -51,17 +51,31 @@ def test_create_main_window_returns_main_window(qtbot: QtBot) -> None:
     assert isinstance(win, MainWindow)
 
 
+class _FakeStatus:
+    """Stands in for QStatusBar: records persistent messages."""
+
+    def __init__(self) -> None:
+        self.messages: list[str] = []
+
+    def showMessage(self, message: str) -> None:
+        self.messages.append(message)
+
+
 class _FakeWindow:
     """Stands in for MainWindow: records show, creates no C++ widget."""
 
     def __init__(self, *controllers: object, **options: object) -> None:
         self.shown = False
+        self.status = _FakeStatus()
 
     def show(self) -> None:
         self.shown = True
 
     def resize(self, _size: object) -> None:
         pass
+
+    def statusBar(self) -> _FakeStatus:
+        return self.status
 
 
 def test_startup_window_size_is_bounded_to_usable_display() -> None:
@@ -92,6 +106,7 @@ def test_main_module_launcher_exits_with_return_code(
     # Keep the entry point's logging/crash wiring out of the test's real env.
     monkeypatch.setattr(app_logging_mod, "configure_logging", lambda log_path=None: Path("app.log"))
     monkeypatch.setattr(app_logging_mod, "install_crash_hooks", lambda on_crash=None: None)
+    monkeypatch.setattr(app_logging_mod, "logging_degraded_reason", lambda: None)
     monkeypatch.setattr(qt_msg_mod, "install_qt_message_handler", lambda: None)
     app_file = Path(__file__).resolve().parents[3] / "src" / "task_scheduler" / "gui" / "app.py"
     with pytest.raises(SystemExit) as excinfo:
@@ -100,13 +115,18 @@ def test_main_module_launcher_exits_with_return_code(
 
 
 class _FakeMessageBox:
-    """Records QMessageBox.critical calls instead of showing a modal dialog."""
+    """Records QMessageBox.critical/warning calls instead of showing modal dialogs."""
 
     def __init__(self) -> None:
         self.critical_calls: list[tuple[object, str, str]] = []
+        self.warning_calls: list[tuple[object, str, str]] = []
 
     def critical(self, parent: object, title: str, text: str) -> int:
         self.critical_calls.append((parent, title, text))
+        return 0
+
+    def warning(self, parent: object, title: str, text: str) -> int:
+        self.warning_calls.append((parent, title, text))
         return 0
 
 
@@ -146,3 +166,34 @@ def test_crash_callback_without_quit_attribute_still_shows_dialog(
     app = object()  # no ``quit`` attribute -> the callback must not call quit
     gui_app._make_crash_callback(app, Path("/tmp/app.log"))()
     assert len(fake.critical_calls) == 1
+
+
+def test_main_degraded_logging_shows_warning_and_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    box = _FakeMessageBox()
+    window = _FakeWindow()
+    monkeypatch.setattr(gui_app, "QApplication", _FakeApp)
+    monkeypatch.setattr(gui_app, "install_qt_message_handler", lambda: None)
+    monkeypatch.setattr(gui_app, "configure_logging", lambda: Path("app.log"))
+    monkeypatch.setattr(gui_app, "logging_degraded_reason", lambda: "log-write-failed")
+    monkeypatch.setattr(gui_app, "install_crash_hooks", lambda on_crash=None: None)
+    monkeypatch.setattr(gui_app, "create_main_window", lambda _services: window)
+    monkeypatch.setattr(gui_app, "QMessageBox", box)
+    assert gui_app.main() == 42
+    assert box.warning_calls == [
+        (None, "Logging degraded", gui_app._degraded_logging_notice())
+    ]
+    assert window.status.messages == [gui_app._degraded_logging_notice()]
+    assert window.shown
+
+
+def test_crash_dialog_and_callback_are_degraded_safe(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = _FakeMessageBox()
+    monkeypatch.setattr(gui_app, "QMessageBox", fake)
+    gui_app._show_crash_dialog(Path("/tmp/app.log"), degraded=True)
+    gui_app._make_crash_callback(object(), Path("/tmp/app.log"), "log-write-failed")()
+    assert len(fake.critical_calls) == 2
+    for _parent, _title, text in fake.critical_calls:
+        assert "/tmp/app.log" not in text
+        assert "may not have been saved" in text
