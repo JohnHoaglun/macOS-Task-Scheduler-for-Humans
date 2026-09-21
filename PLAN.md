@@ -2,6 +2,59 @@
 
 ## Current State
 
+### Approved v0.0.47 Filesystem Safety, Packaging Portability, and Editor Debounce (2026-09-21)
+
+**Goal:** implement the approved v0.0.47 slice of `docs/code-review-findings.md`: secure exclusive temporary-file creation, descriptor-coherent snapshots with honest best-effort verified-operation semantics, snapshot-based external quarantine, portable packaging configuration, explicit macOS package prerequisites, and debounced Python detection.
+
+**Baseline:** v0.0.46 at commit `61d595f`; release target `0.0.47`.
+
+**Scope:**
+- CR-08: `create_exclusive()` must not write through an attacker-precreated predictable temporary symlink; publish only after a descriptor-verified, `0600`, fully written and `fsync`ed temporary file.
+- CR-09: `read_snapshot()` must derive payload/hash/identity/size from one opened regular file; `replace_verified()` / `remove_verified()` must be documented as a best-effort check immediately before atomic publish/remove, not a compare-and-swap against non-cooperating writers.
+- CR-16: `quarantine_external()` must consume the caller's snapshot, write only that snapshot's payload, and use verified source removal; drift/missing/non-regular sources leave the source intact and no orphan quarantine artifact.
+- CR-12: the tracked `pysidedeploy.spec` must contain no developer-machine absolute paths; deployment must run against a transient ignored spec so tool-generated paths never mutate tracked configuration.
+- CR-17: `JobEditor` must debounce Python detection so rapid nonblank edits trigger exactly one final detection; blank input cancels any pending request.
+- CR-21: README/development/architecture docs must state `make package` is macOS/Xcode/PySide-only; the Makefile must fail early with an actionable message for non-Darwin or missing tools.
+
+**Pinned decisions:**
+- CR-09: use descriptor-coherent snapshots; do not introduce advisory locking; do not claim a compare-and-swap guarantee. Correct docstrings and architecture wording rather than expanding the public API.
+- CR-08: retain the `create_exclusive(destination, payload)` contract and its `FileExistsError`-on-preexisting-destination semantics; reuse the secure private-write primitive for replacement staging.
+- CR-16: change the store operation to `quarantine_external(path, snapshot)`; remove the `replace(path, candidate)` re-read-and-overwrite path entirely.
+- CR-12: keep the icon field empty until a project-owned asset is approved; resolve the interpreter from the active venv rather than a hardcoded patch version.
+- CR-17: add a single-shot `QTimer` owned by `JobEditor`; keep detection APIs synchronous and Qt-free below the widget; no new `QThread` or cancellation protocol.
+- CR-21: documentation plus Makefile preflight (non-Darwin and missing `.venv/bin/pyside6-deploy` / `plutil` / `codesign` fail before deploy begins).
+- Full-configuration logging policy is unchanged in this slice.
+
+**Parallelization decision:** single serial pass (solo work). Lanes A (filesystem/store), B (packaging), and C (editor) share no source files, protocol definitions, or mutable external resources, but all three share the global test/source ratio (currently 74.9716% against a 75% cap), and the CR-09 filesystem contract must be finalized before CR-16 can be integrated. Serial implementation with per-lane focused gates keeps the ratio and coverage manageable in one pass.
+
+| Wave | Scope | Files owned | Stop condition |
+|---|---|---|---|
+| A | Filesystem safety (CR-08, CR-09, CR-16) | `src/task_scheduler/platform/macos/filesystem.py`, `src/task_scheduler/platform/macos/launch_agent_store.py`, `src/task_scheduler/application/task_command_service.py` (quarantine call site), `tests/fakes.py`, `tests/unit/platform/test_filesystem.py`, `tests/unit/platform/test_launch_agent_store.py`, `tests/unit/platform/test_universal_task_controls.py`, `tests/unit/application/test_external_control_service.py`, `tests/unit/gui/test_main_window.py` | Secure temp creation + descriptor-coherent snapshot + snapshot-based quarantine are green on focused tests |
+| B | Packaging portability (CR-12, CR-21) | `pysidedeploy.spec`, `Makefile` | Tracked spec is path-independent; `make package` preflight + transient spec + smoke gate work |
+| C | Editor debounce (CR-17) | `src/task_scheduler/gui/widgets/job_editor.py`, `tests/unit/gui/test_job_editor.py` | One final detection per burst; blank cancels; focused widget tests green |
+| D | Review resolution, version/docs closeout, composition verification | `README.md`, `docs/architecture.md`, `docs/development.md`, `docs/code-review-findings.md`, `PLAN.md`, `TODOS.md`, `PROJECT.md`, `SUMMARY.md`, `VERSIONS_LOCATIONS.md`, `pyproject.toml`, `src/task_scheduler/version.py` | CR-08/09/12/16/17/21 resolved, v0.0.44 review-status header corrected, version registry `0.0.47`, stale-version grep clean, `make check` green, commit/pushed |
+
+**Shared-surface inventory:**
+- Lane A owns `LaunchAgentFilesystem` protocol semantics, `LocalFilesystem` behavior, `FakeFilesystem` parity, `LaunchAgentStore.quarantine_external` signature, and the `disable_external` quarantine call site.
+- Lane B owns `pysidedeploy.spec` and the `Makefile` `package` target; it does not affect application runtime imports.
+- Lane C owns `JobEditor` debounce; it keeps `EditorController.detect_python`, `TaskCommandService.detect_python`, and platform detection synchronous and Qt-free.
+- Lane D owns all shared documentation and release surfaces and the authoritative composition gate.
+- The global test/source ratio is measured after each lane; Lane D trims redundant test lines before closeout if the 75% cap is breached.
+
+**Gates:**
+- CR-08: no payload is redirected through an attacker-precreated temporary symlink; destination is created exactly once or left unchanged; owned temp file is cleaned up on success and failure; `fsync` precedes `link`; temp mode is `0600`.
+- CR-09: a snapshot's bytes and identity come from one opened regular file; `replace_verified` / `remove_verified` docstrings and architecture wording state the best-effort check-before-publish/remove invariant and do not claim a CAS guarantee.
+- CR-16: quarantine output is byte-identical to the supplied snapshot; a changed/missing/non-regular source is not removed and leaves no orphan quarantine file; no-`launchctl` behavior for label-less plists is preserved.
+- CR-12: `pysidedeploy.spec` contains no `/Users/`, `.venv/`, `site-packages/`, or Python patch-version path; `make package` does not modify the tracked spec.
+- CR-17: rapid nonblank `textChanged` events produce exactly one detection call with the final path after the debounce interval; blank input cancels the pending request and clears state; managed/external auto-fill and object names are unchanged.
+- CR-21: README/development/architecture docs state `make package` is macOS-only and name `pyside6-deploy`, `plutil`, `codesign`; the Makefile preflight fails before deploy on non-Darwin or missing tools.
+- Final: `make check` green (ruff, mypy strict, 100% coverage, ratio ≤75%), version `0.0.47` in all registry locations, docs updated, commit pushed.
+
+**Deferred:**
+- v0.0.48: remaining Run-phase increments (24–29) and any new findings.
+
+**Blockers:** none.
+
 ### Approved v0.0.46 Logging Resilience and Security (2026-09-20)
 
 **Goal:** implement the approved v0.0.46 slice of `docs/code-review-findings.md`: failure-tolerant logging startup, verified secure permissions, bounded active-log retention, controlled write-failure recovery, path-aware configuration, and documented full-configuration logging policy.

@@ -1,4 +1,13 @@
-# TODOS.md (v0.0.46)
+# TODOS.md (v0.0.47)
+
+## Filesystem Safety, Packaging Portability, and Editor Debounce (ACTIVE — v0.0.47)
+
+Approved scope from `docs/code-review-findings.md`: CR-08, CR-09, CR-12, CR-16, CR-17, CR-21.
+
+- [ ] Wave A: secure `create_exclusive()` (unpredictable temp, `O_EXCL`, `0600`, `fsync` before publish), descriptor-coherent `read_snapshot()`, honest best-effort `replace_verified` / `remove_verified` semantics, and snapshot-based `quarantine_external(path, snapshot)`
+- [ ] Wave B: portable `pysidedeploy.spec` (no absolute paths), transient ignored deploy spec, and `make package` macOS/Xcode/PySide preflight
+- [ ] Wave C: debounced Python detection in `JobEditor` (one final detection per burst, blank cancels, no new `QThread`)
+- [ ] Closeout: resolve CR-08/09/12/16/17/21, correct v0.0.44 review-status header, full `make check`, 100% coverage, ratio ≤75%, version 0.0.46 → 0.0.47, docs, commit, push
 
 ## Logging Resilience and Security (DONE — v0.0.46)
 
