@@ -1,4 +1,15 @@
-# TODOS.md (v0.0.44)
+# TODOS.md (v0.0.45)
+
+## Storage Durability and Controller Hardening (ACTIVE — v0.0.45)
+
+Approved scope from `docs/code-review-findings.md`: CR-03, CR-04, CR-13, CR-14.
+
+- [ ] Wave 1: make `JsonJobRepository.save()` atomic (`mkstemp` → `fsync` → `os.replace`) and add create-only `save_new()` (`mkstemp` → `fsync` → `os.link`)
+- [ ] Wave 1: serialize `JobService.import_job()` conflict re-check + exclusive publish with `.catalog.lock`; map `FileExistsError` to `JobConflictError`
+- [ ] Wave 1: make `TaskCommandService.export_managed_json()` create-only through `save_new()` while preserving `FileExistsError`
+- [ ] Wave 2: catch `OSError` in `ImportController.commit()` and return `ImportCommitOutcome.error`
+- [ ] Wave 2: catch `OSError` in `HistoryController.history_for()` and return `HistoryOutcome.error`
+- [ ] Closeout: full `make check`, 100% coverage, ratio ≤75%, version 0.0.44 → 0.0.45, docs, commit, push
 
 ## Code-Review Remediation (DONE — v0.0.44)
 

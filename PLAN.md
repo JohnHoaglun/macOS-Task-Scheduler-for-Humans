@@ -2,6 +2,61 @@
 
 ## Current State
 
+### Approved v0.0.45 Storage Durability and Controller Hardening (2026-09-20)
+
+**Goal:** implement the approved v0.0.45 slice of `docs/code-review-findings.md`: durable atomic JSON writes, race-safe create-only import/export, and safe GUI controller outcomes for import/history storage failures.
+
+**Baseline:** v0.0.44 at commit `41ded10`; current version `0.0.44`.
+
+**Scope:**
+- CR-03: `JsonJobRepository.save()` writes to a same-directory temporary file, `fsync`s it, and atomically replaces the destination; failures leave the original destination intact and remove the temporary file.
+- CR-04: add `JsonJobRepository.save_new()` for create-only writes; it uses the same durable temporary-file pattern but publishes with `os.link()`, so an existing destination cannot be overwritten.
+- CR-04: `JobService.import_job()` holds an exclusive `fcntl.flock` on `<root>/.catalog.lock` while re-checking label/id conflicts and publishing through `save_new()`; `FileExistsError` maps to `JobConflictError`.
+- CR-04: `TaskCommandService.export_managed_json()` uses `save_new()` and preserves `FileExistsError` semantics without relying on a pre-write `exists()` check.
+- CR-13: `ImportController.commit()` catches `OSError` in addition to `ValueError` and `JobConflictError`, returning `ImportCommitOutcome.error`.
+- CR-14: `HistoryController.history_for()` catches `OSError` in addition to `JobNotFoundError`, returning `HistoryOutcome.error`.
+
+**Pinned decisions:**
+- `JsonJobRepository.save(job, path, create_parent=False)` keeps its signature and overwrite semantics.
+- Catalog and export JSON remain pretty-printed UTF-8 with a trailing newline.
+- Durable write pattern: `tempfile.mkstemp()` in the destination directory, write bytes, `flush()`, `os.fsync()`, close, then publish.
+- Overwrite publish uses `os.replace()`; create-only publish uses `os.link()` and raises `FileExistsError` when the destination already exists.
+- Temporary files are removed on both failure and successful publish; cleanup failures are suppressed because the destination publish is the observable operation.
+- `JobService.import_job()` remains create-only and raises `JobConflictError` for both id and label conflicts.
+- The catalog lock file is `.catalog.lock` inside the catalog root; it is not a `.json` file and is invisible to `list_jobs()`.
+- `export_managed_json()` still raises `JobNotFoundError` for unknown labels and `FileExistsError` for an existing destination.
+- `ImportController.commit()` and `HistoryController.history_for()` remain Qt-free and never raise for the pinned expected failure classes.
+- `make test` remains fast; `make check` remains the release-quality gate.
+
+**Parallelization decision:** single serial pass (solo work — CR-13/CR-14 are independent of the storage lane but are small controller edits; all lanes share the global test-ratio budget, the version closeout, and the same `make check` gate, and the separate `smarter` dispatch target is unavailable in this runtime).
+
+| Wave | Scope | Files owned | Stop condition |
+|---|---|---|---|
+| 1 | Atomic + create-only JSON persistence | `src/task_scheduler/storage/json_repository.py`, `src/task_scheduler/application/job_service.py`, `src/task_scheduler/application/task_command_service.py`, `tests/unit/storage/test_json_repository.py`, `tests/unit/application/test_job_service.py`, `tests/unit/application/test_managed_json_transfer.py` | failed replace preserves destination; existing destination cannot be overwritten; concurrent import/export produces exactly one winner |
+| 2 | Controller hardening | `src/task_scheduler/gui/controllers/import_controller.py`, `src/task_scheduler/gui/controllers/history_controller.py`, `tests/unit/gui/test_import_controller.py`, `tests/unit/gui/test_history_controller.py` | `OSError` becomes a safe controller outcome in both controllers |
+| 3 | Closeout | `PLAN.md`, `TODOS.md`, `PROJECT.md`, `SUMMARY.md`, `VERSIONS_LOCATIONS.md`, `pyproject.toml`, `src/task_scheduler/version.py`, `docs/code-review-findings.md`, `docs/architecture.md`, `README.md` | `make check` green, 100% coverage, ratio ≤75%, version 0.0.44 → 0.0.45, commit/push |
+
+**Shared-surface inventory:**
+- `JsonJobRepository.save` / `JsonJobRepository.save_new` are owned by Wave 1; Wave 2 treats their exception behavior as read-only.
+- `JobConflictError` and `FileExistsError` are the pinned cross-layer conflict contracts; no wave changes their constructor or public meaning.
+- `ImportController.commit()` and `HistoryController.history_for()` are owned by Wave 2; Wave 1 does not edit GUI controllers.
+- The global test/source ratio is unowned by any single wave; Wave 3 trims redundant test lines before closeout if the cap is breached.
+
+**Gates:**
+- `JsonJobRepository.save()` failure between temp write and replace leaves the original file byte-identical and leaves no temp file behind.
+- `JsonJobRepository.save_new()` raises `FileExistsError` when the destination exists and leaves the destination byte-identical.
+- Concurrent `JobService.import_job()` calls for the same id or same label produce exactly one success and one `JobConflictError`.
+- Concurrent `TaskCommandService.export_managed_json()` calls for the same destination produce exactly one success and one `FileExistsError`.
+- `ImportController.commit()` returns an error outcome, not an exception, when the service raises `OSError`.
+- `HistoryController.history_for()` returns an error outcome, not an exception, when the service raises `OSError`.
+- Final: `make check` green (ruff, mypy strict, 100% coverage, ratio ≤75%), version `0.0.45` in all registry locations, docs updated, commit pushed.
+
+**Deferred:**
+- v0.0.46: CR-05, CR-06, CR-07, CR-18, CR-19, CR-20.
+- v0.0.47: CR-08, CR-09, CR-12, CR-16, CR-17, CR-21.
+
+**Blockers:** none.
+
 ### Approved v0.0.44 Code-Review Remediation (2026-09-20)
 
 **Goal:** implement the approved v0.0.44 slice of `docs/code-review-findings.md`: mechanical quality gates, plain-text raw-plist inspection, truthful external removal/messaging, and direct-test worker participation in the main-window close drain.
