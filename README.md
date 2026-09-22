@@ -560,7 +560,11 @@ printed a traceback to stderr, which a macOS GUI app discards).
   details were written to the log or may not have been saved while logging is
   degraded; the application then exits.
 * **CLI:** `mactask` configures the same log; unhandled command failures are
-  recorded there as well (no dialog in the terminal).
+  recorded there as well (no dialog in the terminal). Because the CLI shares
+  the application logging configuration, while file logging is degraded the
+  structured JSONL logging diagnostics are written to `stderr` and can
+  interleave with command output, so piped output is not machine-stable in
+  that state.
 
 The log records application-level diagnostics only — it does not contain job
 stdout/stderr or environment values, which are stored in each job's own log

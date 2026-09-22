@@ -28,12 +28,34 @@ from task_scheduler.platform.macos import (
     LAUNCHCTL_PATH,
     CandidateSource,
     InterpreterCandidate,
+    LaunchAgentBackend,
+    LaunchAgentStatus,
     PlistCodec,
     ProcessResult,
     PythonDetectionResult,
 )
 
 OTHER_ID = UUID("87654321-4321-4321-4321-432143214321")
+
+
+class ScriptedStatusBackend:
+    """Test-local backend wrapper with a scripted ``status`` loaded flag.
+
+    ``status`` returns the fixed *loaded* value (recording every label it was
+    asked for); every other call is delegated to the wrapped backend.
+    """
+
+    def __init__(self, inner: LaunchAgentBackend, *, loaded: bool | None) -> None:
+        self._inner = inner
+        self.loaded = loaded
+        self.status_labels: list[str] = []
+
+    def status(self, label: str) -> LaunchAgentStatus:
+        self.status_labels.append(label)
+        return LaunchAgentStatus(loaded=self.loaded, process=ProcessResult(exit_code=None))
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._inner, name)
 
 
 def broken_job(job: JobDefinition) -> JobDefinition:
@@ -79,8 +101,10 @@ class TestReinstall:
         ]
         assert world.jobs.find(job.label) is not None
 
-    def test_failed_bootout_retains_staged_sibling(self, tmp_path: Path) -> None:
+    def test_failed_bootout_loaded_removes_staged_and_aborts(self, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path, launch=ProcessResult(exit_code=1, stderr="bootout failed"))
+        backend = ScriptedStatusBackend(world.backend, loaded=True)
+        world.services._backend = backend
         job = make_job()
         world.manage(job)
         result = world.services.reinstall(job.label)
@@ -88,13 +112,36 @@ class TestReinstall:
         assert result.process.stderr == "bootout failed"
         assert [phase.name for phase in result.phases] == ["bootout"]
         assert result.completed_phases == ()
-        assert len(result.retained_artifacts) == 1
-        staged = result.retained_artifacts[0]
-        assert staged.name == f"{job.label}.plist.staged.1"
-        assert staged.is_file()
+        assert result.retained_artifacts == ()
+        assert not (world.la_root / f"{job.label}.plist.staged.1").exists()
         assert result.plist_path.read_bytes() == PlistCodec().encode_bytes(job)
         assert [spec.argv[1] for spec in world.launch_runner.specs] == ["bootout"]
         assert world.jobs.find(job.label) is not None
+        assert backend.status_labels == [job.label]
+
+    def test_failed_bootout_not_loaded_continues_transaction(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(
+            tmp_path,
+            launches=[
+                ProcessResult(exit_code=1, stderr="bootout failed"),
+                OK_PROCESS,
+            ],
+        )
+        backend = ScriptedStatusBackend(world.backend, loaded=False)
+        world.services._backend = backend
+        job = make_job()
+        world.manage(job)
+        result = world.services.reinstall(job.label)
+        assert result.process.exit_code == 0
+        assert [phase.name for phase in result.phases] == ["bootout", "bootstrap"]
+        assert result.phases[0].process.exit_code == 1
+        assert result.phases[0].process.stderr == "bootout failed"
+        assert result.completed_phases == ("bootout", "bootstrap")
+        assert result.retained_artifacts == ()
+        assert result.plist_path.read_bytes() == PlistCodec().encode_bytes(job)
+        assert [path.name for path in world.la_root.iterdir()] == [f"{job.label}.plist"]
+        assert [spec.argv[1] for spec in world.launch_runner.specs] == ["bootout", "bootstrap"]
+        assert backend.status_labels == [job.label]
 
     def test_failed_bootstrap_retains_backup_sibling(self, tmp_path: Path) -> None:
         world = FakeTaskWorld(
@@ -120,6 +167,61 @@ class TestReinstall:
             "bootout",
             "bootstrap",
         ]
+
+
+class TestUninstall:
+    @pytest.mark.parametrize(
+        ("launch", "loaded", "removed"),
+        [
+            (OK_PROCESS, None, True),
+            (ProcessResult(exit_code=1, stderr="bootout failed"), False, True),
+            (ProcessResult(exit_code=1, stderr="bootout failed"), True, False),
+            (ProcessResult(exit_code=1, stderr="bootout failed"), None, False),
+        ],
+    )
+    def test_uninstall_matrix(
+        self,
+        tmp_path: Path,
+        launch: ProcessResult,
+        loaded: bool | None,
+        removed: bool,
+    ) -> None:
+        world = FakeTaskWorld(tmp_path, launch=launch)
+        backend = ScriptedStatusBackend(world.backend, loaded=loaded)
+        world.services._backend = backend
+        job = make_job()
+        world.manage(job)
+        result = world.services.uninstall(job.label)
+        assert result.process is launch
+        assert result.process.exit_code == launch.exit_code
+        assert result.catalog_removed is removed
+        assert (world.la_root / f"{job.label}.plist").exists() == (not removed)
+        assert (world.jobs.find(job.label) is not None) == (not removed)
+        assert (backend.status_labels == [job.label]) == (launch.exit_code != 0)
+
+
+class TestCommitRawExternalEditLabelInvariants:
+    @pytest.mark.parametrize(
+        ("replacement", "match"),
+        [
+            ({"Label": "com.example.new", "ProgramArguments": ["/bin/echo"]}, "cannot add"),
+            ({"ProgramArguments": ["/bin/echo"]}, "must contain a valid launchd label"),
+        ],
+    )
+    def test_label_less_session_rejected(
+        self, tmp_path: Path, replacement: dict[str, object], match: str
+    ) -> None:
+        world = FakeTaskWorld(tmp_path)
+        world.la_root.mkdir(parents=True)
+        plist_path = world.la_root / "external.plist"
+        plist_path.write_bytes(plistlib.dumps({"ProgramArguments": ["/bin/sleep"]}))
+        session = world.services.open_external_edit_session(plist_path)
+        assert session.label is None
+        with pytest.raises(ValueError, match=match):
+            world.services.commit_raw_external_edit(
+                session, plistlib.dumps(replacement).decode("utf-8")
+            )
+        assert plist_path.read_bytes() == plistlib.dumps({"ProgramArguments": ["/bin/sleep"]})
 
 
 class TestJobBasedFacade:

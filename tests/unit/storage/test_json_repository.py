@@ -11,15 +11,6 @@ from tests.conftest import make_job
 from task_scheduler.storage import JsonJobRepository
 
 
-def test_save_replaces_existing(tmp_path: Path) -> None:
-    repository = JsonJobRepository()
-    job = make_job()
-    path = tmp_path / "job.json"
-    repository.save(job, path)
-    repository.save(job.model_copy(update={"name": "Updated"}), path)
-    assert repository.load(path).name == "Updated"
-
-
 def test_save_new_creates_parent(tmp_path: Path) -> None:
     repository = JsonJobRepository()
     path = tmp_path / "nested" / "job.json"

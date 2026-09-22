@@ -2,6 +2,23 @@
 
 ## Changelog
 
+### v0.0.48
+- Round-2 code-review remediation, slice 1 (safety and observability): R2-01, R2-02, R2-05, R2-06, R2-09, R2-10, R2-12, R2-13, R2-15, R2-17, R2-24, and R2-25 from `docs/code-review-round-2.md` are resolved.
+- R2-01 — `commit_raw_external_edit` raises `ValueError` when a raw edit would add a launchd label to a session that opened without one; the bare `assert` is gone, so release builds can no longer silently replace a plist with a new label.
+- R2-02 — the lifecycle and diagnostics workers log caught exceptions with traceback before emitting their terminal outcome, and `MainWindow` surfaces a "…failed unexpectedly; see the application log." status message for non-outcome terminal results instead of returning silently.
+- R2-05 — `uninstall` and `reinstall` recover a failed `launchctl bootout` only when a fresh `status` confirms the label is not loaded; a failed reinstall removes the orphaned `.staged.N` sibling through a fail-closed verified remove, and a still-loaded label aborts with the staged sibling removed and nothing retained.
+- R2-06 — the `qFatal` path logs at CRITICAL, flushes, and aborts (`os.abort()`), restoring Qt's documented fatal-handler contract; the module docstring states the abort.
+- R2-09 — the dead `emit_event`/`emit_error` telemetry APIs and their test-only consumers were deleted.
+- R2-10 — every `SubprocessRunner.run` call runs under a shared 30-second deadline (`LAUNCHCTL_TIMEOUT_SECONDS = 30.0`) with a distinct timeout outcome instead of an unbounded hang, and captured output is decoded UTF-8 with replacement so a hung or malformed `launchctl` can no longer block a worker indefinitely or raise on invalid bytes.
+- R2-12 — the first history-append failure is logged once and marks the repository unavailable, so the UI shows degraded history instead of silently dropping events.
+- R2-13 — `install_crash_hooks` registers `faulthandler` core-dump capture to the application log, and the GUI crash dialog is marshaled to the GUI thread through a queued-signal poster, so a `BaseException` from any worker thread can no longer open a modal off-thread.
+- R2-15 — `commit_raw_external_edit` and `JsonTransferController` catch `(plistlib.InvalidFileException, ValueError)` instead of bare `Exception`, matching the CLI's narrow catch set.
+- R2-17 — `LaunchAgentBackend.bootstrap_path` verifies the staged plist's `Label` key matches the requested label before bootstrapping and raises `ValueError` on a mismatch or missing label.
+- R2-24 — the dead `backup_external()` (empty-payload sibling) was deleted from `launch_agent_store.py`; the live path remains `backup_external_from_snapshot`.
+- R2-25 — the CLI keeps full logging + crash-hook installation (product decision per CR-20); README and development docs document the degraded-logging caveat: when file logging is degraded, the JSONL stderr fallback can interleave with command output, so piped CLI output is not machine-stable in that state.
+- Test/coverage closeout: added timeout-decode, shared-deadline, bootout-recovery, and crash-marshaling coverage; trimmed 22 line-redundant pre-existing tests (selected via per-line coverage attribution, with no coverage or unique-assertion loss) to hold the 75% ratio cap.
+- Verification: `make check` passed with ruff, mypy strict, 649 tests, 100% whole-suite coverage (7,510 statements), and test/source ratio 74.6273% (10,662 test : 14,287 src, under the 75% cap); version 0.0.47 → 0.0.48 in all registry locations.
+
 ### v0.0.47
 - Code-review remediation (CR-08, CR-09, CR-12, CR-16, CR-17, CR-21): the remaining filesystem-safety, packaging-portability, and editor-performance findings are now resolved.
 - CR-08 — `LocalFilesystem.create_exclusive()` writes through a new `_write_private_file()` helper that opens an unpredictable temp name (`.{pid}.{secrets.token_hex(8)}.tmp`) with `O_CREAT | O_EXCL | O_WRONLY` (plus `O_NOFOLLOW` where available), verifies via `fstat` that the created path is a regular file, creates it `0600`, and `fsync`s it before its path is returned for publish; a pre-created symlink or file at the path can no longer be followed or overwritten, and the owned temp is removed on any failure.

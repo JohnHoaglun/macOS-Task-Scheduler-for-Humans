@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from typing import cast
 
+import pytest
 from pytestqt.qtbot import QtBot
 
 from task_scheduler.gui.controllers.diagnostics_controller import DiagnosticsController
@@ -13,15 +15,21 @@ from task_scheduler.gui.controllers.lifecycle_worker import LifecycleWorker
 
 
 class TestLifecycleWorkerExceptionSafety:
-    def test_emits_finished_when_execute_raises(self, qtbot: QtBot) -> None:
+    def test_emits_finished_when_execute_raises(
+        self, qtbot: QtBot, caplog: pytest.LogCaptureFixture
+    ) -> None:
         controller = _raise_on_execute()
         worker = LifecycleWorker(cast(LifecycleController, controller))
         emitted: list[object] = []
         worker.finished.connect(lambda value: emitted.append(value))
-        worker.run()
+        with caplog.at_level(
+            logging.ERROR, logger="task_scheduler.gui.controllers.lifecycle_worker"
+        ):
+            worker.run()
         assert len(emitted) == 1
         assert emitted[0] is None
         assert not controller.busy
+        assert sum(1 for record in caplog.records if record.levelno == logging.ERROR) == 1
 
     def test_emits_finished_when_execute_succeeds(self, qtbot: QtBot) -> None:
         controller = _return_outcome("ok")
@@ -35,15 +43,21 @@ class TestLifecycleWorkerExceptionSafety:
 
 
 class TestDiagnosticsWorkerExceptionSafety:
-    def test_emits_finished_when_execute_raises(self, qtbot: QtBot) -> None:
+    def test_emits_finished_when_execute_raises(
+        self, qtbot: QtBot, caplog: pytest.LogCaptureFixture
+    ) -> None:
         controller = _raise_on_execute()
         worker = DiagnosticsWorker(cast(DiagnosticsController, controller))
         emitted: list[object] = []
         worker.finished.connect(lambda value: emitted.append(value))
-        worker.run()
+        with caplog.at_level(
+            logging.ERROR, logger="task_scheduler.gui.controllers.diagnostics_worker"
+        ):
+            worker.run()
         assert len(emitted) == 1
         assert emitted[0] is None
         assert not controller.busy
+        assert sum(1 for record in caplog.records if record.levelno == logging.ERROR) == 1
 
     def test_emits_finished_when_execute_succeeds(self, qtbot: QtBot) -> None:
         controller = _return_outcome("ok")

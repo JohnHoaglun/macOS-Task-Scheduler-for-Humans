@@ -488,6 +488,12 @@ without PATH, venv, or source-checkout dependencies — it is self-contained.
 * GUI degraded-state tests assert the one-time modal warning, the persistent
   status-bar notice, and degraded-safe crash-dialog wording without exposing
   paths, environment values, or exception details.
+* The CLI shares the GUI's application logging (`main()` runs
+  `configure_logging()` plus `install_crash_hooks()`), so while file logging
+  is degraded, structured JSONL logging diagnostics are written to `stderr`
+  and can interleave with `mactask` output; piped CLI output is therefore not
+  machine-stable in that state, and tests asserting on it should not assume
+  otherwise.
 
 ## Current State
 

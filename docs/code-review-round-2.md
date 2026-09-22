@@ -4,7 +4,8 @@
 - **Date:** 2026-09-21
 - **Scope:** production code under `src/task_scheduler/` (82 files, ~14,200 lines). Tests were read only as evidence, not reviewed for their own quality.
 - **Method:** full-file solo scan (platform → storage → domain → application → CLI → GUI), cross-checked against the durable CR-01…CR-21 record in `docs/code-review-findings.md` (all resolved in v0.0.44–v0.0.47; none re-reported here).
-- **Verdict:** no high/critical items. **8 medium, 17 low.** No code was changed; nothing was committed.
+- **Verdict:** no high/critical items. **8 medium, 17 low.**
+- **Remediation status (2026-09-21):** R2-01, R2-02, R2-05, R2-06, R2-09, R2-10, R2-12, R2-13, R2-15, R2-17, R2-24, and R2-25 resolved in v0.0.48 (slice 1 — safety and observability); R2-03, R2-04, R2-07, R2-08, R2-11, R2-14, R2-16, R2-18, R2-19, R2-20, R2-21, R2-22, and R2-23 are planned for v0.0.49–v0.0.50 (slices 2–3, tracked in `TODOS.md`).
 
 ## Findings
 
@@ -15,11 +16,13 @@
 - Reachable: `open_external_edit_session` accepts plists with no usable `Label` (`task_command_service.py:795-810` → `label=None`, `loaded=None`) → `MainWindow._edit_external_listing` (`gui/main_window.py:438-439`) → `_open_raw_editor` (`gui/main_window.py:906-952`) → `ExternalControlWorker` (`gui/controllers/external_control_worker.py:87-93`).
 - Consequence: saving a replacement that adds a new valid label hits the assert. Debug build: `AssertionError` is caught by the worker's `except Exception` and the GUI shows an **empty** error string (`str(AssertionError()) == ""`). Release/`-O`: the assert is compiled out, `session.loaded` is always `None` for a label-less session so the bootout/bootstrap branches are skipped, and the file is silently replaced with a new label — the "label cannot change" invariant is silently violated.
 - Recommendation: raise `ValueError` explicitly when `session.label is None and new_label is not None` (the session cannot gain a label through a raw edit); drop the assert.
+- **Resolved (v0.0.48):** `commit_raw_external_edit` now raises `ValueError` when a raw edit would add a label to a label-less session, and the bare `assert` is gone, so a release build can no longer silently replace a plist with a new label.
 
 #### R2-02 — Worker exceptions swallowed silently; no log, no user feedback (logging/robustness)
 - `gui/controllers/lifecycle_worker.py:31-34` and `gui/controllers/diagnostics_worker.py:31-34`: `except Exception: outcome = None`, no log statement.
 - `MainWindow._on_lifecycle_finished` (`gui/main_window.py:1128-1129`) returns without any status message, dialog, or log when the outcome is not a `LifecycleOutcome`. A failed install/uninstall/run-now leaves the user with a re-enabled action and no explanation.
 - Recommendation: log the exception (with traceback) in the worker before emitting `None`, and surface a minimal "operation failed; see log" status message in the window.
+- **Resolved (v0.0.48):** the lifecycle and diagnostics workers log the caught exception with traceback (`logger.exception`) before emitting their terminal outcome, and `MainWindow` shows a "…failed unexpectedly; see the application log." status message for non-outcome terminal results instead of returning silently.
 
 #### R2-03 — Synchronous launchctl fan-out on the GUI thread (logic/UX)
 - `DiscoveryController.refresh` (`gui/controllers/discovery_controller.py:45-51`) calls `list_agents()` synchronously.
@@ -34,11 +37,13 @@
 - `uninstall` (`application/task_command_service.py:584-591`; `platform/macos/launchctl.py:100-109`) and `reinstall` (`task_command_service.py:368-405`, abort at `:388-389`) both require a successful `launchctl bootout`.
 - A job whose bootstrap failed at install time (never loaded) cannot be uninstalled or reinstalled by the app — `bootout` of an unloaded label fails — so recovery is manual deletion of the catalog JSON (and plist). Repeated failed reinstalls also accumulate `.staged.N` siblings.
 - Recommendation: offer an explicit recovery path when bootout reports "not loaded" (e.g., allow plist+catalog removal without a successful bootout, or a force flag), and clean up the staged sibling on the failure branch.
+- **Resolved (v0.0.48):** `uninstall` recovers a failed bootout only when a fresh `status` confirms `loaded is False`, and then still removes the plist and catalog record; `reinstall` continues on confirmed-not-loaded and, on the failure branch for a still-loaded label, removes the orphaned `.staged.N` sibling through a fail-closed verified remove with nothing retained.
 
 #### R2-06 — qFatal no longer aborts (logging/robustness)
 - `install_qt_message_handler` (`gui/qt_message_logging.py:37-39,47`) logs `QtFatalMsg` at CRITICAL and returns normally; `qInstallMessageHandler` replaces Qt's default handler, which aborts on fatal. The module docstring (`:3-6`) documents capturing qFatal but not the suppressed abort.
 - After a fatal Qt error the process continues in an undefined state, logged but unrecovered.
 - Recommendation: on `QtFatalMsg`, log, flush, and abort (Qt's documented handler contract), or document the deliberate deviation.
+- **Resolved (v0.0.48):** the `qFatal` path now logs at CRITICAL, flushes, and calls `os.abort()`, restoring Qt's documented fatal-handler contract; the module docstring states the abort.
 
 #### R2-07 — Unbounded execution-history growth (logging/data growth)
 - `status()` records a `STATUS_OBSERVATION` event on every call (`application/task_command_service.py:603-617`); `run_now` does likewise.
@@ -56,11 +61,13 @@
 #### R2-09 — Dead telemetry API (logging)
 - `emit_event` (`application/app_logging.py:444`) and `emit_error` (`:469`) are only referenced from tests; production code never emits structured telemetry events.
 - Recommendation: wire them into real operation boundaries or delete them.
+- **Resolved (v0.0.48):** `emit_event`/`emit_error` and their test-only consumers were deleted; operation boundaries log through the structured logger directly.
 
 #### R2-10 — Subprocess has no timeout and no explicit encoding (logic/design note)
 - `SubprocessRunner.run` (`platform/macos/process_runner.py:71-72,81-88`): no timeout (documented "by design"), `text=True` without explicit encoding (locale-dependent decode).
 - A hung `launchctl` blocks the worker indefinitely; the close drain waits until its deadline and then exits while the worker thread is still running (orphaned).
 - Recommendation: document the hang expectation explicitly at the call sites and consider a generous timeout with a diagnostic on expiry.
+- **Resolved (v0.0.48):** every `SubprocessRunner.run` call now runs under a shared 30-second deadline (`LAUNCHCTL_TIMEOUT_SECONDS = 30.0`) with a distinct timeout outcome instead of an unbounded hang, and captured output is decoded UTF-8 with replacement so invalid bytes can no longer raise.
 
 #### R2-11 — `save()` skips the catalog lock (logic)
 - `JobService.save` (`application/job_service.py:210-222`) performs the label-conflict check without the `_catalog_lock` that `import_job` holds (`:199-208`). Concurrent duplicate-label writes can both pass the check.
@@ -70,11 +77,13 @@
 #### R2-12 — History append silently drops write failures (logging)
 - `ExecutionHistoryRepository.append` (`storage/execution_history_repository.py:114-115`) swallows `(sqlite3.Error, OSError)` with `pass` — no log, and no `_unavailable` flag (contrast with the constructor, `:76-77`, which sets it).
 - Recommendation: at minimum log the failure once; consider marking the repository unavailable on persistent errors so the UI can show degraded history.
+- **Resolved (v0.0.48):** the first history-append failure is logged once and marks the repository unavailable, so the UI surfaces degraded history instead of silently dropping events.
 
 #### R2-13 — Crash hooks cover Python only; dialog thread invariant is latent (logging/robustness)
 - `install_crash_hooks` (`application/app_logging.py:510-573`) installs `sys.excepthook` + `sys.unraisablehook` only; no `faulthandler`/signal handlers, so a native crash leaves no log or dialog.
 - The `on_crash` callback (`gui/app.py:51-57`) creates a `QMessageBox` on whatever thread the uncaught exception propagated on. Today all three workers catch `Exception` in their slots, so it only fires on the GUI thread; a `BaseException` or a future worker without a catch would show a modal from a non-GUI thread (undefined behavior).
 - Recommendation: register `faulthandler` for core dumps to the log, and make the crash dialog explicitly GUI-thread-marshaled.
+- **Resolved (v0.0.48):** `install_crash_hooks` registers `faulthandler` core-dump capture to the application log, and the GUI crash dialog is marshaled to the GUI thread through a queued-signal poster, so a `BaseException` from any worker thread can no longer open a modal off-thread.
 
 #### R2-14 — Inconsistent CLI exception containment and exit codes (logging/UX)
 - `cli/app.py`: `list` (`:70-78`) and `test` (`:234-245`) have no containment at all (traceback on catalog corruption, `OSError`, invalid label); `inspect` (`:80-90`) catches only `JobNotFoundError`; `validate` (`:92-104`), `generate` (`:106-117`), `install` (`:133-134`) map **any** `Exception` to "invalid job definition" (masking e.g. a file deleted between `exists=True` and read); `import` (`:304`) and `import-json` (`:339`) exit 2 with an **empty** stderr message via `_fail("")`; `logs` (`:258-261`) exits with `EXIT_USAGE` (2) on a log-read failure, which is an operational error, not a usage error.
@@ -84,6 +93,7 @@
 - `commit_raw_external_edit` (`application/task_command_service.py:924-927`) converts any exception from `plistlib.loads` into "not a valid plist", masking non-parse faults (e.g. memory errors).
 - Catch style varies across equivalent paths: `JsonTransferController` uses broad `except Exception` (`gui/controllers/json_transfer_controller.py:67,95`) while the CLI import uses narrow `(ValueError, OSError)` (`cli/app.py:297`).
 - Recommendation: catch the parse-specific exceptions (`plistlib.InvalidFileException` / `ValueError`) and normalize the controller/CLI catch sets.
+- **Resolved (v0.0.48):** `commit_raw_external_edit` and `JsonTransferController` catch `(plistlib.InvalidFileException, ValueError)` instead of bare `Exception`, matching the CLI's narrow catch set.
 
 #### R2-16 — Symlink containment inconsistent across filesystem paths (security, low risk)
 - `read_plist_bytes` (`platform/macos/filesystem.py:91-92`) and `list_plist_files` (`:94-97`, `is_file()` follows symlinks) follow symlinks, while `read_snapshot` (`:154-169`, `O_NOFOLLOW`, ELOOP surfaced) rejects them.
@@ -93,6 +103,7 @@
 #### R2-17 — `bootstrap_path` does not check Label/path consistency (logic)
 - `LaunchAgentBackend.bootstrap_path` (`platform/macos/launchctl.py:126-136`) validates the path is under the LaunchAgent root but never verifies the plist's `Label` key matches the `label` argument. All reachable flows happen to pass consistent values; the API does not enforce it.
 - Recommendation: parse the staged plist and require `Label == label` before bootstrapping.
+- **Resolved (v0.0.48):** `bootstrap_path` parses the staged plist and raises `ValueError` when its `Label` key does not match the requested label (or is missing) before anything is run.
 
 #### R2-18 — Incorrect docstring; interpreter detection re-runs after every editor open (logic/minor)
 - `gui/widgets/job_editor.py:647` claims "setText never re-triggers the change slots", but `_load_draft`'s `setText` calls (`:651-661`) re-fire the `textChanged`-connected interpreter detection; the 300 ms debounce (CR-17) suppresses typing storms, not the one post-open probe, which runs a PATH check on the GUI thread.
@@ -122,10 +133,12 @@
 #### R2-24 — `backup_external` creates an empty backup sibling when the source vanished (logic, dead path)
 - `platform/macos/launch_agent_store.py:196-211`: `FileNotFoundError` → `payload = b""` → an empty `.backup.N` file. The method is production-dead (tests only; the live path uses `backup_external_from_snapshot`, `:227-242`, which writes the snapshot payload and cannot be empty). Already documented in `PLAN.md:1673`.
 - Recommendation: delete the dead method or make it fail instead of writing an empty artifact.
+- **Resolved (v0.0.48):** the dead `backup_external()` and its test-only consumers were deleted; the live path remains `backup_external_from_snapshot`.
 
 #### R2-25 — CLI installs full app logging and crash hooks (logging, cross-ref CR-20)
 - `cli/app.py:354-362`: `configure_logging()` + `install_crash_hooks()` run for every CLI invocation. When file logging is degraded, the JSONL stderr fallback can interleave with command output (documented product decision via CR-20; the CLI-specific consequence is that piped output is no longer machine-stable in that state).
 - Recommendation: consider a quieter CLI profile (file log only, no stderr fallback) or document the degraded-output caveat in the CLI help.
+- **Resolved (v0.0.48, documented direction):** the CLI keeps the full logging + crash-hook installation (product decision per CR-20); the README and development docs now document the caveat that, when file logging is degraded, the structured JSONL stderr fallback can interleave with command output, so piped CLI output is not machine-stable in that state.
 
 ## Checked and cleared (no finding)
 
@@ -138,6 +151,5 @@
 
 ## Out of scope / not changed
 
-- No fixes were made; this is a review deliverable only.
 - Test-suite quality, packaging, and documentation accuracy were not part of this round.
-- Nothing was committed (per AGENTS.md, commits require an explicit request).
+- This round's review deliverable is complete; the twelve slice-1 findings are marked Resolved above (shipped in v0.0.48) and the remaining thirteen are tracked in `TODOS.md` for v0.0.49–v0.0.50.

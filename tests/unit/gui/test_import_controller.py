@@ -65,9 +65,7 @@ def test_commit_os_error_returns_error() -> None:
         unsupported_keys=(),
         requires_acknowledgement=False,
     )
-    outcome = ImportOutcome(
-        source_path=Path("/tmp/x.plist"), candidate=candidate, _preview=preview
-    )
+    outcome = ImportOutcome(source_path=Path("/tmp/x.plist"), candidate=candidate, _preview=preview)
     service = FakeImportService(import_error=OSError("catalog unavailable"))
     result = ImportController(service).commit(outcome)
     assert result.job is None

@@ -78,9 +78,11 @@ class FakeProcessRunner:
         self._queue: list[ProcessResult] = list(results) if results else []
         self._sticky = result if result is not None else self._queue[-1]
         self.specs: list[CommandSpec] = []
+        self.timeouts: list[float | None] = []
 
-    def run(self, spec: CommandSpec) -> ProcessResult:
+    def run(self, spec: CommandSpec, *, timeout: float | None = None) -> ProcessResult:
         self.specs.append(spec)
+        self.timeouts.append(timeout)
         if self._queue:
             return self._queue.pop(0)
         return self._sticky

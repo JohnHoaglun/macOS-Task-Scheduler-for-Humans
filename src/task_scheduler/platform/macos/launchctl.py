@@ -2,9 +2,12 @@
 
 Implements ``install``, ``uninstall``, ``status``, ``enable``, ``disable``,
 and ``trigger`` (spec lines 1833–1852). Every command goes through the
-injected :class:`ProcessRunner`; every plist path is derived from the
-:class:`LaunchAgentStore`. User ``gui/<uid>`` domain only — never
-``/Library``, never system domains, never LaunchDaemons.
+injected :class:`ProcessRunner` with a
+:data:`LAUNCHCTL_TIMEOUT_SECONDS` deadline (a timed-out command yields a
+``timed_out`` process result, which callers treat as an unknown/failed
+outcome); every plist path is derived from the :class:`LaunchAgentStore`.
+User ``gui/<uid>`` domain only — never ``/Library``, never system domains,
+never LaunchDaemons.
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ from task_scheduler.platform.macos.launch_agent_store import (
     LaunchAgentStore,
     validate_label,
 )
+from task_scheduler.platform.macos.plist_reader import parse_bytes
 from task_scheduler.platform.macos.process_runner import (
     CommandSpec,
     ProcessResult,
@@ -27,6 +31,7 @@ from task_scheduler.platform.macos.process_runner import (
 
 __all__ = [
     "LAUNCHCTL_PATH",
+    "LAUNCHCTL_TIMEOUT_SECONDS",
     "LaunchAgentBackend",
     "LaunchAgentStatus",
     "LaunchctlAction",
@@ -34,6 +39,7 @@ __all__ = [
 ]
 
 LAUNCHCTL_PATH = "/bin/launchctl"
+LAUNCHCTL_TIMEOUT_SECONDS = 30.0
 
 
 class LaunchctlAction(StrEnum):
@@ -124,10 +130,18 @@ class LaunchAgentBackend:
         )
 
     def bootstrap_path(self, label: str, path: Path) -> LaunchctlResult:
-        """Bootstrap an arbitrary plist path into launchd (``bootstrap``)."""
+        """Bootstrap an arbitrary plist path into launchd (``bootstrap``).
+
+        The plist's ``Label`` key must match *label*; a mismatch (or a missing
+        ``Label``) raises ``ValueError`` before anything is run.
+        """
         validate_label(label)
         if path.parent != self._store.root:
             raise ValueError(f"path is outside the LaunchAgent root: {path}")
+        snapshot = self._store.read_external(path)
+        parsed = parse_bytes(snapshot.payload)
+        if parsed.raw.get("Label") != label:
+            raise ValueError(f"plist label does not match the requested label: {path}")
         return self._run(
             LaunchctlAction.INSTALL,
             "bootstrap",
@@ -167,6 +181,9 @@ class LaunchAgentBackend:
     def _run(self, action: LaunchctlAction, *arguments: str) -> LaunchctlResult:
         # Absolute launchctl path + empty environment on purpose: the child
         # inherits nothing (exact launchd-style semantics), and /bin/launchctl
-        # needs no PATH of its own.
+        # needs no PATH of its own. Every command gets the shared deadline so
+        # a hung launchctl can never wedge a worker thread.
         spec = CommandSpec(argv=[LAUNCHCTL_PATH, *arguments])
-        return LaunchctlResult(action=action, process=self._runner.run(spec))
+        return LaunchctlResult(
+            action=action, process=self._runner.run(spec, timeout=LAUNCHCTL_TIMEOUT_SECONDS)
+        )

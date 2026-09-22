@@ -6,7 +6,7 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import QSize
+from PySide6.QtCore import QObject, QSize, Signal
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from task_scheduler.application.app_logging import (
@@ -57,6 +57,22 @@ def _show_crash_dialog(log_path: Path, degraded: bool = False) -> None:
     QMessageBox.critical(None, "Unexpected error", text)
 
 
+class _CrashDialogPoster(QObject):
+    """Shows the crash dialog on the GUI thread no matter where the crash happened."""
+
+    _request = Signal(Path, bool)
+
+    def __init__(self, app: QApplication) -> None:
+        super().__init__(app)
+        self._request.connect(self._show)
+
+    def request(self, log_path: Path, degraded: bool) -> None:
+        self._request.emit(log_path, degraded)
+
+    def _show(self, log_path: Path, degraded: bool) -> None:
+        _show_crash_dialog(log_path, degraded)
+
+
 def _make_crash_callback(
     app: QApplication | None,
     log_path: Path,
@@ -64,11 +80,17 @@ def _make_crash_callback(
 ) -> Callable[[], None]:
     """A crash callback that shows the dialog and then quits the application."""
     degraded = degraded_reason is not None
+    if app is not None:
+        poster = _CrashDialogPoster(app)
+
+        def _callback_with_app() -> None:
+            poster.request(log_path, degraded)
+            app.quit()
+
+        return _callback_with_app
 
     def _callback() -> None:
         _show_crash_dialog(log_path, degraded)
-        if app is not None and hasattr(app, "quit"):
-            app.quit()
 
     return _callback
 
@@ -93,7 +115,9 @@ def main() -> int:
     app = QApplication(sys.argv)
     install_qt_message_handler()
     degraded_reason = logging_degraded_reason()
-    install_crash_hooks(on_crash=_make_crash_callback(app, log_path, degraded_reason))
+    install_crash_hooks(
+        on_crash=_make_crash_callback(app, log_path, degraded_reason), log_path=log_path
+    )
     window = create_main_window(build_services())
     if degraded_reason is not None:
         _show_degraded_logging_warning()

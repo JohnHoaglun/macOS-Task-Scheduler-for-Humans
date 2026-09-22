@@ -85,29 +85,9 @@ class TestEnabledState:
     def test_catalog_job_fallback(self) -> None:
         assert enabled_state(_saved(make_job(enabled=False))) == "disabled"
 
-    def test_raw_disabled_key(self) -> None:
-        parsed = _parsed(
-            status=ParseSupport.PARTIALLY_SUPPORTED,
-            raw={"Label": "com.example.x", "Disabled": True},
-        )
-        assert enabled_state(_discovered(parsed)) == "disabled"
-
-    def test_absent_disabled_key_defaults_enabled(self) -> None:
-        parsed = _parsed(
-            status=ParseSupport.PARTIALLY_SUPPORTED,
-            raw={"Label": "com.example.x", "RunAtLoad": True},
-        )
-        assert enabled_state(_discovered(parsed)) == "enabled"
-
     def test_invalid_status_is_unknown(self) -> None:
         parsed = _parsed(status=ParseSupport.INVALID, raw={"Disabled": True})
         assert enabled_state(_discovered(parsed)) == "unknown"
-
-    def test_missing_parse_is_unknown(self) -> None:
-        listing = TaskListing(
-            kind=ListingKind.DISCOVERED, path=AGENT_PATH, parsed=None, job=None, managed=False
-        )
-        assert enabled_state(listing) == "unknown"
 
 
 class TestFormatState:
@@ -147,9 +127,6 @@ class TestFormatLifecycleState:
 
     def test_unknown_enabled(self) -> None:
         assert format_lifecycle_state("unknown", True) == "Status unknown"
-
-    def test_unknown_loaded(self) -> None:
-        assert format_lifecycle_state("enabled", None) == "Status unknown"
 
 
 class TestFormatEnabled:

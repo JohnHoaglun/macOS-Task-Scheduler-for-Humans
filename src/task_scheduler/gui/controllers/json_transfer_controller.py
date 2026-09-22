@@ -64,7 +64,7 @@ class JsonTransferController:
             return JsonImportOutcome(source_path=path, error=str(exc))
         except JobNotFoundError as exc:
             return JsonImportOutcome(source_path=path, error=str(exc))
-        except Exception as exc:
+        except (ValueError, OSError) as exc:
             return JsonImportOutcome(source_path=path, error=str(exc))
         return JsonImportOutcome(
             source_path=preview.source_path,
@@ -80,7 +80,11 @@ class JsonTransferController:
         )
 
     def commit(self, outcome: JsonImportOutcome) -> JsonImportCommitOutcome:
-        """Commit the previewed import. Returns error on failure (never raises)."""
+        """Commit the previewed import.
+
+        Returns an error outcome for a conflict or expected decode/validation
+        failure; unexpected internal errors propagate.
+        """
         try:
             preview = outcome._preview
             if preview is None or outcome.error is not None:
@@ -92,5 +96,5 @@ class JsonTransferController:
             return JsonImportCommitOutcome(job=job, error=None)
         except JobConflictError as exc:
             return JsonImportCommitOutcome(job=None, error=str(exc))
-        except Exception as exc:
+        except (ValueError, OSError) as exc:
             return JsonImportCommitOutcome(job=None, error=str(exc))

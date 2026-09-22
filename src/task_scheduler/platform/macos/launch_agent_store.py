@@ -193,23 +193,6 @@ class LaunchAgentStore:
                 continue
         raise RuntimeError(f"could not allocate a unique staged sibling for {path.name!r}")
 
-    def backup_external(self, path: Path) -> Path:
-        """Preserve an external plist as a uniquely named backup sibling."""
-        if path.parent != self._root:
-            raise ValueError(f"path is outside the LaunchAgent root: {path}")
-        try:
-            payload = self._filesystem.read_plist_bytes(path)
-        except FileNotFoundError:
-            payload = b""
-        for attempt in range(1, 1001):
-            candidate = path.with_name(f"{path.name}.backup.{attempt}")
-            try:
-                self._filesystem.create_exclusive(candidate, payload)
-                return candidate
-            except FileExistsError:
-                continue
-        raise RuntimeError(f"could not allocate a unique backup sibling for {path.name!r}")
-
     def activate_external(self, staged: Path, destination: Path, expected: SourceSnapshot) -> None:
         """Atomically replace ``destination`` with ``staged`` when it matches.
 

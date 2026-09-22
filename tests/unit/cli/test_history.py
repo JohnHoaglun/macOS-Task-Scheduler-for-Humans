@@ -46,7 +46,7 @@ class FakeProcessRunner:
         self._result = result
         self.specs = []
 
-    def run(self, spec: object) -> ProcessResult:
+    def run(self, spec: object, *, timeout: float | None = None) -> ProcessResult:
         self.specs.append(spec)
         return self._result
 

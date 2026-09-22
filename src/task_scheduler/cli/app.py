@@ -357,6 +357,6 @@ def main() -> None:
     Configures the app debug log and installs crash hooks first, so an
     unexpected failure in any command is captured in the log file as well.
     """
-    configure_logging()
-    install_crash_hooks()
+    log_path = configure_logging()
+    install_crash_hooks(log_path=log_path)
     create_app(build_services())()

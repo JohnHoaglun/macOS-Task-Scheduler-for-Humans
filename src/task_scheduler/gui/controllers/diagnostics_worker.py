@@ -9,11 +9,15 @@ back through the ``finished`` signal.
 
 from __future__ import annotations
 
+import logging
+
 from PySide6.QtCore import QObject, Signal, Slot
 
 from task_scheduler.gui.controllers.diagnostics_controller import DiagnosticsController
 
 __all__ = ["DiagnosticsWorker"]
+
+logger = logging.getLogger(__name__)
 
 
 class DiagnosticsWorker(QObject):
@@ -31,6 +35,7 @@ class DiagnosticsWorker(QObject):
         try:
             outcome = self._controller.execute()
         except Exception:
+            logger.exception("Direct test execution failed unexpectedly")
             outcome = None
         finally:
             self._controller.finish()

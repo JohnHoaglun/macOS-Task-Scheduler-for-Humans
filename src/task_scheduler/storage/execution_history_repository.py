@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import logging
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
@@ -25,6 +26,8 @@ from task_scheduler.application.history_models import (
     HistoryOutcome,
     HistoryReadResult,
 )
+
+logger = logging.getLogger(__name__)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS execution_history (
@@ -59,6 +62,9 @@ class ExecutionHistoryRepository:
     — any open or schema failure marks the repository unavailable, so later
     ``append`` calls are no-ops and ``read`` returns ``HISTORY_UNAVAILABLE``.
 
+    The first append persistence failure is logged once and marks the
+    repository unavailable; subsequent appends are no-ops.
+
     Each operation opens a fresh connection, so the repository holds no
     long-lived connection state.
     """
@@ -81,7 +87,11 @@ class ExecutionHistoryRepository:
                     db.close()
 
     def append(self, event: HistoryEvent) -> None:
-        """Record one event. Best-effort — never raises."""
+        """Record one event. Best-effort — never raises.
+
+        The first persistence failure logs once and marks the repository
+        unavailable; subsequent appends are no-ops.
+        """
         if self._unavailable:
             return
 
@@ -112,7 +122,8 @@ class ExecutionHistoryRepository:
                 )
                 db.commit()
         except (sqlite3.Error, OSError):
-            pass
+            self._unavailable = True
+            logger.exception("execution history append failed; recording is now unavailable")
 
     def read(self, job_id: UUID, *, limit: int) -> HistoryReadResult:
         """Read the most recent events for *job_id*, newest first.

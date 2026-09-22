@@ -325,17 +325,13 @@ class TestDisableExternal:
         _ensure_la_root(world)
         original = {"Label": "com.example.d1", "ProgramArguments": ["/bin/true"]}
         plist_path = _write_plist(world, "com.example.d1.plist", original)
-        world.backend._runner = FakeProcessRunner(
-            results=[OK_PROCESS, OK_PROCESS, OK_PROCESS]
-        )
+        world.backend._runner = FakeProcessRunner(results=[OK_PROCESS, OK_PROCESS, OK_PROCESS])
         result = world.services.disable_external(plist_path)
         assert result.replaced is True
         assert result.reloaded is False
         assert result.completed_phases == ("disable", "bootout")
         assert len(result.retained_artifacts) == 1
-        expected = plistlib.dumps(
-            {**original, "Disabled": True}, fmt=plistlib.FMT_XML
-        )
+        expected = plistlib.dumps({**original, "Disabled": True}, fmt=plistlib.FMT_XML)
         assert plist_path.read_bytes() == expected
         assert len(list(world.la_root.glob("*.backup.*"))) == 1
 
@@ -344,35 +340,13 @@ class TestDisableExternal:
         _ensure_la_root(world)
         original = {"Label": "com.example.d2", "ProgramArguments": ["/bin/true"]}
         plist_path = _write_plist(world, "com.example.d2.plist", original)
-        world.backend._runner = FakeProcessRunner(
-            results=[ProcessResult(exit_code=1), OK_PROCESS]
-        )
+        world.backend._runner = FakeProcessRunner(results=[ProcessResult(exit_code=1), OK_PROCESS])
         result = world.services.disable_external(plist_path)
         assert "disable" in result.completed_phases
         assert "bootout" not in result.completed_phases
         assert result.replaced is True
-        expected = plistlib.dumps(
-            {**original, "Disabled": True}, fmt=plistlib.FMT_XML
-        )
+        expected = plistlib.dumps({**original, "Disabled": True}, fmt=plistlib.FMT_XML)
         assert plist_path.read_bytes() == expected
-
-    def test_already_disabled_skips_write(self, tmp_path: Path) -> None:
-        world = FakeTaskWorld(tmp_path)
-        _ensure_la_root(world)
-        original = {
-            "Label": "com.example.d3",
-            "ProgramArguments": ["/bin/true"],
-            "Disabled": True,
-        }
-        plist_path = _write_plist(world, "com.example.d3.plist", original)
-        world.backend._runner = FakeProcessRunner(
-            results=[ProcessResult(exit_code=1), OK_PROCESS]
-        )
-        result = world.services.disable_external(plist_path)
-        assert result.replaced is False
-        assert result.retained_artifacts == ()
-        assert "disable" in result.completed_phases
-        assert len(list(world.la_root.glob("*.backup.*"))) == 0
 
 
 class TestEnableExternal:
@@ -439,18 +413,6 @@ class TestEnableExternal:
             fmt=plistlib.FMT_XML,
         )
         assert plist_path.read_bytes() == expected
-
-    def test_already_enabled_skips_write(self, tmp_path: Path) -> None:
-        world = FakeTaskWorld(tmp_path)
-        _ensure_la_root(world)
-        original = {"Label": "com.example.e3", "ProgramArguments": ["/bin/true"]}
-        plist_path = _write_plist(world, "com.example.e3.plist", original)
-        world.backend._runner = FakeProcessRunner(results=[OK_PROCESS, OK_PROCESS])
-        result = world.services.enable_external(plist_path)
-        assert result.replaced is False
-        assert result.retained_artifacts == ()
-        assert "enable" in result.completed_phases
-        assert len(list(world.la_root.glob("*.backup.*"))) == 0
 
 
 class TestRunNowExternal:

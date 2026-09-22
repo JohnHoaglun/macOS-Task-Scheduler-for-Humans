@@ -9,11 +9,15 @@ back through the ``finished`` signal.
 
 from __future__ import annotations
 
+import logging
+
 from PySide6.QtCore import QObject, Signal, Slot
 
 from task_scheduler.gui.controllers.lifecycle_controller import LifecycleController
 
 __all__ = ["LifecycleWorker"]
+
+logger = logging.getLogger(__name__)
 
 
 class LifecycleWorker(QObject):
@@ -31,6 +35,7 @@ class LifecycleWorker(QObject):
         try:
             outcome = self._controller.execute()
         except Exception:
+            logger.exception("Lifecycle execution failed unexpectedly")
             outcome = None
         finally:
             self._controller.finish()

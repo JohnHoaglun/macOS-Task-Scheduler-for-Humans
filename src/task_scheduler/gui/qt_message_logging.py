@@ -3,12 +3,15 @@
 A class of "silent crash" in Qt apps is a C++-side ``qFatal``/assert, which
 aborts the process without raising a Python exception — so it never reaches
 ``sys.excepthook``. Installing a Qt message handler captures those (and Qt
-warnings/criticals) into the same rotating file log.
+warnings/criticals) into the same rotating file log. Fatal messages are
+logged, the handlers are flushed, and the process is then aborted, mirroring
+Qt's default qFatal behavior so the fatal record is durable before the abort.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Callable
 
 from PySide6.QtCore import QtMsgType, qInstallMessageHandler
@@ -37,6 +40,10 @@ def _make_handler() -> Callable[[QtMsgType, object, str], None]:
     def _handler(message_type: QtMsgType, context: object, message: str) -> None:
         location = getattr(context, "file", None) or getattr(context, "function", None) or "qt"
         logger.log(qt_message_level(message_type), "Qt [%s]: %s", location, message)
+        if message_type == QtMsgType.QtFatalMsg:
+            for handler in logging.root.handlers:
+                handler.flush()
+            os.abort()
 
     return _handler
 

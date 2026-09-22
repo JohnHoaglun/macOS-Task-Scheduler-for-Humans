@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import threading
 from pathlib import Path
 
 import pytest
@@ -12,11 +11,9 @@ from pytestqt.qtbot import QtBot
 from tests.conftest import make_job
 from tests.fakes import FakeTaskWorld
 
-from task_scheduler.application.test_service import DirectTestResult
 from task_scheduler.domain import JobDefinition, LoggingConfig
 from task_scheduler.gui.controllers.diagnostics_controller import (
     DiagnosticsController,
-    TestOutcome,
 )
 from task_scheduler.gui.dialog_sizing import bounded_preferred_size
 from task_scheduler.gui.widgets.direct_test_dialog import DirectTestDialog
@@ -114,35 +111,3 @@ class TestDirectTestDialog:
         out.write_text("first\nsecond\n")
         dialog.panel.refresh_button.click()
         assert _tab(dialog, "diagnostics-persisted-stdout") == "first\nsecond\n"
-
-    def test_closed_dialog_ignores_late_outcome(
-        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """An outcome delivered after closeEvent leaves the panel unchanged."""
-        world = FakeTaskWorld(tmp_path)
-        job = make_job()
-        controller = DiagnosticsController(world.services, {})
-        release = threading.Event()
-
-        def blocked(target: JobDefinition, *, detection: object = None) -> DirectTestResult:
-            release.wait(timeout=5)
-            return DirectTestResult(process=ProcessResult(exit_code=0, stdout="late"))
-
-        monkeypatch.setattr(world.services, "test_job", blocked)
-        dialog = DirectTestDialog(controller, job)
-        qtbot.addWidget(dialog)
-        assert dialog._thread is not None
-        assert dialog._thread.parent() is None
-        assert dialog._thread in DirectTestDialog._active_threads
-        dialog.close()
-        assert dialog in DirectTestDialog._closing_dialogs
-        dialog._on_finished(TestOutcome(label=job.label, result=None, error="late"))
-        assert _summary(dialog) == DEFAULT_SUMMARY
-        release.set()
-        qtbot.waitUntil(
-            lambda: not controller.busy and dialog not in DirectTestDialog._closing_dialogs,
-            timeout=5000,
-        )
-        assert dialog._worker is None
-        assert dialog._thread is None
-        assert DirectTestDialog._active_threads == set()

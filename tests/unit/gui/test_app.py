@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import runpy
+import threading
 from pathlib import Path
 from typing import NoReturn
 
@@ -30,10 +31,11 @@ class _EmptyServices:
         raise NotImplementedError
 
 
-class _FakeApp:
+class _FakeApp(QtCore.QObject):
     """Stands in for QApplication: records the exec call, returns code 42."""
 
     def __init__(self, argv: list[str]) -> None:
+        super().__init__()
         self.argv = argv
         self.exec_called = False
 
@@ -105,7 +107,7 @@ def test_main_module_launcher_exits_with_return_code(
     monkeypatch.setattr(main_window, "MainWindow", _FakeWindow)
     # Keep the entry point's logging/crash wiring out of the test's real env.
     monkeypatch.setattr(app_logging_mod, "configure_logging", lambda log_path=None: Path("app.log"))
-    monkeypatch.setattr(app_logging_mod, "install_crash_hooks", lambda on_crash=None: None)
+    monkeypatch.setattr(app_logging_mod, "install_crash_hooks", lambda *args, **kwargs: None)
     monkeypatch.setattr(app_logging_mod, "logging_degraded_reason", lambda: None)
     monkeypatch.setattr(qt_msg_mod, "install_qt_message_handler", lambda: None)
     app_file = Path(__file__).resolve().parents[3] / "src" / "task_scheduler" / "gui" / "app.py"
@@ -141,8 +143,9 @@ def test_show_crash_dialog_displays_log_path(monkeypatch: pytest.MonkeyPatch) ->
     assert "/tmp/app.log" in text
 
 
-class _AppWithQuit:
+class _AppWithQuit(QtCore.QObject):
     def __init__(self) -> None:
+        super().__init__()
         self.quit_called = False
 
     def quit(self) -> None:
@@ -158,13 +161,10 @@ def test_crash_callback_shows_dialog_and_quits(monkeypatch: pytest.MonkeyPatch) 
     assert app.quit_called
 
 
-def test_crash_callback_without_quit_attribute_still_shows_dialog(
-    monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_crash_callback_without_app_shows_dialog_only(monkeypatch: pytest.MonkeyPatch) -> None:
     fake = _FakeMessageBox()
     monkeypatch.setattr(gui_app, "QMessageBox", fake)
-    app = object()  # no ``quit`` attribute -> the callback must not call quit
-    gui_app._make_crash_callback(app, Path("/tmp/app.log"))()
+    gui_app._make_crash_callback(None, Path("/tmp/app.log"))()
     assert len(fake.critical_calls) == 1
 
 
@@ -177,13 +177,11 @@ def test_main_degraded_logging_shows_warning_and_status(
     monkeypatch.setattr(gui_app, "install_qt_message_handler", lambda: None)
     monkeypatch.setattr(gui_app, "configure_logging", lambda: Path("app.log"))
     monkeypatch.setattr(gui_app, "logging_degraded_reason", lambda: "log-write-failed")
-    monkeypatch.setattr(gui_app, "install_crash_hooks", lambda on_crash=None: None)
+    monkeypatch.setattr(gui_app, "install_crash_hooks", lambda on_crash=None, log_path=None: None)
     monkeypatch.setattr(gui_app, "create_main_window", lambda _services: window)
     monkeypatch.setattr(gui_app, "QMessageBox", box)
     assert gui_app.main() == 42
-    assert box.warning_calls == [
-        (None, "Logging degraded", gui_app._degraded_logging_notice())
-    ]
+    assert box.warning_calls == [(None, "Logging degraded", gui_app._degraded_logging_notice())]
     assert window.status.messages == [gui_app._degraded_logging_notice()]
     assert window.shown
 
@@ -192,8 +190,37 @@ def test_crash_dialog_and_callback_are_degraded_safe(monkeypatch: pytest.MonkeyP
     fake = _FakeMessageBox()
     monkeypatch.setattr(gui_app, "QMessageBox", fake)
     gui_app._show_crash_dialog(Path("/tmp/app.log"), degraded=True)
-    gui_app._make_crash_callback(object(), Path("/tmp/app.log"), "log-write-failed")()
+    gui_app._make_crash_callback(None, Path("/tmp/app.log"), "log-write-failed")()
     assert len(fake.critical_calls) == 2
     for _parent, _title, text in fake.critical_calls:
         assert "/tmp/app.log" not in text
         assert "may not have been saved" in text
+
+
+def test_crash_from_worker_thread_marshals_dialog_to_gui_thread(
+    qtbot: QtBot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    shown: list[tuple[Path, bool, QtCore.QThread]] = []
+
+    def _record(log_path: Path, degraded: bool) -> None:
+        shown.append((log_path, degraded, QtCore.QThread.currentThread()))
+
+    class _SpyApp(QtCore.QObject):
+        def __init__(self) -> None:
+            super().__init__()
+            self.quit_requested = False
+
+        def quit(self) -> None:
+            self.quit_requested = True
+
+    monkeypatch.setattr(gui_app, "_show_crash_dialog", _record)
+    app = _SpyApp()
+    callback = gui_app._make_crash_callback(app, Path("/tmp/app.log"))
+    worker = threading.Thread(target=callback)
+    worker.start()
+    worker.join()
+    qtbot.waitUntil(lambda: len(shown) == 1)
+    log_path, degraded, gui_thread = shown[0]
+    assert (log_path, degraded) == (Path("/tmp/app.log"), False)
+    assert gui_thread is QtCore.QCoreApplication.instance().thread()
+    assert app.quit_requested

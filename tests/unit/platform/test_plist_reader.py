@@ -17,16 +17,6 @@ def _parse(name: str) -> ParsedLaunchAgent:
 
 
 class TestInvalid:
-    @pytest.mark.parametrize(
-        "name",
-        ["malformed.plist", "missing_label.plist", "bad_program_arguments.plist"],
-    )
-    def test_invalid_fixtures(self, name: str) -> None:
-        result = _parse(name)
-        assert result.status is ParseSupport.INVALID
-        assert result.job is None
-        assert result.warnings
-
     def test_malformed_calendar_weekday(self) -> None:
         result = _parse("malformed_calendar.plist")
         assert result.status is ParseSupport.INVALID

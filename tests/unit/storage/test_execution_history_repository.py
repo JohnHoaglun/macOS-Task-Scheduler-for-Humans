@@ -1,6 +1,7 @@
 """Tests for the SQLite execution-history repository."""
 
 import contextlib
+import logging
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
@@ -124,10 +125,44 @@ def test_append_sqlite_error_is_noop(tmp_path: Path, monkeypatch: pytest.MonkeyP
         raise sqlite3.OperationalError("simulated disk error")
 
     monkeypatch.setattr(ehr_module, "_connect", _failing_connect)
-    repo.append(_make_event(job_id=jid))  # no-op on connection failure
+    repo.append(_make_event(job_id=jid))  # marks the repository unavailable
     monkeypatch.undo()
 
-    assert len(repo.read(jid, limit=10).events) == 1
+    result = repo.read(jid, limit=10)
+    assert result.events == ()
+    assert result.error == HISTORY_UNAVAILABLE
+
+
+@pytest.mark.parametrize("exc_type", (sqlite3.OperationalError, OSError))
+def test_append_failure_logs_once_then_unavailable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    exc_type: type[Exception],
+) -> None:
+    """The first append failure logs one ERROR and disables further recording."""
+    repo = ExecutionHistoryRepository(tmp_path / "hist.db")
+
+    def _failing_connect(path: Path) -> sqlite3.Connection:
+        raise exc_type("simulated append failure")
+
+    monkeypatch.setattr(ehr_module, "_connect", _failing_connect)
+    with caplog.at_level(
+        logging.ERROR, logger="task_scheduler.storage.execution_history_repository"
+    ):
+        repo.append(_make_event())
+        errors = [record for record in caplog.records if record.levelno == logging.ERROR]
+        assert len(errors) == 1
+        assert errors[0].exc_info is not None
+        assert errors[0].getMessage() == (
+            "execution history append failed; recording is now unavailable"
+        )
+        repo.append(_make_event())
+        assert sum(1 for record in caplog.records if record.levelno == logging.ERROR) == 1
+
+    result = repo.read(uuid4(), limit=10)
+    assert result.events == ()
+    assert result.error == HISTORY_UNAVAILABLE
 
 
 # ── sqlite3 error in read ───────────────────────────────────────────────────

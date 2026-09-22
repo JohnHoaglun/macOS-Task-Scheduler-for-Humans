@@ -29,6 +29,7 @@ from task_scheduler.platform.macos.launch_agent_store import (
 )
 from task_scheduler.platform.macos.launchctl import (
     LAUNCHCTL_PATH,
+    LAUNCHCTL_TIMEOUT_SECONDS,
     LaunchAgentBackend,
     LaunchAgentStatus,
     LaunchctlAction,
@@ -55,6 +56,7 @@ from task_scheduler.platform.macos.process_runner import (
     ProcessLaunchFailure,
     ProcessResult,
     ProcessRunner,
+    ProcessTimeout,
     SubprocessRunner,
 )
 from task_scheduler.platform.macos.python_detection import (
@@ -98,6 +100,7 @@ __all__ = [
     "InterpreterCandidate",
     "FINDER_OPEN_PATH",
     "LAUNCHCTL_PATH",
+    "LAUNCHCTL_TIMEOUT_SECONDS",
     "LaunchAgentBackend",
     "LaunchAgentFilesystem",
     "LaunchAgentStatus",
@@ -117,6 +120,7 @@ __all__ = [
     "ProcessResult",
     "FinderRevealer",
     "ProcessRunner",
+    "ProcessTimeout",
     "ParsedLaunchAgent",
     "ParseSupport",
     "PythonDetectionResult",

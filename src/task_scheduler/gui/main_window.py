@@ -1126,6 +1126,9 @@ class MainWindow(QMainWindow):
         self._lifecycle_busy = False
         self._update_lifecycle_actions()
         if not isinstance(outcome, LifecycleOutcome):
+            self.statusBar().showMessage(
+                "The operation failed unexpectedly; see the application log."
+            )
             return
         if outcome.is_success:
             self.refresh()
@@ -1188,6 +1191,7 @@ class MainWindow(QMainWindow):
         self._update_lifecycle_actions()
         self.statusBar().clearMessage()
         if not isinstance(outcome, TestOutcome):
+            self.statusBar().showMessage("The test failed unexpectedly; see the application log.")
             return
         listing = self._selected_listing()
         if listing is None or listing.job is None or self._label_of(listing) != outcome.label:

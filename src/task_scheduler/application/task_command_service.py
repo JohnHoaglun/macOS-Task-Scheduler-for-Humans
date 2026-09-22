@@ -370,10 +370,13 @@ class TaskCommandService:
 
         Transaction: stage the freshly generated plist as a unique sibling,
         boot the label out, preserve the deployed plist as a unique backup
-        sibling, activate the staged plist, bootstrap. On a failed bootout
-        the staged sibling is retained; on a failed bootstrap the backup
-        sibling is retained. A successful reinstall removes the backup and
-        retains nothing. The primary result is always the last phase's.
+        sibling, activate the staged plist, bootstrap. On a failed bootout a
+        fresh status check decides: if the label is confirmed not loaded the
+        transaction continues; otherwise the staged sibling is removed and the
+        transaction aborts with nothing retained (catalog and deployed plist
+        untouched). On a failed bootstrap the backup sibling is retained. A
+        successful reinstall removes the backup and retains nothing. The
+        primary result is always the last phase's.
         """
         job = self._jobs.resolve(label)
         phases: list[InstallPhase] = []
@@ -386,8 +389,13 @@ class TaskCommandService:
         bootout = self._backend.bootout(label)
         phases.append(InstallPhase("bootout", bootout.process))
         if bootout.process.exit_code != 0:
-            return self._install_result(job, bootout.process, phases, completed, retained)
-        completed.append("bootout")
+            if self._backend.status(label).loaded is False:
+                completed.append("bootout")
+            else:
+                self._store.remove_sibling(staged)
+                return self._install_result(job, bootout.process, phases, completed, [])
+        else:
+            completed.append("bootout")
 
         backup = self._store.backup_plist(label)
         if backup is not None:
@@ -582,13 +590,25 @@ class TaskCommandService:
         return self._jobs.resolve(label)
 
     def uninstall(self, label: str) -> UninstallResult:
-        """Boot the managed job out and remove its catalog record on success."""
+        """Boot the managed job out and remove its catalog record and plist.
+
+        A failed bootout is recovered only when a fresh ``status`` call confirms
+        the label is no longer loaded (``loaded is False``); the plist and catalog
+        record are then still removed. Otherwise the uninstall is fail-closed and
+        nothing is removed. The returned process is always the bootout's.
+        """
         job = self._require_managed(label)
         result = self._backend.uninstall(label)
-        catalog_removed = False
         if result.process.exit_code == 0:
-            catalog_removed = self._jobs.remove(job.id)
-        return UninstallResult(label=label, process=result.process, catalog_removed=catalog_removed)
+            return UninstallResult(
+                label=label, process=result.process, catalog_removed=self._jobs.remove(job.id)
+            )
+        if self._backend.status(label).loaded is False:
+            self._store.remove(label)
+            return UninstallResult(
+                label=label, process=result.process, catalog_removed=self._jobs.remove(job.id)
+            )
+        return UninstallResult(label=label, process=result.process, catalog_removed=False)
 
     def enable(self, label: str) -> LaunchctlResult:
         """Re-enable a managed job (launchctl enable)."""
@@ -918,12 +938,14 @@ class TaskCommandService:
     ) -> ExternalEditResult:
         """Replace an external plist with canonical XML text.
 
-        Raises ``ValueError`` on invalid input, label mismatch, or source drift.
+        Raises ``ValueError`` on invalid input, a replacement that drops or
+        changes the label, a label-less session being given a new label, or
+        source drift.
         """
         path = session.source_path
         try:
             parsed_replacement = plistlib.loads(replacement_text.encode("utf-8"))
-        except Exception:
+        except (plistlib.InvalidFileException, ValueError):
             raise ValueError("the replacement is not a valid plist") from None
         if not isinstance(parsed_replacement, dict):
             raise ValueError("the replacement is not a valid plist")
@@ -932,12 +954,17 @@ class TaskCommandService:
         if not isinstance(new_label, str) or not new_label:
             new_label = None
 
-        if session.label is not None and new_label is not None and new_label != session.label:
+        if new_label is None:
+            raise ValueError("the replacement must contain a valid launchd label")
+        if session.label is None:
+            raise ValueError(
+                "an external edit cannot add a new launchd label; "
+                "change the Label key of the existing plist"
+            )
+        if new_label != session.label:
             raise ValueError(
                 f"label cannot change in an external edit: {session.label} -> {new_label}"
             )
-        if new_label is None:
-            raise ValueError("the replacement must contain a valid launchd label")
 
         # No-change check: compare canonical bytes to current source
         current_bytes = path.read_bytes()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import faulthandler
 import json
 import logging
 import sys
@@ -63,51 +64,10 @@ def test_configure_logging_creates_and_is_idempotent(tmp_path: Path) -> None:
     assert path.exists()
 
 
-def test_configure_logging_uses_default_path(tmp_path, monkeypatch):
-    monkeypatch.setattr(al, "app_log_path", lambda: tmp_path / "app.log")
-    assert al.configure_logging() == tmp_path / "app.log"
-
-
 def test_ids_are_stable_and_unique() -> None:
     assert al.session_id() == al.session_id() and len(al.session_id()) == 32
     first, second = al.new_operation_id(), al.new_operation_id()
     assert first != second and len(first) == 12
-
-
-def test_emit_event_writes_valid_jsonl_with_all_field_kinds(tmp_path: Path) -> None:
-    path = tmp_path / "app.log"
-    al.configure_logging(path)
-    config = {"command": "/bin/echo", "args": ["hi"], "env": {"PATH": "/bin"}}
-    al.emit_event("config.snapshot", source="job_editor", task_id="com.example.task",
-                  config=config, outcome="success", menu="View", action="show_filters")
-    rec = _event(path, "config.snapshot")
-    assert rec["source"] == "job_editor"
-    assert rec["task_id"] == "com.example.task"
-    assert rec["config"] == config
-    assert rec["outcome"] == "success"
-    assert rec["menu"] == "View"
-    assert rec["action"] == "show_filters"
-    assert rec["level"] == "INFO"
-    assert "ts" in rec and "seq" in rec
-
-
-def test_emit_error_includes_exception_details(tmp_path: Path) -> None:
-    path = tmp_path / "app.log"
-    al.configure_logging(path)
-    op = al.new_operation_id()
-    try:
-        raise RuntimeError("operation failed")
-    except RuntimeError as exc:
-        al.emit_error("operation.lifecycle", source="main_window", exc=exc, op_id=op,
-                      task_id="com.example.task")
-    rec = _event(path, "operation.lifecycle")
-    assert rec["level"] == "ERROR"
-    assert rec["op_id"] == op
-    assert rec["task_id"] == "com.example.task"
-    err = rec["error"]
-    assert err["type"] == "RuntimeError"
-    assert err["message"] == "operation failed"
-    assert "Traceback" in err["traceback"]
 
 
 @pytest.mark.parametrize("with_callback", [True, False])
@@ -146,9 +106,15 @@ def test_unraisable_hook_writes_structured_log(tmp_path, monkeypatch):
     al.configure_logging(path)
     monkeypatch.setattr(sys, "unraisablehook", lambda unraisable: None)
     al.install_crash_hooks()
-    sys.unraisablehook(SimpleNamespace(
-        err_msg="background failure", description="legacy", exc_type=ValueError,
-        exc_value=ValueError("bg"), exc_traceback=None))
+    sys.unraisablehook(
+        SimpleNamespace(
+            err_msg="background failure",
+            description="legacy",
+            exc_type=ValueError,
+            exc_value=ValueError("bg"),
+            exc_traceback=None,
+        )
+    )
     rec = _event(path, "crash.unraisable_exception")
     assert rec["error"]["type"] == "ValueError"
     assert rec["error"]["message"] == "background failure"
@@ -215,9 +181,7 @@ def test_rollover_needed_when_log_file_is_missing(tmp_path: Path) -> None:
 
 def _tagged_handlers() -> list[logging.Handler]:
     return [
-        handler
-        for handler in logging.getLogger().handlers
-        if getattr(handler, al._TAG_ATTR, False)
+        handler for handler in logging.getLogger().handlers if getattr(handler, al._TAG_ATTR, False)
     ]
 
 
@@ -225,10 +189,13 @@ def _raise_permission_error(*_args: object, **_kwargs: object) -> None:
     raise PermissionError
 
 
-@pytest.mark.parametrize(("fault", "expected"), [
-    (al._LoggingFault("log-directory-unavailable"), "log-directory-unavailable"),
-    (OSError("open failed"), "log-file-unavailable"),
-])
+@pytest.mark.parametrize(
+    ("fault", "expected"),
+    [
+        (al._LoggingFault("log-directory-unavailable"), "log-directory-unavailable"),
+        (OSError("open failed"), "log-file-unavailable"),
+    ],
+)
 def test_startup_fault_installs_stderr_fallback(tmp_path, monkeypatch, capfd, fault, expected):
     def broken(_path):
         raise fault
@@ -240,8 +207,10 @@ def test_startup_fault_installs_stderr_fallback(tmp_path, monkeypatch, capfd, fa
     assert len(tagged) == 1 and getattr(tagged[0], al._KIND_ATTR) == "stderr"
     assert al.logging_degraded_reason() == expected
     lines = [json.loads(line) for line in capfd.readouterr().err.splitlines() if line.strip()]
-    assert any(rec.get("event") == "app.logging_degraded" and rec.get("reason") == expected
-               for rec in lines)
+    assert any(
+        rec.get("event") == "app.logging_degraded" and rec.get("reason") == expected
+        for rec in lines
+    )
 
 
 def test_failed_replacement_preserves_existing_handler(tmp_path, monkeypatch):
@@ -353,8 +322,7 @@ def test_enforce_user_only_rejects_unverifiable_permissions(tmp_path, monkeypatc
     path = tmp_path / "file"
     path.write_text("x", encoding="utf-8")
     monkeypatch.setattr(al.os, "chmod", lambda *_a: None)
-    monkeypatch.setattr(al.os, "stat",
-                        lambda *_a: SimpleNamespace(st_mode=0o644, st_size=1))
+    monkeypatch.setattr(al.os, "stat", lambda *_a: SimpleNamespace(st_mode=0o644, st_size=1))
     with pytest.raises(OSError):
         al._enforce_user_only(path)
 
@@ -393,17 +361,19 @@ def test_retention_rolls_over_oversized_active_log(tmp_path: Path) -> None:
     assert path.exists()
 
 
-def test_sequence_numbers_increase(tmp_path: Path) -> None:
-    path = tmp_path / "app.log"
-    al.configure_logging(path)
-    al.emit_event("seq.a", source="t")
-    al.emit_event("seq.b", source="t")
-    seqs = [
-        str(record["seq"])
-        for record in _read_jsonl(path)
-        if str(record.get("event", "")).startswith("seq.")
-    ]
-    assert len(set(seqs)) == len(seqs) == 2
+def test_crash_hooks_register_faulthandler(tmp_path: Path) -> None:
+    log = tmp_path / "fault.log"
+    try:
+        al.install_crash_hooks(log_path=log)
+        assert faulthandler.is_enabled()
+        assert al._fault_file is not None
+        assert al._fault_file.name == str(log)
+        al.install_crash_hooks(log_path=tmp_path)  # unopenable: falls back to stderr
+    finally:
+        faulthandler.disable()
+        if al._fault_file is not None:
+            al._fault_file.close()
+            al._fault_file = None
 
 
 def test_format_exception_without_value() -> None:

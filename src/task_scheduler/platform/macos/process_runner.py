@@ -32,6 +32,13 @@ class ProcessLaunchFailure(BaseModel):
     message: str
 
 
+class ProcessTimeout(BaseModel):
+    """Why a running process was killed because it hit its deadline."""
+
+    deadline: float
+    message: str
+
+
 class CommandSpec(BaseModel):
     """One process invocation with an explicit, complete environment.
 
@@ -47,8 +54,12 @@ class CommandSpec(BaseModel):
 class ProcessResult(BaseModel):
     """Outcome of one process invocation.
 
-    ``exit_code`` is None when the process never started; then
-    ``launch_failure`` describes why.
+    ``exit_code`` is None when the process never started (then
+    ``launch_failure`` describes why) or when it was killed because it
+    reached its deadline (then ``timed_out`` describes it and
+    ``stdout``/``stderr`` may hold partial output). The three terminal
+    states — successful/nonzero exit, launch failure, timeout — are
+    mutually exclusive.
     """
 
     exit_code: int | None
@@ -56,36 +67,47 @@ class ProcessResult(BaseModel):
     stderr: str = ""
     duration: timedelta = timedelta()
     launch_failure: ProcessLaunchFailure | None = None
+    timed_out: ProcessTimeout | None = None
 
 
 class ProcessRunner(Protocol):
     """Port for process execution; implemented by SubprocessRunner and fakes."""
 
-    def run(self, spec: CommandSpec) -> ProcessResult:
-        """Execute *spec* and return its result; never raises for launch errors."""
+    def run(self, spec: CommandSpec, *, timeout: float | None = None) -> ProcessResult:
+        """Execute *spec* and return its result; never raises for launch errors
+        or for a deadline being hit. With *timeout* (seconds) the child is
+        killed and the result is marked ``timed_out`` when it elapses."""
 
 
 class SubprocessRunner:
     """Production runner backed by the standard library.
 
-    No timeout is applied (by design for this increment). The monotonic
-    clock is injectable for deterministic duration tests.
+    Captured output is decoded as explicit UTF-8 (invalid byte sequences are
+    replaced, never raised). An optional per-call timeout (seconds) kills the
+    child and produces a ``timed_out`` result. The monotonic clock is
+    injectable for deterministic duration tests.
     """
 
     def __init__(self, clock: Callable[[], float] | None = None) -> None:
         self._clock = clock if clock is not None else time.monotonic
 
-    def run(self, spec: CommandSpec) -> ProcessResult:
+    def run(self, spec: CommandSpec, *, timeout: float | None = None) -> ProcessResult:
         started = self._clock()
         try:
             completed = subprocess.run(
                 spec.argv,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 env=dict(spec.environment),
                 cwd=spec.working_directory,
                 check=False,
+                timeout=timeout,
             )
+        except subprocess.TimeoutExpired as exc:
+            assert timeout is not None  # only raised when a deadline was given
+            return self._timed_out(exc, timeout, self._clock() - started)
         except FileNotFoundError as exc:
             return self._failure(LaunchFailureKind.NOT_FOUND, str(exc), self._clock() - started)
         except PermissionError as exc:
@@ -107,3 +129,23 @@ class SubprocessRunner:
             duration=timedelta(seconds=seconds),
             launch_failure=ProcessLaunchFailure(kind=kind, message=message),
         )
+
+    def _timed_out(
+        self, exc: subprocess.TimeoutExpired, deadline: float, seconds: float
+    ) -> ProcessResult:
+        return ProcessResult(
+            exit_code=None,
+            stdout=self._decode(exc.stdout),
+            stderr=self._decode(exc.stderr),
+            duration=timedelta(seconds=seconds),
+            timed_out=ProcessTimeout(deadline=deadline, message=str(exc)),
+        )
+
+    @staticmethod
+    def _decode(data: bytes | str | None) -> str:
+        """Decode partial captured output; bytes use UTF-8 with replacement."""
+        if data is None:
+            return ""
+        if isinstance(data, bytes):
+            return data.decode("utf-8", errors="replace")
+        return data

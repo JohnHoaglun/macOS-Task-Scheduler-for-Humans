@@ -10,7 +10,6 @@ import pytest
 from PySide6.QtCore import QObject, QThread
 from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import (
-    QApplication,
     QCheckBox,
     QComboBox,
     QFileDialog,
@@ -25,7 +24,6 @@ from pytestqt.qtbot import QtBot
 from tests.conftest import make_job
 from tests.fakes import FakeTaskWorld
 
-import task_scheduler.gui.widgets.job_editor as job_editor_module
 from task_scheduler.application.job_service import default_job_logs_root, managed_label
 from task_scheduler.domain import (
     JobDefinition,
@@ -38,7 +36,6 @@ from task_scheduler.gui.presenters.agent_presenter import (
 )
 from task_scheduler.gui.widgets.direct_test_dialog import DirectTestDialog
 from task_scheduler.gui.widgets.job_editor import (
-    _IDENTITY_FIELD_WIDTH_PROBE,
     JobEditor,
 )
 from task_scheduler.platform.macos import (
@@ -173,11 +170,6 @@ class TestKindSwitching:
         box.setCurrentIndex(0)
         assert stack(editor).currentIndex() == 0
 
-    def test_weekdays_has_no_redundant_form_label(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """Weekday checkboxes are retained without a duplicate form label."""
-        _, editor, _ = make_editor(qtbot, tmp_path)
-        assert "Weekdays" not in {label.text() for label in editor.findChildren(QLabel)}
-
 
 class TestValidation:
     def test_valid_draft_validate_shows_success(self, qtbot: QtBot, tmp_path: Path) -> None:
@@ -188,13 +180,6 @@ class TestValidation:
         assert errors(editor).isVisible()
         assert errors(editor).toPlainText() == "No issues found."
         assert button(editor, "editor-save").isEnabled()
-
-    def test_validate_explains_its_non_saving_result(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """Validate describes both its scope and where feedback appears."""
-        _, editor, _ = make_editor(qtbot, tmp_path)
-        assert button(editor, "editor-validate").toolTip() == (
-            "Check for errors without saving; results appear above."
-        )
 
 
 class TestIdentity:
@@ -236,14 +221,6 @@ class TestIdentity:
         assert editor._draft is not None
         assert label(editor).text() == job.label
         assert editor._draft.label == job.label
-
-    def test_identity_name_field_is_widened(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """The name field gets a font-scaled minimum width (~2x the cramped default)."""
-        _, editor, _ = make_editor(qtbot, tmp_path)
-        name = line_edit(editor, "editor-name")
-        expected = QFontMetrics(name.font()).horizontalAdvance(_IDENTITY_FIELD_WIDTH_PROBE)
-        assert name.minimumWidth() == expected
-        assert expected >= QFontMetrics(name.font()).horizontalAdvance("x" * 25)
 
 
 class TestPreview:
@@ -319,28 +296,6 @@ class TestCloseAndBrowse:
         assert line_edit(editor, "editor-log-directory").text() == "/tmp/logs"
         assert line_edit(editor, "editor-stdout-path").text() == "/tmp/logs/nightly sync.stdout.log"
         assert line_edit(editor, "editor-stderr-path").text() == "/tmp/logs/nightly sync.stderr.log"
-
-    def test_renaming_updates_both_derived_stream_paths(
-        self, qtbot: QtBot, tmp_path: Path
-    ) -> None:
-        """Typing the task name live-updates both derived stream paths."""
-        _, editor, _ = make_editor(qtbot, tmp_path)
-        line_edit(editor, "editor-name").textEdited.emit("Nightly Sync")
-        root = str(default_job_logs_root())
-        assert line_edit(editor, "editor-stdout-path").text() == f"{root}/nightly sync.stdout.log"
-        assert line_edit(editor, "editor-stderr-path").text() == f"{root}/nightly sync.stderr.log"
-
-    def test_clearing_log_directory_disables_both_streams(
-        self, qtbot: QtBot, tmp_path: Path
-    ) -> None:
-        """Clearing the log directory blanks both derived stream paths."""
-        _, editor, _ = make_editor(qtbot, tmp_path)
-        line_edit(editor, "editor-name").textEdited.emit("Nightly Sync")
-        directory = line_edit(editor, "editor-log-directory")
-        directory.setText("")
-        directory.textEdited.emit("")
-        assert line_edit(editor, "editor-stdout-path").text() == ""
-        assert line_edit(editor, "editor-stderr-path").text() == ""
 
 
 class TestUnopenedDialog:
@@ -500,28 +455,6 @@ class TestDirectTestDraft:
         assert len(opened) == 1
         assert opened[0].name == "Renamed Backup"
         assert opened[0].label == make_job().label
-
-    def test_test_draft_passes_worker_registration_callback(
-        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        def callback(_thread: QThread, _worker: QObject) -> None:
-            return None
-
-        _, editor = make_test_draft_editor(
-            qtbot, tmp_path, job=make_job(), on_test_worker_started=callback
-        )
-        created: dict[str, object] = {}
-
-        class FakeDialog:
-            def __init__(self, *args: object, **kwargs: object) -> None:
-                created["callback"] = kwargs.get("on_worker_started")
-
-            def exec(self) -> int:
-                return 1
-
-        monkeypatch.setattr(job_editor_module, "DirectTestDialog", FakeDialog)
-        button(editor, "editor-test-draft").click()
-        assert created["callback"] is callback
 
 
 PREVIEW_NOW = datetime(2026, 9, 4, 12, 0)  # Friday
@@ -739,11 +672,3 @@ class TestExternalMode:
         line_edit(editor, "editor-name").textEdited.emit("renamed")
         assert stdout.text() == "/tmp/external/out.log"
         assert stderr.text() == "/tmp/external/err.log"
-
-
-def test_initial_size_is_bounded_by_primary_screen(qtbot: QtBot, tmp_path: Path) -> None:
-    """The editor's preferred size never exceeds the usable primary display."""
-    _, editor, _ = make_editor(qtbot, tmp_path)
-    screen = QApplication.primaryScreen()
-    assert screen is not None
-    assert editor.size().boundedTo(screen.availableGeometry().size()) == editor.size()

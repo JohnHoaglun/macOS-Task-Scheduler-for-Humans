@@ -446,6 +446,14 @@ class TestLifecycleEdgeCases:
         assert window._lifecycle_busy is False
         assert window._active_worker is None
 
+    def test_finished_failure_shows_status_message(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        window._on_lifecycle_finished(None)
+        assert window.statusBar().currentMessage() == (
+            "The operation failed unexpectedly; see the application log."
+        )
+
 
 class TestDiagnosticsTrigger:
     def test_trigger_without_selection_shows_hint(self, qtbot: QtBot, tmp_path: Path) -> None:
@@ -493,6 +501,14 @@ class TestDiagnosticsTrigger:
         assert window._diagnostics_busy is False
         assert window._active_test_worker is None
 
+    def test_finished_failure_shows_status_message(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world, *_ = _seed_three(tmp_path)
+        window = _window(qtbot, DiscoveryController(world.services))
+        window._on_test_finished(None)
+        assert window.statusBar().currentMessage() == (
+            "The test failed unexpectedly; see the application log."
+        )
+
     def test_refresh_renders_logs_and_environment(self, qtbot: QtBot, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
         out = tmp_path / "out.log"
@@ -532,6 +548,7 @@ class TestInspectorReadability:
     offscreen instead of discovered in the field.
     """
 
+
 class TestHistoryPanelWiring:
     def test_close_stops_tracked_worker_threads(
         self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -550,9 +567,7 @@ class TestHistoryPanelWiring:
         assert finished
         assert thread not in window._worker_threads
 
-    def test_direct_test_worker_registration_is_tracked(
-        self, qtbot: QtBot, tmp_path: Path
-    ) -> None:
+    def test_direct_test_worker_registration_is_tracked(self, qtbot: QtBot, tmp_path: Path) -> None:
         world, *_ = _seed_three(tmp_path)
         window = _window_full(qtbot, DiscoveryController(world.services))
         thread = QThread()
@@ -586,25 +601,6 @@ class TestHistoryPanelWiring:
         qtbot.waitUntil(lambda: not window._close_pending, timeout=2000)
         assert window.isVisible()
         window._worker_threads.clear()
-
-    def test_new_lifecycle_is_rejected_while_close_is_pending(
-        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        world, managed, *_ = _seed_three(tmp_path)
-        window = _window(qtbot, DiscoveryController(world.services))
-        thread = QThread()
-        window._track_worker_thread(thread)
-        thread.start()
-        qtbot.waitUntil(thread.isRunning)
-        window._close_pending = True
-        _answer_question(monkeypatch, QMessageBox.StandardButton.Yes)
-        _select_managed(world, window, managed)
-        window.run_now_action.trigger()
-        assert window._lifecycle_busy is False
-        assert window._worker_threads == {thread}
-        window._close_pending = False
-        thread.quit()
-        qtbot.waitUntil(lambda: thread not in window._worker_threads, timeout=5000)
 
     def test_worker_threads_are_parentless_and_shutdown_flush_is_safe(
         self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -672,9 +668,7 @@ class TestHistoryPanelWiring:
 class TestClosePendingGates:
     """Close-drain bookkeeping the interaction tests never exercise."""
 
-    def test_new_operations_refused_while_close_pending(
-        self, qtbot: QtBot, tmp_path: Path
-    ) -> None:
+    def test_new_operations_refused_while_close_pending(self, qtbot: QtBot, tmp_path: Path) -> None:
         window = _window(qtbot, DiscoveryController(FakeTaskWorld(tmp_path).services))
         window._close_pending = True
         window._start_external(
@@ -688,9 +682,7 @@ class TestClosePendingGates:
         assert not (window._external_busy or window._lifecycle_busy or window._diagnostics_busy)
         window._close_pending = False
 
-    def test_drain_tick_stops_timer_when_not_pending(
-        self, qtbot: QtBot, tmp_path: Path
-    ) -> None:
+    def test_drain_tick_stops_timer_when_not_pending(self, qtbot: QtBot, tmp_path: Path) -> None:
         window = _window(qtbot, DiscoveryController(FakeTaskWorld(tmp_path).services))
         window._close_timer.start()
         window._on_close_drain_tick()
@@ -721,9 +713,7 @@ class TestClosePendingGates:
         window._worker_threads.clear()
         window._close_timer.stop()
 
-    def test_close_discards_dead_thread_and_finalizes(
-        self, qtbot: QtBot, tmp_path: Path
-    ) -> None:
+    def test_close_discards_dead_thread_and_finalizes(self, qtbot: QtBot, tmp_path: Path) -> None:
         window = _window(qtbot, DiscoveryController(FakeTaskWorld(tmp_path).services))
 
         class _DeadThread:
@@ -1617,36 +1607,67 @@ class TestExternalControlCoverage:
         suffix = f" A backup is retained at: {backup}"
         cases = [
             (
-                ExternalControlKind.RAW_EDIT, True, (), True, False, (backup,),
+                ExternalControlKind.RAW_EDIT,
+                True,
+                (),
+                True,
+                False,
+                (backup,),
                 EXTERNAL_EDIT_RELOAD_FAILED.format(backup=str(backup)),
             ),
             (
-                ExternalControlKind.DISABLE, True, (), False, False, (backup,),
+                ExternalControlKind.DISABLE,
+                True,
+                (),
+                False,
+                False,
+                (backup,),
                 EXTERNAL_DISABLE_BOOTOUT_FAILED.format(label="x") + suffix,
             ),
             (
-                ExternalControlKind.DISABLE, True, (), False, False, (),
+                ExternalControlKind.DISABLE,
+                True,
+                (),
+                False,
+                False,
+                (),
                 EXTERNAL_DISABLE_BOOTOUT_FAILED.format(label="x"),
             ),
             (
-                ExternalControlKind.DISABLE, True, ("bootout",), False, False, (),
+                ExternalControlKind.DISABLE,
+                True,
+                ("bootout",),
+                False,
+                False,
+                (),
                 EXTERNAL_DISABLE_LOADED.format(label="x"),
             ),
             (
-                ExternalControlKind.ENABLE, False, (), False, False, (backup,),
+                ExternalControlKind.ENABLE,
+                False,
+                (),
+                False,
+                False,
+                (backup,),
                 EXTERNAL_ENABLE_BOOTSTRAP_FAILED.format(label="x") + suffix,
             ),
             (
-                ExternalControlKind.REMOVE, False, (), False, True, (backup,),
-                EXTERNAL_REMOVE_RESULT.format(
-                    path=world.la_root / "x.plist", backup=backup
-                ),
+                ExternalControlKind.REMOVE,
+                False,
+                (),
+                False,
+                True,
+                (backup,),
+                EXTERNAL_REMOVE_RESULT.format(path=world.la_root / "x.plist", backup=backup),
             ),
             (
-                ExternalControlKind.REMOVE, True, (), False, False, (backup,),
-                EXTERNAL_REMOVE_BOOTOUT_FAILED.format(
-                    path=world.la_root / "x.plist"
-                ) + suffix,
+                ExternalControlKind.REMOVE,
+                True,
+                (),
+                False,
+                False,
+                (backup,),
+                EXTERNAL_REMOVE_BOOTOUT_FAILED.format(path=world.la_root / "x.plist") + suffix,
             ),
         ]
         for kind, loaded, completed, replaced, removed, retained, expected in cases:

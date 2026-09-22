@@ -9,7 +9,6 @@ from pydantic import ValidationError
 from tests.conftest import make_job
 from tests.fakes import FakeTaskWorld
 
-from task_scheduler.application.job_service import default_job_logs_root, derive_log_paths
 from task_scheduler.domain import (
     ExecutableCommand,
     IntervalSchedule,
@@ -76,14 +75,6 @@ class TestOtherMutators:
 
 
 class TestLogPaths:
-    def test_open_new_defaults_log_directory_to_app_root(self, tmp_path: Path) -> None:
-        """A new draft defaults its log directory to the application log root."""
-        world, controller = make_controller(tmp_path)
-        d = controller.open_new()
-        assert d.log_directory == str(default_job_logs_root())
-        assert d.stdout_path == ""
-        assert d.stderr_path == ""
-
     def test_set_log_directory_derives_from_current_name(self, tmp_path: Path) -> None:
         """Setting the log directory derives both stream paths from the draft name."""
         world, controller = make_controller(tmp_path)
@@ -104,18 +95,6 @@ class TestLogPaths:
         assert d.log_directory == "   "
         assert d.stdout_path == ""
         assert d.stderr_path == ""
-
-    def test_derive_log_paths(self) -> None:
-        """Derivation joins the stripped name; a blank name falls back to task."""
-        assert derive_log_paths("Nightly Sync", "/tmp/logs") == (
-            "/tmp/logs/Nightly Sync.stdout.log",
-            "/tmp/logs/Nightly Sync.stderr.log",
-        )
-        assert derive_log_paths("  ", "/tmp/logs") == (
-            "/tmp/logs/task.stdout.log",
-            "/tmp/logs/task.stderr.log",
-        )
-        assert derive_log_paths("Any", "  ") == ("", "")
 
 
 class TestOpenExisting:

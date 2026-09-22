@@ -1,15 +1,15 @@
-# TODOS.md (v0.0.47)
+# TODOS.md (v0.0.48)
 
 ## Round-2 Review Remediation (IN PROGRESS — v0.0.48 → v0.0.50)
 
 Approved scope from `docs/code-review-round-2.md`: all 25 findings (R2-01…R2-25), shipped as three slices. Pinned decisions (approved 2026-09-21): automatic bootout recovery only on confirmed-not-loaded; 1,000 history events/job; `shlex.quote` command display; coalesced async discovery refresh; 256 KiB log tail with truncation marker; 30 s launchctl timeout; corrupt-catalog diagnostics in GUI panel + CLI stderr; symlink rejection; import-drift rejection; async raw-editor load.
 
-### Slice 1 — Safety And Observability (v0.0.48) — R2-01,02,05,06,09,10,12,13,15,17,24,25
-- [ ] Wave 0 (build): pin process-outcome model (success/nonzero/launch-failure/timeout distinct), 30 s timeout + UTF-8 decode in `SubprocessRunner`; typed worker terminal-outcome invariant (never `None`); bootout-recovery invariant; qFatal log/flush/abort
-- [ ] Wave 1A (smarter): R2-01 label-less raw edit rejected (no label gain); R2-15 narrow plist parse catch; R2-17 staged-plist Label check in `bootstrap_path`; R2-05 confirmed-not-loaded uninstall/reinstall recovery; R2-24 delete dead `backup_external()` + tests
-- [ ] Wave 1B (smarter): R2-02 typed lifecycle/diagnostics worker failures + MainWindow surfacing; R2-09 delete dead telemetry APIs; R2-12 history append-failure → unavailable once
-- [ ] Wave 1C (smarter): R2-06 qFatal abort; R2-13 faulthandler + GUI-thread crash dialog; R2-25 document CLI logging fallback
-- [ ] Integration + full gate + v0.0.48 closeout (ratio, registry ×4, stale grep, docs, SUMMARY/PROJECT, commit + push)
+### Slice 1 — Safety And Observability (v0.0.48) — R2-01,02,05,06,09,10,12,13,15,17,24,25 — DONE (v0.0.48)
+- [x] Wave 0 (build): pinned process-outcome model (success/nonzero/launch-failure/timeout distinct), 30 s timeout + UTF-8 replace decode in `SubprocessRunner` (`LAUNCHCTL_TIMEOUT_SECONDS = 30.0`); typed worker terminal-outcome invariant (never `None`); confirmed-not-loaded bootout-recovery invariant; qFatal log/flush/abort
+- [x] Wave 1A (general): R2-01 label-less raw edit rejected (no label gain, explicit `ValueError`); R2-15 narrow `(InvalidFileException, ValueError)` plist parse catches; R2-17 staged-plist Label check in `bootstrap_path`; R2-05 confirmed-not-loaded uninstall/reinstall recovery + fail-closed staged-sibling cleanup; R2-24 deleted dead `backup_external()` + tests
+- [x] Wave 1B (general): R2-02 worker-failure `logger.exception` + MainWindow "see the application log" status messages; R2-09 deleted dead telemetry APIs; R2-12 history append-failure → log once + unavailable
+- [x] Wave 1C (general): R2-06 qFatal `os.abort()`; R2-13 faulthandler to log + GUI-thread-marshaled crash dialog; R2-25 documented CLI degraded-output caveat
+- [x] Integration + full gate + v0.0.48 closeout: `make check` green (ruff, mypy strict, 649 tests, 100% coverage); test/source ratio 74.6273% (10,662 : 14,287, ≤75%) after 22 line-redundant test cuts (per-line coverage attribution, no unique coverage lost); version 0.0.47 → 0.0.48 (all 4 registry locations); round-2 findings marked Resolved; commit, push
 
 ### Slice 2 — Catalog, History, Trust, CLI (v0.0.49) — R2-04,07,11,14,16,20,22
 - [ ] Wave 0 (build): pin listing-result contract (valid tasks + catalog diagnostics; no synthetic rows; no auto-repair)

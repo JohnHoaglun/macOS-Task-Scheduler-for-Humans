@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from datetime import timedelta
 from pathlib import Path
 
@@ -26,6 +27,32 @@ class TestSuccessfulRuns:
         runner = SubprocessRunner(clock=FakeClock(step=1.5))
         result = runner.run(_spec(["/bin/echo", "x"]))
         assert result.duration == timedelta(seconds=1.5)
+
+
+class TestTimeouts:
+    def test_deadline_kills_and_marks_result(self) -> None:
+        result = SubprocessRunner().run(_spec(["/bin/sleep", "5"]), timeout=0.2)
+        assert result.exit_code is None
+        assert result.launch_failure is None
+        assert result.timed_out is not None
+        assert result.timed_out.deadline == 0.2
+
+    def test_fast_process_ignores_late_deadline(self) -> None:
+        result = SubprocessRunner().run(_spec(["/bin/echo", "ok"]), timeout=5)
+        assert result.exit_code == 0
+        assert result.timed_out is None
+
+    def test_invalid_utf8_is_replaced_not_raised(self) -> None:
+        code = "import sys; sys.stdout.buffer.write(b'ab\\xff\\xfe')"
+        result = SubprocessRunner().run(_spec([sys.executable, "-c", code]))
+        assert result.exit_code == 0
+        assert result.stdout == "ab\ufffd\ufffd"
+
+    def test_timeout_partial_output_decoder(self) -> None:
+        decode = SubprocessRunner._decode
+        assert decode(b"ab\xff") == "ab\ufffd"
+        assert decode("text") == "text"
+        assert decode(None) == ""
 
 
 class TestLaunchFailures:

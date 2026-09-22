@@ -1,8 +1,8 @@
 """Application-level structured logging, crash capture, and degraded fallback.
 
-Provides a JSON Lines event stream with bounded retention (10 MB / 14 days),
-a telemetry API for structured UI/operation events, and crash hooks that route
-unhandled exceptions and unraisables into the same structured log.
+Provides a JSON Lines event stream with bounded retention (10 MB / 14 days)
+and crash hooks that route unhandled exceptions, unraisables, and native
+crash dumps into the same structured log.
 
 The secure file handler is the normal application log target. If the secure
 log directory, file, permissions, retention, or stream cannot be established,
@@ -12,6 +12,7 @@ a stable, non-sensitive degraded reason.
 
 from __future__ import annotations
 
+import faulthandler
 import io
 import json
 import logging
@@ -33,8 +34,6 @@ __all__ = [
     "APP_LOG_FILENAME",
     "app_log_path",
     "configure_logging",
-    "emit_error",
-    "emit_event",
     "install_crash_hooks",
     "logging_degraded_reason",
     "new_operation_id",
@@ -81,6 +80,7 @@ _RESERVED_RECORD_ATTRS = frozenset(
 _session_id: str = uuid.uuid4().hex
 _sequence: int = 0
 _seq_lock = threading.Lock()
+_fault_file: TextIO | None = None
 
 
 class _LoggingFault(OSError):
@@ -441,60 +441,6 @@ def configure_logging(log_path: Path | None = None) -> Path:
     return path
 
 
-def emit_event(
-    event: str,
-    *,
-    source: str,
-    task_id: str | None = None,
-    config: dict[str, object] | None = None,
-    outcome: str | None = None,
-    **fields: object,
-) -> None:
-    """Emit a structured telemetry event to the application log."""
-    logger = logging.getLogger(_TELEMETRY_LOGGER)
-    extra: dict[str, object] = {
-        "event": event,
-        "source": source,
-    }
-    if task_id is not None:
-        extra["task_id"] = task_id
-    if config is not None:
-        extra["config"] = config
-    if outcome is not None:
-        extra["outcome"] = outcome
-    extra.update(fields)
-    logger.info("telemetry: %s", event, extra=extra)
-
-
-def emit_error(
-    event: str,
-    *,
-    source: str,
-    exc: BaseException,
-    op_id: str | None = None,
-    task_id: str | None = None,
-    **fields: object,
-) -> None:
-    """Emit a structured error event with exception details."""
-    logger = logging.getLogger(_TELEMETRY_LOGGER)
-    tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
-    extra: dict[str, object] = {
-        "event": event,
-        "source": source,
-        "error": {
-            "type": type(exc).__name__,
-            "message": str(exc),
-            "traceback": tb,
-        },
-    }
-    if op_id is not None:
-        extra["op_id"] = op_id
-    if task_id is not None:
-        extra["task_id"] = task_id
-    extra.update(fields)
-    logger.error("telemetry: %s", event, extra=extra)
-
-
 def _format_exception(
     exc_type: type[BaseException] | None,
     exc_value: BaseException | None,
@@ -507,13 +453,18 @@ def _format_exception(
     return "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
 
 
-def install_crash_hooks(on_crash: Callable[[], None] | None = None) -> None:
+def install_crash_hooks(
+    on_crash: Callable[[], None] | None = None, log_path: Path | None = None
+) -> None:
     """Route unhandled exceptions and unraisables into the app log.
 
     The full traceback is always written as a structured crash event.
     *on_crash*, when given, is then invoked best-effort — the GUI uses it to
     show a modal crash dialog. Previous hooks are preserved and still run.
+    Native crash dumps (faulthandler) are written to *log_path* when given
+    and openable, else stderr.
     """
+    global _fault_file
     crash_logger = logging.getLogger(_CRASH_LOGGER)
     default_hook = sys.excepthook
 
@@ -571,3 +522,13 @@ def install_crash_hooks(on_crash: Callable[[], None] | None = None) -> None:
             default_unraisable(unraisable)
 
         sys.unraisablehook = _unraisablehook
+
+    if log_path is not None:
+        try:
+            # Kept open for the process lifetime: the faulthandler owns this stream.
+            _fault_file = open(log_path, "a", encoding="utf-8", errors="replace")  # noqa: SIM115
+            faulthandler.enable(file=_fault_file)
+            return
+        except OSError:
+            pass
+    faulthandler.enable()

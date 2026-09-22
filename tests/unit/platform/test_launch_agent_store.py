@@ -30,7 +30,6 @@ class TestExternal:
         [
             "read_external",
             "stage_external",
-            "backup_external",
             "activate_external",
         ],
     )
@@ -44,8 +43,6 @@ class TestExternal:
         elif method == "stage_external":
             fn = lambda p, payload=None: store.stage_external(p, payload)  # noqa: E731
             kwargs = {"payload": b"new"}
-        elif method == "backup_external":
-            fn = store.backup_external
         else:
             staged = tmp_path / "staged.plist"
             staged.write_bytes(b"staged")
@@ -97,24 +94,6 @@ class TestExternalEdgeCases:
 
         with pytest.raises(RuntimeError, match="unique staged sibling"):
             store.stage_external(tmp_path / "agents" / "x.plist", b"new")
-
-    def test_backup_external_exhaustion_raises(self, tmp_path: Path) -> None:
-        filesystem = FakeFilesystem(
-            files={"x.plist": b"old"}, create_error=FileExistsError("taken")
-        )
-        store = LaunchAgentStore(tmp_path / "agents", filesystem=filesystem)
-
-        with pytest.raises(RuntimeError, match="unique backup sibling"):
-            store.backup_external(tmp_path / "agents" / "x.plist")
-
-    def test_backup_external_missing_file_backs_up_empty(self, tmp_path: Path) -> None:
-        filesystem = FakeFilesystem()
-        store = LaunchAgentStore(tmp_path / "agents", filesystem=filesystem)
-
-        backup = store.backup_external(tmp_path / "agents" / "gone.plist")
-
-        assert backup.name == "gone.plist.backup.1"
-        assert filesystem._files[backup.name] == b""
 
     def test_activate_external_rejects_outside_destination(self, tmp_path: Path) -> None:
         filesystem = FakeFilesystem(files={"x.plist": b"old", "x.plist.staged.1": b"new"})

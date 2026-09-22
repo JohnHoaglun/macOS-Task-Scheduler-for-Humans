@@ -71,11 +71,16 @@ class TestPreview:
             (StrictJsonDecodeError, "malformed JSON"),
             (JobNotFoundError, "com.example.job"),
             (ValueError, "unexpected"),
+            (OSError, "gone"),
         ],
     )
     def test_error(self, exc_cls: type[Exception], msg: str) -> None:
         outcome = _ctrl(error=exc_cls(msg)).preview_import(Path("/tmp/bad.json"))
         assert msg in outcome.error and outcome.candidate is None
+
+    def test_unexpected_error_propagates(self) -> None:
+        with pytest.raises(RuntimeError, match="internal"):
+            _ctrl(error=RuntimeError("internal")).preview_import(Path("/tmp/bad.json"))
 
 
 class TestCommit:
@@ -118,7 +123,8 @@ class TestCommit:
         ).commit(outcome)
         assert result.job is None and "com.example.conflict" in result.error
 
-    def test_generic_error(self) -> None:
+    @pytest.mark.parametrize("exc_cls", [ValueError, OSError])
+    def test_generic_error(self, exc_cls: type[Exception]) -> None:
         p = ManagedJsonImportPreview(
             source_path=Path("/tmp/t.json"),
             candidate=make_job(),
@@ -128,5 +134,18 @@ class TestCommit:
             can_import=True,
         )
         outcome = _ctrl(preview=p).preview_import(Path("/tmp/t.json"))
-        result = _ctrl(preview=p, commit_error=ValueError("broke")).commit(outcome)
+        result = _ctrl(preview=p, commit_error=exc_cls("broke")).commit(outcome)
         assert result.job is None and result.error == "broke"
+
+    def test_unexpected_error_propagates(self) -> None:
+        p = ManagedJsonImportPreview(
+            source_path=Path("/tmp/t.json"),
+            candidate=make_job(),
+            normalized_schema_version=2,
+            id_conflict_path=None,
+            label_conflict_path=None,
+            can_import=True,
+        )
+        outcome = _ctrl(preview=p).preview_import(Path("/tmp/t.json"))
+        with pytest.raises(RuntimeError, match="internal"):
+            _ctrl(preview=p, commit_error=RuntimeError("internal")).commit(outcome)
