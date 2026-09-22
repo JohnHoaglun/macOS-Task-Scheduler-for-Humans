@@ -62,8 +62,7 @@ class TestBootstrapPath:
         ],
     )
     def test_bootstrap_path_label_mismatch_raises(
-        self, tmp_path: Path, data: dict[str, object]
-    ) -> None:
+        self, tmp_path: Path, data: dict[str, object]) -> None:
         store = LaunchAgentStore(tmp_path / "agents")
         path = self._write(store, "io.example.job.plist", data)
         runner = FakeProcessRunner(result=OK_PROCESS)

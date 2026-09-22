@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import cast
 
 from pydantic import ValidationError
-from PySide6.QtCore import QObject, QSize, QThread, QTimer
+from PySide6.QtCore import QObject, QSignalBlocker, QSize, QThread, QTimer
 from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import (
     QApplication,
@@ -644,48 +644,87 @@ class JobEditor(QDialog):
         self._logging_note.show()
 
     def _load_draft(self) -> None:
-        """Fill every field from the current draft (setText never re-triggers the change slots)."""
+        """Fill every field from the current draft.
+
+        Signals are blocked on every field being filled so no change slot runs
+        during the load — in particular the script field schedules no interpreter
+        detection. The direct calls made here (``_stack.setCurrentIndex``,
+        ``_refresh_schedule_preview``, ``setEnabled``) are not signal slots, so
+        they still run; user edits stay connected and keep the 300 ms detection
+        debounce.
+        """
         if self._draft is None:
             return
         d = self._draft
-        self._name.setText(d.name)
-        self._label.setText(d.label)
-        kind_index = {"python": 0, "shell": 1, "executable": 2}[d.command_kind]
-        self._kind_combo.setCurrentIndex(kind_index)
-        self._stack.setCurrentIndex(kind_index)
-        self._interpreter.setText(d.interpreter)
-        self._script.setText(d.script)
-        self._python_args.set_rows([[value] for value in d.python_arguments])
-        self._shell_executable.setText(d.shell_executable)
-        self._shell_args.set_rows([[value] for value in d.shell_arguments])
-        self._executable.setText(d.executable_path)
-        self._executable_args.set_rows([[value] for value in d.executable_arguments])
-        schedule_index = {"calendar": 0, "interval": 1}[d.schedule_kind]
-        self._schedule_kind_combo.setCurrentIndex(schedule_index)
-        self._schedule_stack.setCurrentIndex(schedule_index)
-        self._times.set_times(d.times)
-        for box, day in zip(self._weekdays, DAY_NAMES, strict=True):
-            box.setChecked(day in d.weekdays)
-        self._interval_value.setText(d.interval_value)
-        self._interval_unit.setCurrentIndex(
-            ("seconds", "minutes", "hours", "days").index(d.interval_unit)
-        )
-        self._run_at_load.setChecked(d.run_at_load)
-        self._working_directory.setText(d.working_directory)
-        self._environment.set_rows([[key, value] for key, value in d.environment])
-        self._log_directory.setText(d.log_directory)
-        if self._external_mode:
-            self._stdout_path.setText(d.stdout_path)
-            self._stderr_path.setText(d.stderr_path)
-        else:
-            stdout, stderr = derive_log_paths(d.name, d.log_directory)
-            self._stdout_path.setText(stdout)
-            self._stderr_path.setText(stderr)
-        self._preview.clear()
-        self._errors.hide()
-        self._errors.clear()
-        self._save_button.setEnabled(True)
-        self._refresh_schedule_preview()
+        blockers = [
+            QSignalBlocker(widget)
+            for widget in (
+                self._name,
+                self._label,
+                self._kind_combo,
+                self._stack,
+                self._interpreter,
+                self._script,
+                self._python_args,
+                self._shell_executable,
+                self._shell_args,
+                self._executable,
+                self._executable_args,
+                self._schedule_kind_combo,
+                self._schedule_stack,
+                self._times,
+                *self._weekdays,
+                self._interval_value,
+                self._interval_unit,
+                self._run_at_load,
+                self._working_directory,
+                self._environment,
+                self._log_directory,
+                self._stdout_path,
+                self._stderr_path,
+            )
+        ]
+        try:
+            self._name.setText(d.name)
+            self._label.setText(d.label)
+            kind_index = {"python": 0, "shell": 1, "executable": 2}[d.command_kind]
+            self._kind_combo.setCurrentIndex(kind_index)
+            self._stack.setCurrentIndex(kind_index)
+            self._interpreter.setText(d.interpreter)
+            self._script.setText(d.script)
+            self._python_args.set_rows([[value] for value in d.python_arguments])
+            self._shell_executable.setText(d.shell_executable)
+            self._shell_args.set_rows([[value] for value in d.shell_arguments])
+            self._executable.setText(d.executable_path)
+            self._executable_args.set_rows([[value] for value in d.executable_arguments])
+            schedule_index = {"calendar": 0, "interval": 1}[d.schedule_kind]
+            self._schedule_kind_combo.setCurrentIndex(schedule_index)
+            self._schedule_stack.setCurrentIndex(schedule_index)
+            self._times.set_times(d.times)
+            for box, day in zip(self._weekdays, DAY_NAMES, strict=True):
+                box.setChecked(day in d.weekdays)
+            self._interval_value.setText(d.interval_value)
+            self._interval_unit.setCurrentIndex(
+                ("seconds", "minutes", "hours", "days").index(d.interval_unit)
+            )
+            self._run_at_load.setChecked(d.run_at_load)
+            self._working_directory.setText(d.working_directory)
+            self._environment.set_rows([[key, value] for key, value in d.environment])
+            self._log_directory.setText(d.log_directory)
+            if self._external_mode:
+                self._stdout_path.setText(d.stdout_path)
+                self._stderr_path.setText(d.stderr_path)
+            else:
+                stdout, stderr = derive_log_paths(d.name, d.log_directory)
+                self._stdout_path.setText(stdout)
+                self._stderr_path.setText(stderr)
+            self._preview.clear()
+            self._errors.hide()
+            self._errors.clear()
+            self._save_button.setEnabled(True)
+            self._refresh_schedule_preview()
+        finally:
+            del blockers
 
     def _collect(self) -> None:
         """Push every visible field back into the draft through the controller mutators."""

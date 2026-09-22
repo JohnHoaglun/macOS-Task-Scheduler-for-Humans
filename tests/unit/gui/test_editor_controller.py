@@ -127,8 +127,7 @@ class TestOpenExisting:
         ],
     )
     def test_interval_load_normalization(
-        self, tmp_path: Path, seconds: int, value: str, unit: str
-    ) -> None:
+        self, tmp_path: Path, seconds: int, value: str, unit: str) -> None:
         """Persisted seconds load as the largest unit that divides them exactly."""
         world, controller = make_controller(tmp_path)
         job = make_job(schedule=IntervalSchedule(seconds=seconds))
@@ -398,63 +397,36 @@ class TestSave:
 
 
 class TestFieldErrors:
-    def test_command_type_loc(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(
+        ("base", "mutate", "expected"),
+        [
+            (lambda: make_job(), lambda d: d["command"].update(type="bogus"), ["script"]),
+            (
+                lambda: make_job(command=ExecutableCommand(executable="/usr/local/bin/backup")),
+                lambda d: d["command"].update(executable="relative/bin"),
+                ["executable"],
+            ),
+            (lambda: make_job(), lambda d: d["schedule"].update(times=["garbage"]), ["times"]),
+            (lambda: make_job(), lambda d: d["schedule"].update(weekdays=[]), ["weekdays"]),
+            (
+                lambda: make_job(),
+                lambda d: d.update(schedule={"kind": "interval", "seconds": 30}),
+                ["interval"],
+            ),
+            (
+                lambda: make_job(),
+                lambda d: d["logging"].update(stdout_path="relative/out.log"),
+                ["stdout_path"],
+            ),
+        ],
+    )
+    def test_field_errors_loc(self, tmp_path: Path, base, mutate, expected) -> None:
         world, controller = make_controller(tmp_path)
-        data = make_job().model_dump()
-        data["command"]["type"] = "bogus"
+        data = base().model_dump()
+        mutate(data)
         with pytest.raises(ValidationError) as excinfo:
             JobDefinition.model_validate(data)
-        result = controller._field_errors(excinfo.value)
-        assert list(result) == ["script"]
-
-    def test_command_executable_loc(self, tmp_path: Path) -> None:
-        world, controller = make_controller(tmp_path)
-        data = make_job(
-            command=ExecutableCommand(executable="/usr/local/bin/backup", arguments=["--all"])
-        ).model_dump()
-        data["command"]["executable"] = "relative/bin"
-        with pytest.raises(ValidationError) as excinfo:
-            JobDefinition.model_validate(data)
-        result = controller._field_errors(excinfo.value)
-        assert list(result) == ["executable"]
-        assert result["executable"]
-
-    def test_schedule_time_loc(self, tmp_path: Path) -> None:
-        world, controller = make_controller(tmp_path)
-        data = make_job().model_dump()
-        data["schedule"]["times"] = ["garbage"]
-        with pytest.raises(ValidationError) as excinfo:
-            JobDefinition.model_validate(data)
-        result = controller._field_errors(excinfo.value)
-        assert list(result) == ["times"]
-
-    def test_schedule_weekdays_loc(self, tmp_path: Path) -> None:
-        world, controller = make_controller(tmp_path)
-        data = make_job().model_dump()
-        data["schedule"]["weekdays"] = []
-        with pytest.raises(ValidationError) as excinfo:
-            JobDefinition.model_validate(data)
-        result = controller._field_errors(excinfo.value)
-        assert list(result) == ["weekdays"]
-
-    def test_schedule_seconds_loc(self, tmp_path: Path) -> None:
-        world, controller = make_controller(tmp_path)
-        data = make_job().model_dump()
-        data["schedule"] = {"kind": "interval", "seconds": 30}
-        with pytest.raises(ValidationError) as excinfo:
-            JobDefinition.model_validate(data)
-        result = controller._field_errors(excinfo.value)
-        assert list(result) == ["interval"]
-
-    def test_logging_nested_loc(self, tmp_path: Path) -> None:
-        """A nested logging path error maps through the logging branch."""
-        world, controller = make_controller(tmp_path)
-        data = make_job().model_dump()
-        data["logging"]["stdout_path"] = "relative/out.log"
-        with pytest.raises(ValidationError) as excinfo:
-            JobDefinition.model_validate(data)
-        result = controller._field_errors(excinfo.value)
-        assert list(result) == ["stdout_path"]
+        assert list(controller._field_errors(excinfo.value)) == expected
 
 
 class TestBulkMutators:

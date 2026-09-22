@@ -18,6 +18,7 @@ from task_scheduler.application.diagnostic_models import (
 )
 from task_scheduler.application.log_service import LogStream
 from task_scheduler.domain import JobDefinition, PythonCommand
+from task_scheduler.domain.formatting import format_truncation_marker
 from task_scheduler.gui.controllers.diagnostics_controller import TestOutcome
 from task_scheduler.platform.macos import (
     DetectionNote,
@@ -27,6 +28,7 @@ from task_scheduler.platform.macos import (
     PythonDetectionResult,
     project_environment_candidate,
 )
+from task_scheduler.platform.macos.log_reader import LOG_TAIL_BYTES
 
 __all__ = [
     "ENVIRONMENT_DISCLOSURE_TEXT",
@@ -167,14 +169,19 @@ def format_lifecycle_diagnostics(diagnostics: tuple[Diagnostic, ...]) -> str:
 
 
 def format_log_stream(stream: LogStream) -> str:
-    """The stream's content or its state: unconfigured, empty, or unavailable."""
+    """The stream's content or its state: unconfigured, empty, or unavailable.
+
+    A stream read past the 256 KiB cap is prefixed with the shared
+    truncation marker.
+    """
     if stream.path is None:
         return "Log path not configured."
     if stream.error is not None:
         return f"Log unavailable: {stream.error}"
-    if not stream.content:
-        return "(empty)"
-    return stream.content
+    text = stream.content if stream.content else "(empty)"
+    if stream.truncated and stream.total_bytes is not None:
+        return format_truncation_marker(stream.total_bytes, LOG_TAIL_BYTES) + "\n" + text
+    return text
 
 
 def format_environment_difference(difference: EnvironmentDifference) -> str:

@@ -7,7 +7,6 @@ testable through the CLI tests.
 
 from __future__ import annotations
 
-import shlex
 from datetime import UTC, timedelta
 from pathlib import Path
 
@@ -24,15 +23,14 @@ from task_scheduler.application.task_command_service import (
     TaskListing,
 )
 from task_scheduler.application.test_service import DirectTestResult
-from task_scheduler.domain import (
-    CalendarSchedule,
-    IntervalSchedule,
-    JobDefinition,
-    Schedule,
-    human_interval,
+from task_scheduler.domain import JobDefinition, Schedule
+from task_scheduler.domain.formatting import (
+    format_command_argv,
+    format_schedule_text,
+    format_truncation_marker,
 )
-from task_scheduler.domain.command import command_argv
 from task_scheduler.platform.macos import LaunchAgentStatus
+from task_scheduler.platform.macos.log_reader import LOG_TAIL_BYTES
 
 __all__ = [
     "format_argv",
@@ -58,25 +56,12 @@ __all__ = [
 
 def format_schedule(schedule: Schedule) -> str:
     """Render a schedule, e.g. ``07:30 on monday, wednesday`` or ``Every 30 minutes``."""
-    if isinstance(schedule, IntervalSchedule):
-        text = human_interval(schedule.seconds)
-    else:
-        text = _calendar_text(schedule)
-    if schedule.run_at_load:
-        text += " + at login"
-    return text
-
-
-def _calendar_text(schedule: CalendarSchedule) -> str:
-    weekdays = ", ".join(weekday.value for weekday in sorted(schedule.weekdays))
-    parts = [f"{time:%H:%M}" for time in schedule.times]
-    times = parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + f" and {parts[-1]}"
-    return f"{times} on {weekdays}"
+    return format_schedule_text(schedule)
 
 
 def format_argv(job: JobDefinition) -> str:
     """Render the exact argv launchd would execute, shell-quoted."""
-    return " ".join(shlex.quote(arg) for arg in command_argv(job.command))
+    return format_command_argv(job.command)
 
 
 def format_job_summary(job: JobDefinition) -> str:
@@ -183,10 +168,13 @@ def format_stream(stream: LogStream) -> str:
         lines.append(f"not configured (no {stream.name} log path set)")
     elif stream.error is not None:
         lines.append(stream.error)
-    elif not stream.content:
-        lines.append("(empty)")
     else:
-        lines.extend(stream.content.splitlines())
+        if stream.truncated and stream.total_bytes is not None:
+            lines.append(format_truncation_marker(stream.total_bytes, LOG_TAIL_BYTES))
+        if not stream.content:
+            lines.append("(empty)")
+        else:
+            lines.extend(stream.content.splitlines())
     return "\n".join(lines)
 
 

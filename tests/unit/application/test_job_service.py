@@ -73,8 +73,7 @@ def test_clean_catalog_has_no_diagnostics(tmp_path: Path) -> None:
 
 
 def test_unreadable_catalog_file_is_skipped_with_diagnostic(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     service = JobService(tmp_path / "jobs")
     job = make_job()
     other = make_job(id=OTHER_ID, label="io.github.macos-task-scheduler.user.other")

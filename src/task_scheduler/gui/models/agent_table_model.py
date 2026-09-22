@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import shlex
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from PySide6.QtCore import (
@@ -15,8 +15,8 @@ from PySide6.QtCore import (
 )
 
 from task_scheduler.application.task_command_service import TaskListing
-from task_scheduler.domain import command_argv
-from task_scheduler.gui.presenters.agent_badge_presenter import dimensions
+from task_scheduler.domain.formatting import format_command_argv
+from task_scheduler.gui.presenters.agent_badge_presenter import AgentDimensions, dimensions
 from task_scheduler.gui.presenters.agent_presenter import (
     classify,
     format_command,
@@ -58,8 +58,21 @@ def _format_search_text(listing: TaskListing) -> str:
         cmd = listing.job.command
     else:
         cmd = None
-    quoted = "unknown" if cmd is None else " ".join(shlex.quote(arg) for arg in command_argv(cmd))
+    quoted = "unknown" if cmd is None else format_command_argv(cmd)
     return f"{format_name(listing)} {format_label(listing)} {quoted}"
+
+
+@dataclass(frozen=True)
+class _RowView:
+    """Per-row precomputed display data: dimensions and search haystack.
+
+    Built once per row inside ``set_agents`` so ``data()`` is O(1) and
+    ``dimensions()`` / argv quoting run exactly once per row per reset.
+    """
+
+    listing: TaskListing
+    dims: AgentDimensions
+    search_text: str
 
 
 class AgentTableModel(QAbstractTableModel):
@@ -68,10 +81,17 @@ class AgentTableModel(QAbstractTableModel):
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._agents: list[TaskListing] = []
+        self._row_views: list[_RowView] = []
 
     def set_agents(self, agents: Sequence[TaskListing]) -> None:
         self.beginResetModel()
         self._agents = list(agents)
+        self._row_views = [
+            _RowView(
+                listing=agent, dims=dimensions(agent), search_text=_format_search_text(agent)
+            )
+            for agent in self._agents
+        ]
         self.endResetModel()
 
     def agents(self) -> list[TaskListing]:
@@ -107,24 +127,24 @@ class AgentTableModel(QAbstractTableModel):
     ) -> object:
         if not index.isValid():
             return None
-        listing = self.listing_at(index.row())
-        if listing is None:
+        row = index.row()
+        if row >= len(self._row_views):
             return None
+        view = self._row_views[row]
         if role == Qt.ItemDataRole.DisplayRole:
-            return self._display(listing, index.column())
-        dims = dimensions(listing)
+            return self._display(view.listing, index.column())
         if role == ROLE_STATE:
-            return dims.state
+            return view.dims.state
         if role == ROLE_INSTALLED:
-            return dims.installed
+            return view.dims.installed
         if role == ROLE_ENABLED:
-            return dims.enabled
+            return view.dims.enabled
         if role == ROLE_LOADED:
-            return dims.loaded
+            return view.dims.loaded
         if role == ROLE_COMMAND:
-            return dims.command
+            return view.dims.command
         if role == ROLE_SEARCH_TEXT:
-            return _format_search_text(listing)
+            return view.search_text
         return None
 
     def _display(self, listing: TaskListing, column: int) -> object:

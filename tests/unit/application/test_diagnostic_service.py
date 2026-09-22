@@ -84,8 +84,7 @@ class TestPlistRules:
         ],
     )
     def test_invalid_label_fires_for_decoded_plists(
-        self, raw: dict[str, object], title: str
-    ) -> None:
+        self, raw: dict[str, object], title: str) -> None:
         parsed = ParsedLaunchAgent(status=ParseSupport.INVALID, raw=raw, warnings=["bad"])
         report = evaluate_diagnostic_report(InspectionContext(Path("/tmp/a.plist"), parsed))
         (label,) = [d for d in report.all if d.code == "invalid_plist_label"]

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import plistlib
-import shlex
 from datetime import datetime
 from enum import StrEnum
 
@@ -17,10 +16,13 @@ from task_scheduler.domain import (
     IntervalSchedule,
     JobDefinition,
     Schedule,
-    command_argv,
-    human_interval,
     upcoming_interval_occurrences,
     upcoming_occurrences,
+)
+from task_scheduler.domain.formatting import (
+    format_command_argv,
+    format_schedule_text,
+    quote_argv,
 )
 from task_scheduler.gui.presenters.diagnostics_presenter import format_diagnostic_block
 from task_scheduler.platform.macos import (
@@ -128,12 +130,12 @@ def format_command(listing: TaskListing) -> str:
     """Command text: the job's argv, else the raw ProgramArguments list."""
     job = _job_of(listing)
     if job is not None:
-        return " ".join(command_argv(job.command))
+        return format_command_argv(job.command)
     parsed = listing.parsed
     if parsed is not None:
         raw_args = parsed.raw.get("ProgramArguments")
         if isinstance(raw_args, list) and all(isinstance(item, str) for item in raw_args):
-            return " ".join(map(str, raw_args))
+            return quote_argv(map(str, raw_args))
     return "—"
 
 
@@ -142,21 +144,12 @@ def shell_safe_command(listing: TaskListing) -> str:
     job = _job_of(listing)
     if job is None:
         return ""
-    return " ".join(shlex.quote(arg) for arg in command_argv(job.command))
+    return format_command_argv(job.command)
 
 
 def format_schedule_value(schedule: Schedule) -> str:
     """The schedule text from a bare ``Schedule`` (shared by the import preview)."""
-    if isinstance(schedule, IntervalSchedule):
-        text = human_interval(schedule.seconds)
-    else:
-        parts = [f"{time:%H:%M:%S}" for time in schedule.times]
-        times = parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + f" and {parts[-1]}"
-        weekdays = ", ".join(weekday.value.title() for weekday in sorted(schedule.weekdays))
-        text = f"at {times} on {weekdays}"
-    if schedule.run_at_load:
-        text += " + at login"
-    return text
+    return format_schedule_text(schedule)
 
 
 def format_schedule(listing: TaskListing) -> str:

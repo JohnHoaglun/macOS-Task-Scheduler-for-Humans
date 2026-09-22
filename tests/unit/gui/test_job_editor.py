@@ -222,8 +222,7 @@ class TestSave:
 
 class TestCloseAndBrowse:
     def test_browse_directory_sets_path(
-        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _, editor, _ = make_editor(qtbot, tmp_path)
         fake = staticmethod(lambda *_a: "/tmp/workdir")
         monkeypatch.setattr(QFileDialog, "getExistingDirectory", fake)
@@ -231,8 +230,7 @@ class TestCloseAndBrowse:
         assert line_edit(editor, "editor-working-directory").text() == "/tmp/workdir"
 
     def test_browse_empty_path_unchanged(
-        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _, editor, _ = make_editor(qtbot, tmp_path)
         fake = staticmethod(lambda *_a: ("", ""))
         monkeypatch.setattr(QFileDialog, "getOpenFileName", fake)
@@ -241,8 +239,7 @@ class TestCloseAndBrowse:
         assert line_edit(editor, "editor-interpreter").text() == "/keep/this"
 
     def test_new_draft_defaults_log_directory_and_derives_paths(
-        self, qtbot: QtBot, tmp_path: Path
-    ) -> None:
+        self, qtbot: QtBot, tmp_path: Path) -> None:
         """A new draft defaults to the app log root with task-derived stream paths."""
         _, editor, _ = make_editor(qtbot, tmp_path)
         root = str(default_job_logs_root())
@@ -251,15 +248,13 @@ class TestCloseAndBrowse:
         assert line_edit(editor, "editor-stderr-path").text() == f"{root}/task.stderr.log"
 
     def test_stream_fields_are_read_only_in_managed_mode(
-        self, qtbot: QtBot, tmp_path: Path
-    ) -> None:
+        self, qtbot: QtBot, tmp_path: Path) -> None:
         _, editor, _ = make_editor(qtbot, tmp_path)
         assert line_edit(editor, "editor-stdout-path").isReadOnly()
         assert line_edit(editor, "editor-stderr-path").isReadOnly()
 
     def test_browse_log_directory_derives_both_stream_paths(
-        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _, editor, _ = make_editor(qtbot, tmp_path)
         fake = staticmethod(lambda *_a: "/tmp/logs")
         monkeypatch.setattr(QFileDialog, "getExistingDirectory", fake)
@@ -302,8 +297,7 @@ class TestUnopenedDialog:
 
 class TestPythonDetection:
     def test_top_candidate_autofills_and_use_keeps_alternatives(
-        self, qtbot: QtBot, tmp_path: Path
-    ) -> None:
+        self, qtbot: QtBot, tmp_path: Path) -> None:
         _, editor, _ = make_editor(qtbot, tmp_path)
         fake_detection(
             editor,
@@ -330,8 +324,7 @@ class TestPythonDetection:
         assert line_edit(editor, "editor-working-directory").text() == "/tmp/proj"
 
     def test_no_candidates_with_notes_appends_to_base_note(
-        self, qtbot: QtBot, tmp_path: Path
-    ) -> None:
+        self, qtbot: QtBot, tmp_path: Path) -> None:
         _, editor, _ = make_editor(qtbot, tmp_path)
         fake_detection(
             editor,
@@ -359,6 +352,18 @@ class TestPythonDetection:
         line_edit(editor, "editor-script").setText("/tmp/main.py")
         qtbot.wait(50)
         assert seen == [Path("/tmp/main.py")]
+
+    def test_loading_draft_schedules_no_detection(self, qtbot: QtBot, tmp_path: Path) -> None:
+        _, editor, _ = make_editor(qtbot, tmp_path)
+        seen: list[str] = []
+        editor._controller.detect_python = lambda s: (seen.append(s), _detection_result("", []))[1]
+        assert editor._draft is not None
+        editor._draft.script = "/tmp/nightly.py"
+        editor._draft.interpreter = "/tmp/venv/bin/python"
+        editor._load_draft()
+        qtbot.wait(50)
+        assert line_edit(editor, "editor-script").text() == "/tmp/nightly.py"
+        assert seen == []
 
 
 def make_test_draft_editor(
@@ -398,8 +403,7 @@ def fake_dialog_exec(monkeypatch: pytest.MonkeyPatch) -> list[JobDefinition]:
 
 class TestDirectTestDraft:
     def test_invalid_draft_shows_errors_and_opens_nothing(
-        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """An invalid draft shows field errors, opens no dialog, saves nothing."""
         world, editor = make_test_draft_editor(qtbot, tmp_path)
         opened = fake_dialog_exec(monkeypatch)
@@ -411,8 +415,7 @@ class TestDirectTestDraft:
         assert editor.saved_label is None
 
     def test_test_draft_uses_current_edited_fields(
-        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _, editor = make_test_draft_editor(qtbot, tmp_path, job=make_job())
         opened = fake_dialog_exec(monkeypatch)
         line_edit(editor, "editor-name").setText("Renamed Backup")
@@ -423,14 +426,8 @@ class TestDirectTestDraft:
 
 
 PREVIEW_NOW = datetime(2026, 9, 4, 12, 0)  # Friday
-PREVIEW_LINES_0730 = (
-    "Mon Sep 07 07:30\nMon Sep 14 07:30\nMon Sep 21 07:30\nMon Sep 28 07:30\nMon Oct 05 07:30"
-)
 PREVIEW_LINES_0800 = (
     "Mon Sep 07 08:00\nMon Sep 14 08:00\nMon Sep 21 08:00\nMon Sep 28 08:00\nMon Oct 05 08:00"
-)
-PREVIEW_LINES_MULTI = (
-    "Mon Sep 07 07:30\nMon Sep 07 17:30\nMon Sep 14 07:30\nMon Sep 14 17:30\nMon Sep 21 07:30"
 )
 
 
@@ -456,39 +453,6 @@ class TestSchedulePreview:
         preview = editor.findChild(QLabel, "editor-preview-occurrences")
         assert preview is not None
         assert preview.text() == PREVIEW_LINES_0800
-
-
-class TestMultiTimeSchedule:
-    """Increment 16: multi-time calendar authoring through the time row editor."""
-
-    def _occurrences(self, editor: JobEditor) -> str:
-        label = editor.findChild(QLabel, "editor-preview-occurrences")
-        assert label is not None
-        return label.text()
-
-    def _fixed_editor(self, qtbot: QtBot, tmp_path: Path) -> JobEditor:
-        world = FakeTaskWorld(tmp_path)
-        editor = JobEditor(EditorController(world.services), clock=lambda: PREVIEW_NOW)
-        qtbot.addWidget(editor)
-        editor.open_existing(make_job())
-        editor.show()
-        return editor
-
-
-PREVIEW_INTERVAL_LINES_900 = (
-    "Fri Sep 04 12:15:00\n"
-    "Fri Sep 04 12:30:00\n"
-    "Fri Sep 04 12:45:00\n"
-    "Fri Sep 04 13:00:00\n"
-    "Fri Sep 04 13:15:00"
-)
-PREVIEW_INTERVAL_LINES_61 = (
-    "Fri Sep 04 12:01:01\n"
-    "Fri Sep 04 12:02:02\n"
-    "Fri Sep 04 12:03:03\n"
-    "Fri Sep 04 12:04:04\n"
-    "Fri Sep 04 12:05:05"
-)
 
 
 class TestIntervalSchedule:
@@ -535,8 +499,7 @@ class TestIntervalSchedule:
 
     @pytest.mark.parametrize("value", ["1.5", "abc", "0", "-5"])
     def test_invalid_interval_value_is_neutral(
-        self, qtbot: QtBot, tmp_path: Path, value: str
-    ) -> None:
+        self, qtbot: QtBot, tmp_path: Path, value: str) -> None:
         editor = self._fixed_editor(qtbot, tmp_path)
         self._kind_combo(editor).setCurrentIndex(1)
         edit = line_edit(editor, "editor-interval-value")
@@ -598,8 +561,7 @@ class TestExternalMode:
         assert line_edit(editor, "editor-interpreter").text() == ""
 
     def test_external_mode_hides_log_directory_and_keeps_manual_paths(
-        self, qtbot: QtBot, tmp_path: Path
-    ) -> None:
+        self, qtbot: QtBot, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
         editor = JobEditor(EditorController(world.services))
         qtbot.addWidget(editor)

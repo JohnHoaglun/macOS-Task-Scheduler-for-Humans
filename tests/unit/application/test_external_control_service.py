@@ -29,6 +29,21 @@ def _make_raw(replacement: dict[str, object]) -> str:
     return plistlib.dumps(replacement, fmt=plistlib.FMT_XML).decode("utf-8")
 
 
+_CAL_PLIST: dict[str, object] = {
+    "Label": "com.example.a",
+    "ProgramArguments": ["/usr/bin/python3", "/Users/test/script.py"],
+    "StartCalendarInterval": [{"Weekday": 1, "Hour": 7, "Minute": 30}],
+}
+
+
+def _loaded_calendar_session(world: FakeTaskWorld) -> object:
+    """Write the standard loaded com.example.a calendar plist and open its session."""
+    _ensure_la_root(world)
+    plist_path = _write_plist(world, "com.example.a.plist", _CAL_PLIST)
+    world.backend._runner = FakeProcessRunner(result=ProcessResult(exit_code=0))
+    return world.services.open_external_edit_session(plist_path)
+
+
 class TestOpenExternalEditSession:
     def test_outside_launchagent_root_raises(self, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
@@ -64,18 +79,7 @@ class TestCommitStructuredExternalEdit:
 
     def test_label_mismatch_raises(self, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
-        _ensure_la_root(world)
-        plist_path = _write_plist(
-            world,
-            "com.example.a.plist",
-            {
-                "Label": "com.example.a",
-                "ProgramArguments": ["/usr/bin/python3", "/Users/test/script.py"],
-                "StartCalendarInterval": [{"Weekday": 1, "Hour": 7, "Minute": 30}],
-            },
-        )
-        world.backend._runner = FakeProcessRunner(result=ProcessResult(exit_code=0))
-        session = world.services.open_external_edit_session(plist_path)
+        session = _loaded_calendar_session(world)
         altered_job = session.job.model_copy(update={"label": "com.example.other"})
         with pytest.raises(ValueError, match="label cannot change"):
             world.services.commit_structured_external_edit(
@@ -84,18 +88,7 @@ class TestCommitStructuredExternalEdit:
 
     def test_no_dirty_raises(self, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
-        _ensure_la_root(world)
-        plist_path = _write_plist(
-            world,
-            "com.example.a.plist",
-            {
-                "Label": "com.example.a",
-                "ProgramArguments": ["/usr/bin/python3", "/Users/test/script.py"],
-                "StartCalendarInterval": [{"Weekday": 1, "Hour": 7, "Minute": 30}],
-            },
-        )
-        world.backend._runner = FakeProcessRunner(result=ProcessResult(exit_code=0))
-        session = world.services.open_external_edit_session(plist_path)
+        session = _loaded_calendar_session(world)
         with pytest.raises(ValueError, match="no changes"):
             world.services.commit_structured_external_edit(session, session.job, frozenset())
 
@@ -153,53 +146,20 @@ class TestCommitStructuredExternalEdit:
 class TestCommitRawExternalEdit:
     def test_non_dict_plist_raises(self, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
-        _ensure_la_root(world)
-        plist_path = _write_plist(
-            world,
-            "com.example.a.plist",
-            {
-                "Label": "com.example.a",
-                "ProgramArguments": ["/usr/bin/python3", "/Users/test/script.py"],
-                "StartCalendarInterval": [{"Weekday": 1, "Hour": 7, "Minute": 30}],
-            },
-        )
-        world.backend._runner = FakeProcessRunner(result=ProcessResult(exit_code=0))
-        session = world.services.open_external_edit_session(plist_path)
+        session = _loaded_calendar_session(world)
         with pytest.raises(ValueError, match="not a valid plist"):
             world.services.commit_raw_external_edit(session, "[1, 2, 3]")
 
     def test_no_label_in_replacement_raises(self, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
-        _ensure_la_root(world)
-        plist_path = _write_plist(
-            world,
-            "com.example.a.plist",
-            {
-                "Label": "com.example.a",
-                "ProgramArguments": ["/usr/bin/python3", "/Users/test/script.py"],
-                "StartCalendarInterval": [{"Weekday": 1, "Hour": 7, "Minute": 30}],
-            },
-        )
-        world.backend._runner = FakeProcessRunner(result=ProcessResult(exit_code=0))
-        session = world.services.open_external_edit_session(plist_path)
+        session = _loaded_calendar_session(world)
         no_label: dict[str, object] = {"ProgramArguments": ["/bin/echo"]}
         with pytest.raises(ValueError, match="valid launchd label"):
             world.services.commit_raw_external_edit(session, _make_raw(no_label))
 
     def test_label_mismatch_raises(self, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
-        _ensure_la_root(world)
-        plist_path = _write_plist(
-            world,
-            "com.example.a.plist",
-            {
-                "Label": "com.example.a",
-                "ProgramArguments": ["/usr/bin/python3", "/Users/test/script.py"],
-                "StartCalendarInterval": [{"Weekday": 1, "Hour": 7, "Minute": 30}],
-            },
-        )
-        world.backend._runner = FakeProcessRunner(result=ProcessResult(exit_code=0))
-        session = world.services.open_external_edit_session(plist_path)
+        session = _loaded_calendar_session(world)
         replacement: dict[str, object] = {
             "Label": "com.example.b",
             "ProgramArguments": ["/bin/echo"],
@@ -210,14 +170,7 @@ class TestCommitRawExternalEdit:
     def test_no_changes_raises(self, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
         _ensure_la_root(world)
-        original = plistlib.dumps(
-            {
-                "Label": "com.example.a",
-                "ProgramArguments": ["/usr/bin/python3", "/Users/test/script.py"],
-                "StartCalendarInterval": [{"Weekday": 1, "Hour": 7, "Minute": 30}],
-            },
-            fmt=plistlib.FMT_XML,
-        )
+        original = plistlib.dumps(_CAL_PLIST, fmt=plistlib.FMT_XML)
         plist_path = world.la_root / "com.example.a.plist"
         plist_path.write_bytes(original)
         world.backend._runner = FakeProcessRunner(result=ProcessResult(exit_code=0))
@@ -227,18 +180,8 @@ class TestCommitRawExternalEdit:
 
     def test_drift_detection_raises(self, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
-        _ensure_la_root(world)
-        plist_path = _write_plist(
-            world,
-            "com.example.a.plist",
-            {
-                "Label": "com.example.a",
-                "ProgramArguments": ["/usr/bin/python3", "/Users/test/script.py"],
-                "StartCalendarInterval": [{"Weekday": 1, "Hour": 7, "Minute": 30}],
-            },
-        )
-        world.backend._runner = FakeProcessRunner(result=ProcessResult(exit_code=0))
-        session = world.services.open_external_edit_session(plist_path)
+        session = _loaded_calendar_session(world)
+        plist_path = world.la_root / "com.example.a.plist"
         plist_path.write_bytes(
             plistlib.dumps(
                 {
@@ -258,15 +201,7 @@ class TestCommitRawExternalEdit:
     def test_unloaded_raw_edit_no_launchctl(self, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
         _ensure_la_root(world)
-        plist_path = _write_plist(
-            world,
-            "com.example.a.plist",
-            {
-                "Label": "com.example.a",
-                "ProgramArguments": ["/usr/bin/python3", "/Users/test/script.py"],
-                "StartCalendarInterval": [{"Weekday": 1, "Hour": 7, "Minute": 30}],
-            },
-        )
+        plist_path = _write_plist(world, "com.example.a.plist", _CAL_PLIST)
         world.backend._runner = FakeProcessRunner(
             result=ProcessResult(exit_code=1, stderr="not loaded")
         )
@@ -406,15 +341,7 @@ class TestRunNowExternal:
     def test_not_loaded_raises(self, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
         _ensure_la_root(world)
-        plist_path = _write_plist(
-            world,
-            "com.example.a.plist",
-            {
-                "Label": "com.example.a",
-                "ProgramArguments": ["/usr/bin/python3", "/Users/test/script.py"],
-                "StartCalendarInterval": [{"Weekday": 1, "Hour": 7, "Minute": 30}],
-            },
-        )
+        plist_path = _write_plist(world, "com.example.a.plist", _CAL_PLIST)
         world.backend._runner = FakeProcessRunner(
             result=ProcessResult(exit_code=1, stderr="not loaded")
         )
@@ -439,15 +366,7 @@ class TestRemoveExternal:
     def test_drift_detection_before_remove_raises(self, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
         _ensure_la_root(world)
-        plist_path = _write_plist(
-            world,
-            "com.example.a.plist",
-            {
-                "Label": "com.example.a",
-                "ProgramArguments": ["/usr/bin/python3", "/Users/test/script.py"],
-                "StartCalendarInterval": [{"Weekday": 1, "Hour": 7, "Minute": 30}],
-            },
-        )
+        plist_path = _write_plist(world, "com.example.a.plist", _CAL_PLIST)
         world.backend._runner = FakeProcessRunner(result=ProcessResult(exit_code=0, stdout="true"))
         first_snapshot = world.store.read_external(plist_path)
         plist_path.write_bytes(
@@ -502,8 +421,7 @@ def _labeled_plist(world: FakeTaskWorld, label: str) -> Path:
 
 class TestStatusValueErrorBranches:
     def test_open_session_status_error_yields_none(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         world = FakeTaskWorld(tmp_path)
         plist_path = _labeled_plist(world, "com.example.se")
         monkeypatch.setattr(world.backend, "status", _boom_status)
@@ -511,8 +429,7 @@ class TestStatusValueErrorBranches:
         assert session.loaded is None
 
     def test_disable_status_error_skips_bootout(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         world = FakeTaskWorld(tmp_path)
         plist_path = _labeled_plist(world, "com.example.de")
         world.backend._runner = FakeProcessRunner(result=ProcessResult(exit_code=0))
@@ -530,8 +447,7 @@ class TestStatusValueErrorBranches:
         assert "enable" in result.completed_phases
 
     def test_run_now_status_error_raises_unknown(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         world = FakeTaskWorld(tmp_path)
         plist_path = _labeled_plist(world, "com.example.rn")
         monkeypatch.setattr(world.backend, "status", _boom_status)
@@ -539,8 +455,7 @@ class TestStatusValueErrorBranches:
             world.services.run_now_external(plist_path)
 
     def test_remove_status_error_skips_bootout(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         world = FakeTaskWorld(tmp_path)
         plist_path = _labeled_plist(world, "com.example.rm")
         world.backend._runner = FakeProcessRunner(result=ProcessResult(exit_code=0))

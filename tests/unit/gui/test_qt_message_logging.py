@@ -45,8 +45,7 @@ def test_install_qt_message_handler_falls_back_to_qt_tag(caplog: pytest.LogCaptu
 
 
 def test_fatal_message_is_logged_flushed_then_aborted(
-    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
-) -> None:
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch) -> None:
     aborts: list[None] = []
     monkeypatch.setattr(os, "abort", lambda: aborts.append(None))
     handler = install_qt_message_handler()

@@ -45,8 +45,7 @@ def _wait_rendered(qtbot: QtBot, dialog: DirectTestDialog) -> None:
 
 class TestDirectTestDialog:
     def test_invalid_job_request_shows_notice(
-        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """A refused invalid-job request shows the notice and starts no worker."""
         world = FakeTaskWorld(tmp_path)
         controller = DiagnosticsController(world.services, {})
@@ -62,8 +61,7 @@ class TestDirectTestDialog:
         assert dialog._worker is None
 
     def test_worker_registration_callback_receives_thread_and_worker(
-        self, qtbot: QtBot, tmp_path: Path
-    ) -> None:
+        self, qtbot: QtBot, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
         controller = DiagnosticsController(world.services, {})
         seen: list[tuple[QThread, object]] = []
@@ -81,8 +79,7 @@ class TestDirectTestDialog:
         qtbot.waitUntil(lambda: dialog not in DirectTestDialog._closing_dialogs, timeout=5000)
 
     def test_initial_size_is_bounded_to_the_primary_screen(
-        self, qtbot: QtBot, tmp_path: Path
-    ) -> None:
+        self, qtbot: QtBot, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
         dialog = DirectTestDialog(DiagnosticsController(world.services, {}), make_job())
         qtbot.addWidget(dialog)

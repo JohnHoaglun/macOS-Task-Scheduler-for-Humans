@@ -116,8 +116,7 @@ def test_list_shows_corrupt_catalog_file_as_warning(tmp_path: Path) -> None:
 
 
 def test_list_service_failure_exits_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     world = FakeTaskWorld(tmp_path)
 
     def _unavailable() -> object:
@@ -228,8 +227,7 @@ def test_validate_non_utf8_file_exits_usage(tmp_path: Path) -> None:
 
 
 def test_validate_unreadable_file_exits_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     world = FakeTaskWorld(tmp_path)
 
     def _unavailable(path: Path) -> object:
@@ -263,8 +261,7 @@ def test_generate_invalid_json_exits_usage(tmp_path: Path) -> None:
 
 
 def test_generate_unreadable_file_exits_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     world = FakeTaskWorld(tmp_path)
 
     def _unavailable(path: Path) -> object:
@@ -305,8 +302,7 @@ def test_install_invalid_json_exits_usage(tmp_path: Path) -> None:
 
 
 def test_install_store_failure_exits_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     world = FakeTaskWorld(tmp_path)
 
     def _readonly(path: Path) -> object:
@@ -375,9 +371,11 @@ def test_lifecycle_external_labels_exit_usage(tmp_path: Path) -> None:
     assert world.launch_runner.specs == []
 
 
-def test_enable_invalid_label_exits_usage(tmp_path: Path) -> None:
+@pytest.mark.parametrize("command", ["enable", "disable", "status", "run"])
+def test_invalid_label_escape_exits_usage(
+    tmp_path: Path, command: str) -> None:
     world = FakeTaskWorld(tmp_path)
-    result = invoke(world, "enable", "../escape")
+    result = invoke(world, command, "../escape")
     assert result.exit_code == 2
     assert "Label must not be" in result.stderr
 
@@ -396,13 +394,6 @@ def test_disable_success(tmp_path: Path) -> None:
     result = invoke(world, "disable", "com.example.job")
     assert result.exit_code == 0
     assert "disabled com.example.job" in result.stdout
-
-
-def test_disable_invalid_label_exits_usage(tmp_path: Path) -> None:
-    world = FakeTaskWorld(tmp_path)
-    result = invoke(world, "disable", "../escape")
-    assert result.exit_code == 2
-    assert "Label must not be" in result.stderr
 
 
 def test_disable_failure_exits_failure(tmp_path: Path) -> None:
@@ -438,26 +429,12 @@ def test_status_launch_failure_exits_failure(tmp_path: Path) -> None:
     assert "print failed" in result.stderr
 
 
-def test_status_invalid_label_exits_usage(tmp_path: Path) -> None:
-    world = FakeTaskWorld(tmp_path)
-    result = invoke(world, "status", "../escape")
-    assert result.exit_code == 2
-    assert "Label must not be" in result.stderr
-
-
 def test_run_success(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
     world.manage(make_job(label="com.example.job"))
     result = invoke(world, "run", "com.example.job")
     assert result.exit_code == 0
     assert "requested run of com.example.job" in result.stdout
-
-
-def test_run_invalid_label_exits_usage(tmp_path: Path) -> None:
-    world = FakeTaskWorld(tmp_path)
-    result = invoke(world, "run", "../escape")
-    assert result.exit_code == 2
-    assert "Label must not be" in result.stderr
 
 
 def test_run_failure_exits_failure(tmp_path: Path) -> None:
@@ -677,8 +654,7 @@ def test_import_commit_drift_exits_failure(tmp_path: Path, monkeypatch: pytest.M
 
 
 def test_import_commit_io_failure_exits_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     world = FakeTaskWorld(tmp_path)
     plist_path = _write_external_plist(
         tmp_path,

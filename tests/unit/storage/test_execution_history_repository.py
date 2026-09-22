@@ -127,8 +127,7 @@ def test_append_failure_logs_once_then_unavailable(
 
 
 def test_read_sqlite_error_returns_unavailable(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo = ExecutionHistoryRepository(tmp_path / "hist.db")
     repo.append(_make_event())
 
@@ -211,28 +210,14 @@ def test_max_events_per_job_is_1000() -> None:
     assert ehr_module.MAX_EVENTS_PER_JOB == 1000
 
 
-def test_append_prunes_oldest_beyond_cap(tmp_path: Path) -> None:
+@pytest.mark.parametrize(("seed", "expected"), [(1000, 1000), (999, 1000), (5, 6)])
+def test_append_prunes_at_and_below_cap(
+    tmp_path: Path, seed: int, expected: int) -> None:
     db_path = tmp_path / "hist.db"
     jid = uuid4()
-    _seed(db_path, jid, 1000)
+    _seed(db_path, jid, seed)
     ExecutionHistoryRepository(db_path).append(_make_event(job_id=jid))
-    assert _count(db_path, jid) == 1000
-
-
-def test_append_at_cap_boundary_keeps_all(tmp_path: Path) -> None:
-    db_path = tmp_path / "hist.db"
-    jid = uuid4()
-    _seed(db_path, jid, 999)
-    ExecutionHistoryRepository(db_path).append(_make_event(job_id=jid))
-    assert _count(db_path, jid) == 1000
-
-
-def test_append_below_cap_keeps_all(tmp_path: Path) -> None:
-    db_path = tmp_path / "hist.db"
-    jid = uuid4()
-    _seed(db_path, jid, 5)
-    ExecutionHistoryRepository(db_path).append(_make_event(job_id=jid))
-    assert _count(db_path, jid) == 6
+    assert _count(db_path, jid) == expected
 
 
 def test_append_prune_leaves_other_jobs_untouched(tmp_path: Path) -> None:

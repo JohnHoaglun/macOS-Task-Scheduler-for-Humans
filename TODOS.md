@@ -1,6 +1,6 @@
-# TODOS.md (v0.0.49)
+# TODOS.md (v0.0.50)
 
-## Round-2 Review Remediation (IN PROGRESS — v0.0.48 → v0.0.50)
+## Round-2 Review Remediation (DONE — v0.0.48 → v0.0.50)
 
 Approved scope from `docs/code-review-round-2.md`: all 25 findings (R2-01…R2-25), shipped as three slices. Pinned decisions (approved 2026-09-21): automatic bootout recovery only on confirmed-not-loaded; 1,000 history events/job; `shlex.quote` command display; coalesced async discovery refresh; 256 KiB log tail with truncation marker; 30 s launchctl timeout; corrupt-catalog diagnostics in GUI panel + CLI stderr; symlink rejection; import-drift rejection; async raw-editor load.
 
@@ -20,15 +20,15 @@ Approved scope from `docs/code-review-round-2.md`: all 25 findings (R2-01…R2-2
 - [x] Lane E (general): R2-16 symlink rejection in `list_plist_files` / `read_plist_bytes`
 - [x] Integration + full gate + v0.0.49 closeout: `make check` green (ruff, mypy strict, 690 tests, 100% coverage); test/source ratio 74.5787% (10,755 : 14,421, ≤75%) after banner/import/docstring/redundancy trims; 15 lane tests re-authored after accidental checkout loss; version 0.0.48 → 0.0.49 (all 4 registry locations); round-2 findings marked Resolved; commit, push
 
-### Slice 3 — GUI Responsiveness And Presentation (v0.0.50) — R2-03,08,18,19,21,23
-- [ ] Wave 0 (build): pin async-read contracts (discovery generation, coalesced refresh, log-truncation DTO, raw-read DTO) + shared pure formatting helpers
-- [ ] Wave 1A (smarter): R2-03 async `DiscoveryWorker` + controller state + MainWindow.refresh() + coalescing + close-drain registration
-- [ ] Wave 1B (smarter): R2-08 256 KiB log tail (GUI+CLI markers) + worker-backed reads; R2-23 async raw-editor loading state
-- [ ] Wave 1C (smarter): R2-18 `QSignalBlocker` draft load; R2-19 shared formatting adoption; R2-21 filter dimension/search cache
-- [ ] Integration + full gate + v0.0.50 closeout (commit + push)
+### Slice 3 — GUI Responsiveness And Presentation (v0.0.50) — R2-03,08,18,19,21,23 — DONE (v0.0.50)
+- [x] Wave 0 (build): pin async-read contracts (discovery generation, coalesced refresh, log-truncation DTO, raw-read DTO) + shared pure formatting helpers
+- [x] Wave 1A (smarter): R2-03 async `DiscoveryWorker` + controller state + MainWindow.refresh() + coalescing + close-drain registration
+- [x] Wave 1B (smarter): R2-08 256 KiB log tail (GUI+CLI markers) + worker-backed reads; R2-23 async raw-editor loading state
+- [x] Wave 1C (smarter): R2-18 `QSignalBlocker` draft load; R2-19 shared formatting adoption; R2-21 filter dimension/search cache
+- [x] Integration + full gate + v0.0.50 closeout: `make check` green (ruff, mypy strict, 741 tests, 100% coverage); test/source ratio 74.9036% (11,070 : 14,779, ≤75%) after signature-collapse + parameterized-merge + dead-code trims; version 0.0.49 → 0.0.50 (all 4 registry locations); round-2 findings marked Resolved; commit, push
 
 ### Final
-- [ ] Cross-slice composition verification (import orders, full suite, ratio) + closeout summary
+- [x] Cross-slice composition verification (import orders, full suite, ratio) + closeout summary — full suite green at v0.0.50 (741 tests, 100% coverage); all 25 round-2 findings Resolved across v0.0.48–v0.0.50
 
 ## Filesystem Safety, Packaging Portability, and Editor Debounce (DONE — v0.0.47)
 

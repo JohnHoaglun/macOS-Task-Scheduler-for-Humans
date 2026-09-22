@@ -202,8 +202,7 @@ class TestCommitRawExternalEditLabelInvariants:
         ],
     )
     def test_label_less_session_rejected(
-        self, tmp_path: Path, replacement: dict[str, object], match: str
-    ) -> None:
+        self, tmp_path: Path, replacement: dict[str, object], match: str) -> None:
         world = FakeTaskWorld(tmp_path)
         world.la_root.mkdir(parents=True)
         plist_path = world.la_root / "external.plist"

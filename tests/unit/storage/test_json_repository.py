@@ -27,8 +27,7 @@ def test_save_new_refuses_existing(tmp_path: Path) -> None:
 
 
 def test_save_failure_preserves_original_and_removes_temp(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     repository = JsonJobRepository()
     job = make_job()
     path = tmp_path / "job.json"

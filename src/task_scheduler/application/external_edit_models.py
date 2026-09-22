@@ -10,6 +10,7 @@ closed when anything changed out-of-band.
 
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -22,6 +23,8 @@ __all__ = [
     "ExternalEditPreview",
     "ExternalEditResult",
     "ExternalEditSession",
+    "RawPlistRead",
+    "read_raw_plist",
 ]
 
 
@@ -109,3 +112,32 @@ class ExternalEditResult:
     reloaded: bool
     quarantined_path: Path | None = None
     removed: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class RawPlistRead:
+    """Result of reading a source plist for the raw editor.
+
+    Exactly one of ``text``/``error`` is non-None. ``binary_mode`` is True
+    only when ``text`` is the base64 encoding of non-UTF-8 source bytes.
+    """
+
+    text: str | None
+    binary_mode: bool
+    error: str | None
+
+
+def read_raw_plist(path: Path) -> RawPlistRead:
+    """Read *path* as UTF-8 text, or base64-encode non-UTF-8 source bytes.
+
+    Returns a ``RawPlistRead`` with ``error`` set when the file cannot be
+    read; never raises.
+    """
+    try:
+        data = path.read_bytes()
+    except OSError as exc:
+        return RawPlistRead(None, False, str(exc))
+    try:
+        return RawPlistRead(data.decode("utf-8"), False, None)
+    except UnicodeDecodeError:
+        return RawPlistRead(base64.b64encode(data).decode("ascii"), True, None)

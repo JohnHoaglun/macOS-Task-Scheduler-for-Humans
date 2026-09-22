@@ -86,8 +86,7 @@ def test_startup_window_size_is_bounded_to_usable_display() -> None:
 
 
 def test_main_module_launcher_exits_with_return_code(
-    qtbot: QtBot, monkeypatch: pytest.MonkeyPatch
-) -> None:
+    qtbot: QtBot, monkeypatch: pytest.MonkeyPatch) -> None:
     """The ``__main__`` launcher exits with the event-loop exit code.
     ``QApplication.instance()`` must keep working: pytest-qt processes events
     after every test and resolves the class through the module attribute.
@@ -168,8 +167,7 @@ def test_crash_callback_without_app_shows_dialog_only(monkeypatch: pytest.Monkey
 
 
 def test_main_degraded_logging_shows_warning_and_status(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+    monkeypatch: pytest.MonkeyPatch,) -> None:
     box = _FakeMessageBox()
     window = _FakeWindow()
     monkeypatch.setattr(gui_app, "QApplication", _FakeApp)
@@ -197,8 +195,7 @@ def test_crash_dialog_and_callback_are_degraded_safe(monkeypatch: pytest.MonkeyP
 
 
 def test_crash_from_worker_thread_marshals_dialog_to_gui_thread(
-    qtbot: QtBot, monkeypatch: pytest.MonkeyPatch
-) -> None:
+    qtbot: QtBot, monkeypatch: pytest.MonkeyPatch) -> None:
     shown: list[tuple[Path, bool, QtCore.QThread]] = []
 
     def _record(log_path: Path, degraded: bool) -> None:

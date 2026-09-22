@@ -40,8 +40,7 @@ class TestExecute:
         assert not outcome.is_success
 
     def test_unexpected_error_becomes_error_outcome(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         world = FakeTaskWorld(tmp_path)
 
         def boom(job: JobDefinition, *, detection: object = None) -> NoReturn:

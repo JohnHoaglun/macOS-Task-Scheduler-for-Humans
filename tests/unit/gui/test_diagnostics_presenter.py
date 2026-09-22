@@ -21,6 +21,7 @@ from task_scheduler.gui.presenters.diagnostics_presenter import (
     format_python_detection,
     format_test_summary,
 )
+from task_scheduler.platform.macos.log_reader import LOG_TAIL_BYTES
 from task_scheduler.platform.macos.process_runner import (
     LaunchFailureKind,
     ProcessLaunchFailure,
@@ -108,6 +109,28 @@ class TestFormatLogStream:
     def test_empty_content(self) -> None:
         stream = LogStream(name="stdout", path=Path("/logs/stdout.log"), content="")
         assert format_log_stream(stream) == "(empty)"
+
+    def test_truncated_content_is_prefixed_with_marker(self) -> None:
+        stream = LogStream(
+            name="stdout",
+            path=Path("/logs/stdout.log"),
+            content="line",
+            truncated=True,
+            total_bytes=LOG_TAIL_BYTES * 3,
+        )
+        assert format_log_stream(stream) == (
+            f"(truncated: showing the last 256 KiB of {LOG_TAIL_BYTES * 3} bytes)\nline"
+        )
+
+    def test_untruncated_content_has_no_marker(self) -> None:
+        stream = LogStream(
+            name="stdout",
+            path=Path("/logs/stdout.log"),
+            content="line",
+            truncated=False,
+            total_bytes=4,
+        )
+        assert format_log_stream(stream) == "line"
 
 
 class TestFormatPythonDetection:

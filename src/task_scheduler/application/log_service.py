@@ -26,13 +26,16 @@ class LogStream(BaseModel):
 
     ``path`` is None when the job configured no capture path for this
     stream. Otherwise exactly one of ``content`` (file read, possibly
-    empty) or ``error`` (missing/unreadable) is set.
+    empty) or ``error`` (missing/unreadable) is set. ``truncated`` and
+    ``total_bytes`` report the reader's 256 KiB tail cap.
     """
 
     name: str
     path: Path | None
     content: str | None = None
     error: str | None = None
+    truncated: bool = False
+    total_bytes: int | None = None
 
 
 class JobLogs(BaseModel):
@@ -59,4 +62,11 @@ class LogService:
         if path is None:
             return LogStream(name=name, path=None)
         result: LogReadResult = self._reader.read(path)
-        return LogStream(name=name, path=path, content=result.content, error=result.error)
+        return LogStream(
+            name=name,
+            path=path,
+            content=result.content,
+            error=result.error,
+            truncated=result.truncated,
+            total_bytes=result.total_bytes,
+        )

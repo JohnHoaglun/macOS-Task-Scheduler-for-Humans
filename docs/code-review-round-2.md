@@ -5,7 +5,7 @@
 - **Scope:** production code under `src/task_scheduler/` (82 files, ~14,200 lines). Tests were read only as evidence, not reviewed for their own quality.
 - **Method:** full-file solo scan (platform → storage → domain → application → CLI → GUI), cross-checked against the durable CR-01…CR-21 record in `docs/code-review-findings.md` (all resolved in v0.0.44–v0.0.47; none re-reported here).
 - **Verdict:** no high/critical items. **8 medium, 17 low.**
-- **Remediation status (2026-09-22):** R2-01, R2-02, R2-05, R2-06, R2-09, R2-10, R2-12, R2-13, R2-15, R2-17, R2-24, and R2-25 resolved in v0.0.48 (slice 1 — safety and observability); R2-04, R2-07, R2-11, R2-14, R2-16, R2-20, and R2-22 resolved in v0.0.49 (slice 2 — catalog, history, trust, CLI); R2-03, R2-08, R2-18, R2-19, R2-21, and R2-23 are planned for v0.0.50 (slice 3, tracked in `TODOS.md`).
+- **Remediation status (2026-09-22):** R2-01, R2-02, R2-05, R2-06, R2-09, R2-10, R2-12, R2-13, R2-15, R2-17, R2-24, and R2-25 resolved in v0.0.48 (slice 1 — safety and observability); R2-04, R2-07, R2-11, R2-14, R2-16, R2-20, and R2-22 resolved in v0.0.49 (slice 2 — catalog, history, trust, CLI); R2-03, R2-08, R2-18, R2-19, R2-21, and R2-23 resolved in v0.0.50 (slice 3 — GUI responsiveness and presentation). All 25 findings are now Resolved.
 
 ## Findings
 
@@ -28,6 +28,7 @@
 - `DiscoveryController.refresh` (`gui/controllers/discovery_controller.py:45-51`) calls `list_agents()` synchronously.
 - `list_agents` (`application/task_command_service.py:262-288`) calls `_loaded_status` (`:249-260`) once per discovered agent — one `launchctl print` subprocess per agent — on the GUI thread (refresh button and post-operation refresh).
 - Recommendation: move discovery refresh to a worker thread (the pattern already exists for lifecycle/diagnostics), or drop the per-agent launchd probe from listing and resolve it lazily.
+- **Resolved (v0.0.50):** discovery refresh moved off the GUI thread — `MainWindow.refresh()` dispatches a parentless `DiscoveryWorker` that runs the per-agent `launchctl` loaded-status fan-out and returns a typed outcome, coalescing rapid triggers into a single in-flight worker (a pending refresh is queued, never stacked) via a generation counter, and the finish result is marshaled to the GUI thread through a QObject-parented slot before applying the refresh; the worker thread is registered with the window's close drain.
 
 #### R2-04 — One corrupt catalog file breaks the whole catalog (logic/robustness)
 - `JobService.list_jobs` (`application/job_service.py:116-129`) propagates any `repository.load` failure; `find`/`resolve`/`transfer_conflicts`/`list_agents`/GUI listing all route through it. A single malformed `*.json` makes every managed task inaccessible.
@@ -57,6 +58,7 @@
 - Callers: GUI `direct_test_dialog._render_logs` (`gui/widgets/direct_test_dialog.py:124-127`, synchronous on the GUI thread on every manual refresh) and the diagnostics path; CLI `logs` command (`cli/app.py:247-261`) and `format_stream` (`cli/render.py:179-190`) dump the full content to the terminal.
 - A long-lived job's stderr can be arbitrarily large; reads stall the GUI and flood the terminal.
 - Recommendation: cap the read (tail the last N KB) or read off-thread in the GUI.
+- **Resolved (v0.0.50):** log reads are now bounded and off-thread — `LocalLogReader` reads at most the final `LOG_TAIL_BYTES` (256 KiB) and returns a `LogReadResult` (`content`, `total_bytes`, `truncated`); the GUI reads through a `RawReadWorker`, and the CLI `logs` command renders the same tail with a `format_truncation_marker` instead of dumping an unbounded file to the terminal.
 
 ### Low
 
@@ -113,11 +115,13 @@
 #### R2-18 — Incorrect docstring; interpreter detection re-runs after every editor open (logic/minor)
 - `gui/widgets/job_editor.py:647` claims "setText never re-triggers the change slots", but `_load_draft`'s `setText` calls (`:651-661`) re-fire the `textChanged`-connected interpreter detection; the 300 ms debounce (CR-17) suppresses typing storms, not the one post-open probe, which runs a PATH check on the GUI thread.
 - Recommendation: fix the docstring and either block signals during `_load_draft` or defer the post-open detection to the event loop.
+- **Resolved (v0.0.50):** `_load_draft` wraps its field-fill block in `QSignalBlocker`s over the affected widgets (released in a `try/finally`), so loading a draft no longer re-triggers the 300 ms interpreter-detection probe on the GUI thread, and the incorrect "setText never re-triggers the change slots" docstring is corrected.
 
 #### R2-19 — GUI/CLI display inconsistencies (UX)
 - `format_schedule_value` uses `%H:%M:%S` (`gui/presenters/agent_presenter.py:153`) while the CLI renders `%H:%M`; the domain forbids seconds, so the GUI always shows a trailing `:00`.
 - `format_command` (`agent_presenter.py:127-137`) and `import_preview_dialog.py:138` join argv with plain spaces (no quoting), while the search haystack (`gui/models/agent_table_model.py:61`) and `shell_safe_command` (`agent_presenter.py:145`) quote with `shlex.quote`.
 - Recommendation: use one time format and one command-rendering helper across GUI and CLI.
+- **Resolved (v0.0.50):** GUI and CLI share one formatting path — a new pure `domain/formatting.py` module (`quote_argv`, `format_command_argv`, `format_schedule_text`, `format_truncation_marker`) is adopted by the agent presenter, the import preview dialog, the CLI renderer, and the table search haystack, so commands are `shlex`-quoted and times render as `%H:%M` (no trailing `:00`) everywhere.
 
 #### R2-20 — `HistoryTableModel.header` missing bounds check (logic)
 - `gui/models/history_table_model.py:50-53` indexes `COLUMNS[section]` unchecked; `AgentTableModel.headerData` guards it (`gui/models/agent_table_model.py:97-100`). An out-of-range section query would raise `IndexError` in Qt's header path.
@@ -127,6 +131,7 @@
 #### R2-21 — Filter recompute cost on the GUI thread (performance)
 - `AgentFilterProxyModel.filterAcceptsRow` (`gui/models/agent_filter_proxy_model.py:82-108`) does six `data()` role reads per row per filter pass; each non-DisplayRole read re-runs `dimensions(listing)` (`gui/models/agent_table_model.py:115`) and the search-text role re-quotes the full argv (`:61`) per row per pass — O(rows × args) on the GUI thread for every search keystroke and combobox change.
 - Recommendation: cache the per-row search text/dimensions in the source model (or a side table) invalidated by `set_agents`.
+- **Resolved (v0.0.50):** `AgentTableModel` precomputes a per-row `_RowView` (dimensions + quoted search text) in `set_agents` and serves `data()` from it in O(1), so a filter/search pass no longer re-derives dimensions or re-quotes argv per row; `listing_at` keeps its out-of-range guard.
 
 #### R2-22 — External import commits the preview snapshot without re-reading the source (logic, documented)
 - `import_external_plist` (`application/task_command_service.py:445-467`) commits the preview-time parsed snapshot; the source plist may drift between preview and commit. Documented in the docstring, and lower risk than raw edit (which does drift-check at `:949-953`), but the two external paths have different drift semantics.
@@ -136,6 +141,7 @@
 #### R2-23 — `_open_raw_editor` does synchronous file IO and base64 round-trip on the GUI thread (performance, trivial)
 - `gui/main_window.py:906-918`: `read_bytes()` + UTF-8 decode or base64-encode of the whole plist on the GUI thread. Trivial for typical plist sizes, but it is the only synchronous read in that flow.
 - Recommendation: fold into the worker-based open path if that flow is ever reworked.
+- **Resolved (v0.0.50):** `_open_raw_editor` now loads the plist through a `RawReadWorker`, so the file read and base64 round-trip no longer run synchronously on the GUI thread; the open is refused while a close is pending or finalizing.
 
 #### R2-24 — `backup_external` creates an empty backup sibling when the source vanished (logic, dead path)
 - `platform/macos/launch_agent_store.py:196-211`: `FileNotFoundError` → `payload = b""` → an empty `.backup.N` file. The method is production-dead (tests only; the live path uses `backup_external_from_snapshot`, `:227-242`, which writes the snapshot payload and cannot be empty). Already documented in `PLAN.md:1673`.

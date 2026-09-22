@@ -100,8 +100,7 @@ class TestExecute:
         [LifecycleAction.ENABLE, LifecycleAction.DISABLE, LifecycleAction.RUN_NOW],
     )
     def test_launchctl_actions_return_launchctl_result(
-        self, tmp_path: Path, action: LifecycleAction
-    ) -> None:
+        self, tmp_path: Path, action: LifecycleAction) -> None:
         world, listing = _managed_world(tmp_path)
         controller = LifecycleController(world.services)
         assert controller.request(action, listing) is RequestVerdict.ACCEPTED

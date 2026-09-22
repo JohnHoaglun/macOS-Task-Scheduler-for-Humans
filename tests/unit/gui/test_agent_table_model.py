@@ -116,3 +116,10 @@ class TestData:
         assert model.data(bad_idx, Qt.ItemDataRole.DisplayRole) is None
         assert model.data(bad_idx, ROLE_STATE) is None
         assert model.data(bad_idx, ROLE_SEARCH_TEXT) is None
+
+
+class TestListingAt:
+    def test_out_of_range_returns_none(self, agent_model: AgentTableModel) -> None:
+        assert agent_model.listing_at(-1) is None
+        assert agent_model.listing_at(99) is None
+        assert agent_model.listing_at(0) is agent_model.agents()[0]

@@ -27,6 +27,7 @@ from task_scheduler.application import (
     ExternalEditResult,
     ExternalEditSession,
 )
+from task_scheduler.application.external_edit_models import RawPlistRead
 from task_scheduler.application.job_service import JobNotFoundError
 from task_scheduler.application.task_command_service import (
     ListingKind,
@@ -42,7 +43,11 @@ from task_scheduler.gui.controllers.diagnostics_controller import (
     RequestVerdict as TestVerdict,
 )
 from task_scheduler.gui.controllers.diagnostics_worker import DiagnosticsWorker
-from task_scheduler.gui.controllers.discovery_controller import DiscoveryController
+from task_scheduler.gui.controllers.discovery_controller import (
+    DiscoveryController,
+    RefreshOutcome,
+)
+from task_scheduler.gui.controllers.discovery_worker import DiscoveryWorker
 from task_scheduler.gui.controllers.editor_controller import EditorController
 from task_scheduler.gui.controllers.external_control_worker import (
     ExternalControlKind,
@@ -67,6 +72,7 @@ from task_scheduler.gui.controllers.lifecycle_controller import (
     usable_external_label,
 )
 from task_scheduler.gui.controllers.lifecycle_worker import LifecycleWorker
+from task_scheduler.gui.controllers.raw_read_worker import RawReadWorker
 from task_scheduler.gui.models.agent_filter_proxy_model import AgentFilterProxyModel
 from task_scheduler.gui.models.agent_table_model import AgentTableModel
 from task_scheduler.gui.presenters.agent_presenter import shell_safe_command
@@ -167,6 +173,25 @@ EXTERNAL_RUN_NOW_NOT_LOADED_TOOLTIP = (
 EXTERNAL_RUN_NOW_NO_LABEL_TOOLTIP = "This task has no usable launchd label."
 
 
+class _DiscoveryFinishSlot(QObject):
+    """Deliver one discovery outcome to the window on the main thread.
+
+    A bare Python callable connected to a cross-thread signal executes on
+    the emitting (worker) thread, so this small main-thread QObject carries
+    the outcome's generation and forwards it to the window's slot through a
+    queued connection. It deletes itself after delivering.
+    """
+
+    def __init__(self, window: MainWindow, generation: int) -> None:
+        super().__init__(window)
+        self._window = window
+        self._generation = generation
+
+    def deliver(self, outcome: object) -> None:
+        self._window._on_discovery_finished(self._generation, outcome)
+        self.deleteLater()
+
+
 class MainWindow(QMainWindow):
     """Main window: a discovered-agent table on the left, an inspector on the right."""
 
@@ -187,6 +212,10 @@ class MainWindow(QMainWindow):
     ) -> None:
         super().__init__(parent)
         self._controller = controller
+        self._discovery_generation = 0
+        self._discovery_in_flight = False
+        self._discovery_pending = False
+        self._raw_session: ExternalEditSession | None = None
         self._editor_controller = editor
         self._lifecycle_controller = lifecycle
         self._lifecycle_busy = False
@@ -362,8 +391,37 @@ class MainWindow(QMainWindow):
         self.refresh()
 
     def refresh(self) -> None:
-        """Reload the agent listings, preserving the selected agent when possible."""
-        outcome = self._controller.refresh()
+        """Schedule a discovery scan, coalescing requests into one follow-up."""
+        self._discovery_generation += 1
+        if self._discovery_in_flight:
+            self._discovery_pending = True
+            return
+        self._discovery_in_flight = True
+        worker = DiscoveryWorker(self._controller)
+        self._start_discovery_worker(worker, self._discovery_generation)
+
+    def _start_discovery_worker(self, worker: DiscoveryWorker, generation: int) -> None:
+        """Run the discovery worker on a QThread and invoke it through the queue."""
+        thread = QThread()
+        worker.moveToThread(thread)
+        worker.finished.connect(_DiscoveryFinishSlot(self, generation).deliver)
+        worker.finished.connect(worker.deleteLater)
+        worker.finished.connect(thread.quit)
+        self._track_worker_thread(thread, worker)
+        thread.start()
+        QMetaObject.invokeMethod(worker, "run", Qt.ConnectionType.QueuedConnection)
+
+    def _on_discovery_finished(self, generation: int, outcome: object) -> None:
+        """Apply the fresh discovery outcome, then run a coalesced follow-up once."""
+        self._discovery_in_flight = False
+        if generation == self._discovery_generation and isinstance(outcome, RefreshOutcome):
+            self._apply_refresh(outcome)
+        if self._discovery_pending:
+            self._discovery_pending = False
+            self.refresh()
+
+    def _apply_refresh(self, outcome: RefreshOutcome) -> None:
+        """Render a discovery outcome, preserving the selected agent when possible."""
         if outcome.error is not None:
             self._model.set_agents([])
             self.inspector.show_error(outcome.error)
@@ -388,10 +446,15 @@ class MainWindow(QMainWindow):
         self._update_lifecycle_actions()
 
     def _show_refresh_status(self, diagnostics: tuple[CatalogDiagnostic, ...]) -> None:
-        """Surface unreadable catalog files as a non-blocking status-bar warning."""
+        """Surface unreadable catalog files as a non-blocking status-bar warning.
+
+        A background discovery refresh must not clear a message set by another
+        operation (e.g. an external-control result), so only clear when the
+        current message is itself a catalog warning.
+        """
         if diagnostics:
             self.statusBar().showMessage(f"{len(diagnostics)} catalog file(s) could not be read")
-        else:
+        elif self.statusBar().currentMessage().endswith("catalog file(s) could not be read"):
             self.statusBar().clearMessage()
 
     def new_task(self) -> None:
@@ -915,18 +978,45 @@ class MainWindow(QMainWindow):
         )
 
     def _open_raw_editor(self, session: ExternalEditSession) -> None:
-        """Open the raw plist editor for an external LaunchAgent plist."""
-        try:
-            data = session.source_path.read_bytes()
-        except OSError:
+        """Read the source plist off the UI thread, then open the raw editor."""
+        if self._close_pending or self._close_finalizing:
+            self.statusBar().showMessage("Close in progress...")
+            return
+        self._raw_session = session
+        self.statusBar().showMessage("Reading plist…")
+        worker = RawReadWorker(session.source_path)
+        self._start_raw_read_worker(worker)
+
+    def _start_raw_read_worker(self, worker: RawReadWorker) -> None:
+        """Run the raw-read worker on a QThread and invoke it through the queue."""
+        thread = QThread()
+        worker.moveToThread(thread)
+        worker.finished.connect(self._on_raw_read_finished)
+        worker.finished.connect(worker.deleteLater)
+        worker.finished.connect(thread.quit)
+        self._track_worker_thread(thread, worker)
+        thread.start()
+        QMetaObject.invokeMethod(worker, "run", Qt.ConnectionType.QueuedConnection)
+
+    def _on_raw_read_finished(self, read: RawPlistRead) -> None:
+        """Open the raw editor with the read result, or surface its error."""
+        session = self._raw_session
+        self._raw_session = None
+        if session is None or self._close_pending or self._close_finalizing:
+            return
+        if read.error is not None:
             self.statusBar().showMessage("Cannot read external plist file.")
             return
-        try:
-            text = data.decode("utf-8")
-            binary_mode = False
-        except UnicodeDecodeError:
-            text = base64.b64encode(data).decode("ascii")
-            binary_mode = True
+        assert read.text is not None
+        self._present_raw_editor(session, read.text, read.binary_mode)
+
+    def _present_raw_editor(
+        self,
+        session: ExternalEditSession,
+        text: str,
+        binary_mode: bool,
+    ) -> None:
+        """Open the raw plist editor and dispatch the replacement when accepted."""
         editor = RawPlistEditor(self)
         editor.open(
             source_path=session.source_path,

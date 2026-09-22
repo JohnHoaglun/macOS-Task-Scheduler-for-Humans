@@ -16,7 +16,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from task_scheduler.domain import JobDefinition, command_argv
+from task_scheduler.domain import JobDefinition
+from task_scheduler.domain.formatting import format_command_argv
 from task_scheduler.gui.controllers.import_controller import ImportOutcome
 from task_scheduler.gui.presenters.agent_presenter import format_schedule_value
 
@@ -135,7 +136,7 @@ class ImportPreviewDialog(QDialog):
         if label_label is not None:
             label_label.setText(job.label)
         if command_label is not None:
-            command_label.setText(" ".join(command_argv(job.command)))
+            command_label.setText(format_command_argv(job.command))
         if schedule_label is not None:
             schedule_label.setText(self._format_schedule(job))
         if env_label is not None:

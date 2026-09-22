@@ -16,8 +16,7 @@ from task_scheduler.gui.controllers.lifecycle_worker import LifecycleWorker
 
 class TestLifecycleWorkerExceptionSafety:
     def test_emits_finished_when_execute_raises(
-        self, qtbot: QtBot, caplog: pytest.LogCaptureFixture
-    ) -> None:
+        self, qtbot: QtBot, caplog: pytest.LogCaptureFixture) -> None:
         controller = _raise_on_execute()
         worker = LifecycleWorker(cast(LifecycleController, controller))
         emitted: list[object] = []
@@ -44,8 +43,7 @@ class TestLifecycleWorkerExceptionSafety:
 
 class TestDiagnosticsWorkerExceptionSafety:
     def test_emits_finished_when_execute_raises(
-        self, qtbot: QtBot, caplog: pytest.LogCaptureFixture
-    ) -> None:
+        self, qtbot: QtBot, caplog: pytest.LogCaptureFixture) -> None:
         controller = _raise_on_execute()
         worker = DiagnosticsWorker(cast(DiagnosticsController, controller))
         emitted: list[object] = []
