@@ -5,7 +5,7 @@
 - **Scope:** production code under `src/task_scheduler/` (82 files, ~14,200 lines). Tests were read only as evidence, not reviewed for their own quality.
 - **Method:** full-file solo scan (platform → storage → domain → application → CLI → GUI), cross-checked against the durable CR-01…CR-21 record in `docs/code-review-findings.md` (all resolved in v0.0.44–v0.0.47; none re-reported here).
 - **Verdict:** no high/critical items. **8 medium, 17 low.**
-- **Remediation status (2026-09-21):** R2-01, R2-02, R2-05, R2-06, R2-09, R2-10, R2-12, R2-13, R2-15, R2-17, R2-24, and R2-25 resolved in v0.0.48 (slice 1 — safety and observability); R2-03, R2-04, R2-07, R2-08, R2-11, R2-14, R2-16, R2-18, R2-19, R2-20, R2-21, R2-22, and R2-23 are planned for v0.0.49–v0.0.50 (slices 2–3, tracked in `TODOS.md`).
+- **Remediation status (2026-09-22):** R2-01, R2-02, R2-05, R2-06, R2-09, R2-10, R2-12, R2-13, R2-15, R2-17, R2-24, and R2-25 resolved in v0.0.48 (slice 1 — safety and observability); R2-04, R2-07, R2-11, R2-14, R2-16, R2-20, and R2-22 resolved in v0.0.49 (slice 2 — catalog, history, trust, CLI); R2-03, R2-08, R2-18, R2-19, R2-21, and R2-23 are planned for v0.0.50 (slice 3, tracked in `TODOS.md`).
 
 ## Findings
 
@@ -32,6 +32,7 @@
 #### R2-04 — One corrupt catalog file breaks the whole catalog (logic/robustness)
 - `JobService.list_jobs` (`application/job_service.py:116-129`) propagates any `repository.load` failure; `find`/`resolve`/`transfer_conflicts`/`list_agents`/GUI listing all route through it. A single malformed `*.json` makes every managed task inaccessible.
 - Recommendation: quarantine or skip the unreadable record with a surfaced diagnostic (analogous to the plist parse-status model used for external agents) instead of failing the listing.
+- **Resolved (v0.0.49):** catalog scans are now fault-tolerant — unreadable `*.json` files are skipped and reported through the new frozen `CatalogDiagnostic` DTO (`path` + short `message`) exposed by `JobService.catalog_diagnostics()`. The CLI `list` command emits each diagnostic to stderr as `warning: path: message`, and the GUI surfaces a non-blocking status-bar notice (`"{n} catalog file(s) could not be read"`) through `RefreshOutcome.diagnostics`, clearing the bar when the catalog is clean.
 
 #### R2-05 — No recovery path when bootout fails (logic/UX)
 - `uninstall` (`application/task_command_service.py:584-591`; `platform/macos/launchctl.py:100-109`) and `reinstall` (`task_command_service.py:368-405`, abort at `:388-389`) both require a successful `launchctl bootout`.
@@ -49,6 +50,7 @@
 - `status()` records a `STATUS_OBSERVATION` event on every call (`application/task_command_service.py:603-617`); `run_now` does likewise.
 - The SQLite history store (`storage/execution_history_repository.py`) is append-only with **no retention, rotation, or pruning** anywhere; reads are capped at 100 rows but the database file grows without bound for the life of the app.
 - Recommendation: add a retention policy (e.g., cap rows per job or prune by age on open) or document the expected size profile and add a size guard.
+- **Resolved (v0.0.49):** execution history is bounded by `MAX_EVENTS_PER_JOB = 1000`: the repository prunes every oversized job on open and prunes after each append, deleting the oldest events first by rowid via a pinned `ORDER BY id DESC … OFFSET` subquery, so retention is independent of `created_at` values and other jobs' rows are untouched.
 
 #### R2-08 — Unbounded synchronous log reads (logic/performance)
 - `LocalLogReader.read` (`platform/macos/log_reader.py:39-45`) reads the entire file, no size cap.
@@ -73,6 +75,7 @@
 - `JobService.save` (`application/job_service.py:210-222`) performs the label-conflict check without the `_catalog_lock` that `import_job` holds (`:199-208`). Concurrent duplicate-label writes can both pass the check.
 - Practical risk is low (single-user app) but the two write paths are inconsistent.
 - Recommendation: hold the lock in `save` as well.
+- **Resolved (v0.0.49):** `JobService.save()` now performs the label-conflict check and publish under the same `.catalog.lock` advisory lock held by `import_job`, so both catalog write paths are consistent against concurrent duplicate-label writes.
 
 #### R2-12 — History append silently drops write failures (logging)
 - `ExecutionHistoryRepository.append` (`storage/execution_history_repository.py:114-115`) swallows `(sqlite3.Error, OSError)` with `pass` — no log, and no `_unavailable` flag (contrast with the constructor, `:76-77`, which sets it).
@@ -88,6 +91,7 @@
 #### R2-14 — Inconsistent CLI exception containment and exit codes (logging/UX)
 - `cli/app.py`: `list` (`:70-78`) and `test` (`:234-245`) have no containment at all (traceback on catalog corruption, `OSError`, invalid label); `inspect` (`:80-90`) catches only `JobNotFoundError`; `validate` (`:92-104`), `generate` (`:106-117`), `install` (`:133-134`) map **any** `Exception` to "invalid job definition" (masking e.g. a file deleted between `exists=True` and read); `import` (`:304`) and `import-json` (`:339`) exit 2 with an **empty** stderr message via `_fail("")`; `logs` (`:258-261`) exits with `EXIT_USAGE` (2) on a log-read failure, which is an operational error, not a usage error.
 - Recommendation: adopt the narrow `JobNotFoundError`/`ValueError`/`OSError` containment used by the lifecycle commands everywhere; reserve exit 2 for usage; use a non-empty message for the acknowledgement prompt path.
+- **Resolved (v0.0.49):** every CLI command now catches the narrow `JobNotFoundError`/`ValidationError`/`ValueError`/`OSError` set instead of bare `Exception`; exit 2 is reserved for usage errors and operational failures exit 1 with non-empty stderr and no tracebacks. `logs` stream-read failures exit 1 (previously 2), and the partial-import acknowledgement refusal prints a non-empty message.
 
 #### R2-15 — Broad `except Exception` around `plistlib.loads`; inconsistent catch style (logic)
 - `commit_raw_external_edit` (`application/task_command_service.py:924-927`) converts any exception from `plistlib.loads` into "not a valid plist", masking non-parse faults (e.g. memory errors).
@@ -99,6 +103,7 @@
 - `read_plist_bytes` (`platform/macos/filesystem.py:91-92`) and `list_plist_files` (`:94-97`, `is_file()` follows symlinks) follow symlinks, while `read_snapshot` (`:154-169`, `O_NOFOLLOW`, ELOOP surfaced) rejects them.
 - A symlinked plist is therefore discovered and readable, but the edit path refuses it. Risk is low (the user owns `~/Library/LaunchAgents`) but the security model is inconsistent.
 - Recommendation: decide one policy (reject symlinks everywhere, or allow them everywhere with documentation) and apply it at the discovery layer.
+- **Resolved (v0.0.49):** symlinks are rejected at the discovery layer — `list_plist_files` skips symlinked `.plist` entries and `read_plist_bytes` refuses symlinked paths, matching `read_snapshot`'s `O_NOFOLLOW` policy so one policy is applied everywhere.
 
 #### R2-17 — `bootstrap_path` does not check Label/path consistency (logic)
 - `LaunchAgentBackend.bootstrap_path` (`platform/macos/launchctl.py:126-136`) validates the path is under the LaunchAgent root but never verifies the plist's `Label` key matches the `label` argument. All reachable flows happen to pass consistent values; the API does not enforce it.
@@ -117,6 +122,7 @@
 #### R2-20 — `HistoryTableModel.header` missing bounds check (logic)
 - `gui/models/history_table_model.py:50-53` indexes `COLUMNS[section]` unchecked; `AgentTableModel.headerData` guards it (`gui/models/agent_table_model.py:97-100`). An out-of-range section query would raise `IndexError` in Qt's header path.
 - Recommendation: mirror the bounds check.
+- **Resolved (v0.0.49):** `HistoryTableModel.header()` now bounds-checks the horizontal section (mirroring `AgentTableModel.headerData`) and returns `None` for out-of-range sections instead of raising `IndexError` in Qt's header path.
 
 #### R2-21 — Filter recompute cost on the GUI thread (performance)
 - `AgentFilterProxyModel.filterAcceptsRow` (`gui/models/agent_filter_proxy_model.py:82-108`) does six `data()` role reads per row per filter pass; each non-DisplayRole read re-runs `dimensions(listing)` (`gui/models/agent_table_model.py:115`) and the search-text role re-quotes the full argv (`:61`) per row per pass — O(rows × args) on the GUI thread for every search keystroke and combobox change.
@@ -125,6 +131,7 @@
 #### R2-22 — External import commits the preview snapshot without re-reading the source (logic, documented)
 - `import_external_plist` (`application/task_command_service.py:445-467`) commits the preview-time parsed snapshot; the source plist may drift between preview and commit. Documented in the docstring, and lower risk than raw edit (which does drift-check at `:949-953`), but the two external paths have different drift semantics.
 - Recommendation: re-snapshot and compare at commit, or state the snapshot-only semantics in the user-facing import preview.
+- **Resolved (v0.0.49):** `ExternalPlistImportPreview` snapshots the source at preview time (`source_sha256` plus `(st_dev, st_ino)` identity), and `import_external_plist` re-reads and re-verifies the source at commit; drift between preview and commit raises `ValueError` (CLI exit 1) instead of committing a stale snapshot, matching the raw external-edit drift semantics.
 
 #### R2-23 — `_open_raw_editor` does synchronous file IO and base64 round-trip on the GUI thread (performance, trivial)
 - `gui/main_window.py:906-918`: `read_bytes()` + UTF-8 decode or base64-encode of the whole plist on the GUI thread. Trivial for typical plist sizes, but it is the only synchronous read in that flow.

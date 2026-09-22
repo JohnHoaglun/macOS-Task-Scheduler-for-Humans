@@ -10,12 +10,8 @@ from pytestqt.qtbot import QtBot
 
 from conftest import make_job
 from task_scheduler.application.task_command_service import ListingKind, TaskListing
-from task_scheduler.gui.models.agent_filter_proxy_model import (
-    AgentFilterProxyModel,
-)
-from task_scheduler.gui.models.agent_table_model import (
-    AgentTableModel,
-)
+from task_scheduler.gui.models.agent_filter_proxy_model import AgentFilterProxyModel
+from task_scheduler.gui.models.agent_table_model import AgentTableModel
 from task_scheduler.platform.macos import ParsedLaunchAgent, ParseSupport
 
 TEST_PATH = Path("/Users/example/Library/LaunchAgents/com.example.plist")

@@ -70,12 +70,17 @@ def create_app(services: TaskCommandService) -> typer.Typer:
     @app.command("list")
     def list_command() -> None:
         """List all user LaunchAgents with their parse status."""
-        agents = services.list_agents()
+        try:
+            agents = services.list_agents()
+            diagnostics = services.catalog_diagnostics()
+        except (ValueError, OSError) as exc:
+            _fail(f"list failed: {exc}", EXIT_FAILURE)
         if not agents:
             typer.echo("No LaunchAgents found.")
-            return
         for agent in agents:
             typer.echo(render.format_list(agent))
+        for diagnostic in diagnostics:
+            typer.secho(f"warning: {diagnostic.path}: {diagnostic.message}", err=True)
 
     @app.command("inspect")
     def inspect_command(
@@ -86,6 +91,10 @@ def create_app(services: TaskCommandService) -> typer.Typer:
             report = services.inspect(label)
         except JobNotFoundError as exc:
             _fail(str(exc), EXIT_USAGE)
+        except ValueError as exc:
+            _fail(str(exc), EXIT_USAGE)
+        except OSError as exc:
+            _fail(f"inspect failed: {exc}", EXIT_FAILURE)
         diagnostics = services.inspection_diagnostics(report.plist_path, report.plist)
         typer.echo(render.format_inspect(report, diagnostics))
 
@@ -98,8 +107,10 @@ def create_app(services: TaskCommandService) -> typer.Typer:
         """Validate a job JSON file."""
         try:
             job = services.validate_json(path)
-        except Exception as exc:
+        except (ValidationError, ValueError) as exc:
             _fail(_format_validation_error(exc), EXIT_USAGE)
+        except OSError as exc:
+            _fail(f"validate failed: {exc}", EXIT_FAILURE)
         typer.echo(f"OK: {job.label}")
         typer.echo(render.format_job_summary(job))
 
@@ -112,8 +123,10 @@ def create_app(services: TaskCommandService) -> typer.Typer:
         """Print the LaunchAgent XML plist for a job JSON file."""
         try:
             xml = services.generate_plist(path)
-        except Exception as exc:
+        except (ValidationError, ValueError) as exc:
             _fail(_format_validation_error(exc), EXIT_USAGE)
+        except OSError as exc:
+            _fail(f"generate failed: {exc}", EXIT_FAILURE)
         typer.echo(xml, nl=False)
 
     @app.command("install")
@@ -130,8 +143,10 @@ def create_app(services: TaskCommandService) -> typer.Typer:
                 f"install refused (managed plist already exists): {exc}",
                 EXIT_USAGE,
             )
-        except Exception as exc:
+        except (ValidationError, ValueError) as exc:
             _fail(_format_validation_error(exc), EXIT_USAGE)
+        except OSError as exc:
+            _fail(f"install failed: {exc}", EXIT_FAILURE)
         if result.process.exit_code != EXIT_SUCCESS:
             typer.secho(
                 f"install failed for {result.job.label}: "
@@ -240,6 +255,8 @@ def create_app(services: TaskCommandService) -> typer.Typer:
             result = services.test(label)
         except JobNotFoundError as exc:
             _fail(str(exc), EXIT_USAGE)
+        except ValueError as exc:
+            _fail(str(exc), EXIT_USAGE)
         typer.echo(render.format_test(result))
         if result.process.exit_code != EXIT_SUCCESS:
             raise typer.Exit(EXIT_FAILURE)
@@ -256,7 +273,7 @@ def create_app(services: TaskCommandService) -> typer.Typer:
         streams = (logs.stdout, logs.stderr)
         typer.echo(render.format_logs(logs))
         if any(stream.error is not None for stream in streams):
-            raise typer.Exit(EXIT_USAGE)
+            raise typer.Exit(EXIT_FAILURE)
         if all(stream.path is None for stream in streams):
             raise typer.Exit(EXIT_USAGE)
 
@@ -301,13 +318,20 @@ def create_app(services: TaskCommandService) -> typer.Typer:
                 render.format_import_disclosure(preview),
                 err=True,
             )
-            _fail("", EXIT_USAGE)
+            _fail(
+                "import refused: use --acknowledge-partial to import this plist",
+                EXIT_USAGE,
+            )
         if acknowledge_partial:
             typer.echo(render.format_import_disclosure(preview, include_prompt=False))
         try:
             services.import_external_plist(preview, acknowledge_partial=acknowledge_partial)
         except JobConflictError as exc:
             _fail(str(exc), EXIT_USAGE)
+        except ValueError as exc:
+            _fail(str(exc), EXIT_FAILURE)
+        except OSError as exc:
+            _fail(str(exc), EXIT_FAILURE)
         typer.echo(render.format_import_success(preview.candidate.label))
 
     @app.command("export-json")
@@ -336,7 +360,7 @@ def create_app(services: TaskCommandService) -> typer.Typer:
             _fail(str(exc), EXIT_USAGE)
         if not preview.can_import:
             typer.secho(render.format_import_json_conflicts(preview), err=True)
-            _fail("", EXIT_USAGE)
+            _fail("import refused: unresolved conflicts (see above)", EXIT_USAGE)
         try:
             services.import_managed_json(preview)
         except JobConflictError as exc:

@@ -29,6 +29,8 @@ from task_scheduler.application.history_models import (
 
 logger = logging.getLogger(__name__)
 
+MAX_EVENTS_PER_JOB = 1000
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS execution_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -55,6 +57,22 @@ def _connect(path: Path) -> sqlite3.Connection:
     return sqlite3.connect(str(path), check_same_thread=False)
 
 
+def _prune_job(db: sqlite3.Connection, job_id: str) -> None:
+    """Delete the oldest events for *job_id* beyond ``MAX_EVENTS_PER_JOB``."""
+    db.execute(
+        """
+        DELETE FROM execution_history
+        WHERE job_id = ? AND id < (
+            SELECT id FROM execution_history
+            WHERE job_id = ?
+            ORDER BY id DESC
+            LIMIT 1 OFFSET ?
+        )
+        """,
+        (job_id, job_id, MAX_EVENTS_PER_JOB - 1),
+    )
+
+
 class ExecutionHistoryRepository:
     """Append-only execution-history store backed by SQLite.
 
@@ -64,6 +82,9 @@ class ExecutionHistoryRepository:
 
     The first append persistence failure is logged once and marks the
     repository unavailable; subsequent appends are no-ops.
+
+    Per-job history is capped at the newest ``MAX_EVENTS_PER_JOB`` events;
+    each append prunes the job, and opening the database prunes all jobs.
 
     Each operation opens a fresh connection, so the repository holds no
     long-lived connection state.
@@ -78,6 +99,10 @@ class ExecutionHistoryRepository:
             db.execute("PRAGMA journal_mode=WAL")
             db.execute(_SCHEMA)
             db.execute(_INDEX)
+            for (job_id,) in db.execute(
+                "SELECT DISTINCT job_id FROM execution_history"
+            ).fetchall():
+                _prune_job(db, job_id)
             db.commit()
         except Exception:
             self._unavailable = True
@@ -120,6 +145,7 @@ class ExecutionHistoryRepository:
                         diagnostic_codes,
                     ),
                 )
+                _prune_job(db, str(event.job_id))
                 db.commit()
         except (sqlite3.Error, OSError):
             self._unavailable = True

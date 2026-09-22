@@ -40,6 +40,5 @@ def test_save_failure_preserves_original_and_removes_temp(
     monkeypatch.setattr(os, "replace", fail)
     with pytest.raises(OSError, match="disk full"):
         repository.save(job, path)
-
     assert repository.load(path).id == job.id
     assert list(tmp_path.iterdir()) == [path]

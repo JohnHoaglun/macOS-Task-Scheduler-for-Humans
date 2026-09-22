@@ -11,12 +11,7 @@ from tests.conftest import make_job
 from tests.fakes import OK_PROCESS, FakeProcessRunner, FakeTaskWorld
 
 from task_scheduler.domain.command import ExecutableCommand
-from task_scheduler.platform.macos import (
-    ExternalEditField,
-    ParseSupport,
-    PlistCodec,
-    ProcessResult,
-)
+from task_scheduler.platform.macos import ExternalEditField, ParseSupport, PlistCodec, ProcessResult
 
 
 def _ensure_la_root(world: FakeTaskWorld) -> None:
@@ -32,11 +27,6 @@ def _write_plist(world: FakeTaskWorld, name: str, data: dict[str, object]) -> Pa
 def _make_raw(replacement: dict[str, object]) -> str:
     """Convert a replacement dict to the str expected by commit_raw_external_edit."""
     return plistlib.dumps(replacement, fmt=plistlib.FMT_XML).decode("utf-8")
-
-
-# ---------------------------------------------------------------------------
-# open_external_edit_session
-# ---------------------------------------------------------------------------
 
 
 class TestOpenExternalEditSession:
@@ -56,11 +46,6 @@ class TestOpenExternalEditSession:
         plist_path.write_bytes(PlistCodec().encode_bytes(job))
         with pytest.raises(ValueError, match="already managed"):
             world.services.open_external_edit_session(plist_path)
-
-
-# ---------------------------------------------------------------------------
-# commit_structured_external_edit
-# ---------------------------------------------------------------------------
 
 
 class TestCommitStructuredExternalEdit:
@@ -163,11 +148,6 @@ class TestCommitStructuredExternalEdit:
         assert result.replaced is False
         assert result.reloaded is False
         assert len(result.retained_artifacts) == 1
-
-
-# ---------------------------------------------------------------------------
-# commit_raw_external_edit
-# ---------------------------------------------------------------------------
 
 
 class TestCommitRawExternalEdit:
@@ -301,11 +281,6 @@ class TestCommitRawExternalEdit:
         assert result.reloaded is False
 
 
-# ---------------------------------------------------------------------------
-# disable_external / enable_external / run_now_external
-# ---------------------------------------------------------------------------
-
-
 class TestDisableExternal:
     def test_outside_root_raises(self, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
@@ -373,11 +348,7 @@ class TestEnableExternal:
     def test_clears_disabled_and_bootstraps_when_unloaded(self, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
         _ensure_la_root(world)
-        original = {
-            "Label": "com.example.e1",
-            "ProgramArguments": ["/bin/true"],
-            "Disabled": True,
-        }
+        original = {"Label": "com.example.e1", "ProgramArguments": ["/bin/true"], "Disabled": True}
         plist_path = _write_plist(world, "com.example.e1.plist", original)
         world.backend._runner = FakeProcessRunner(
             results=[ProcessResult(exit_code=1), OK_PROCESS, OK_PROCESS]
@@ -397,11 +368,7 @@ class TestEnableExternal:
     def test_loaded_skips_bootstrap(self, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
         _ensure_la_root(world)
-        original = {
-            "Label": "com.example.e2",
-            "ProgramArguments": ["/bin/true"],
-            "Disabled": True,
-        }
+        original = {"Label": "com.example.e2", "ProgramArguments": ["/bin/true"], "Disabled": True}
         plist_path = _write_plist(world, "com.example.e2.plist", original)
         world.backend._runner = FakeProcessRunner(results=[OK_PROCESS, OK_PROCESS])
         result = world.services.enable_external(plist_path)
@@ -453,11 +420,6 @@ class TestRunNowExternal:
         )
         with pytest.raises(ValueError, match="not loaded in launchd"):
             world.services.run_now_external(plist_path)
-
-
-# ---------------------------------------------------------------------------
-# remove_external / remove_saved_job
-# ---------------------------------------------------------------------------
 
 
 class TestRemoveExternal:
@@ -525,11 +487,6 @@ class TestRemoveExternal:
         assert result.process is not None and result.process.exit_code == 1
         assert plist_path.exists()
         assert len(list(world.la_root.glob("*.backup.*"))) == 1
-
-
-# ---------------------------------------------------------------------------
-# Defensive status-ValueError branches and edge validations (coverage closeout)
-# ---------------------------------------------------------------------------
 
 
 def _boom_status(label: str) -> None:

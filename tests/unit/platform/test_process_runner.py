@@ -7,11 +7,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from fakes import FakeClock
-from task_scheduler.platform.macos import (
-    CommandSpec,
-    LaunchFailureKind,
-    SubprocessRunner,
-)
+from task_scheduler.platform.macos import CommandSpec, LaunchFailureKind, SubprocessRunner
 
 
 def _spec(

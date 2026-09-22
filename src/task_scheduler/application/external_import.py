@@ -30,3 +30,5 @@ class ExternalPlistImportPreview:
     warnings: tuple[str, ...]
     unsupported_keys: tuple[str, ...]
     requires_acknowledgement: bool
+    source_sha256: str = ""
+    source_identity: tuple[int, int] = (0, 0)

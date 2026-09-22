@@ -13,6 +13,7 @@ import fcntl
 import os
 import re
 from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -29,6 +30,7 @@ from task_scheduler.storage.json_repository import JsonJobRepository
 
 __all__ = [
     "MANAGED_LABEL_PREFIX",
+    "CatalogDiagnostic",
     "JobConflictError",
     "JobNotFoundError",
     "JobService",
@@ -96,6 +98,14 @@ class JobConflictError(Exception):
         super().__init__(f"a managed job already exists for label {label!r} ({path})")
 
 
+@dataclass(frozen=True, slots=True)
+class CatalogDiagnostic:
+    """A catalog file that failed to load during a scan, with a short reason."""
+
+    path: Path
+    message: str
+
+
 class JobService:
     """Catalog of managed jobs, keyed by job id and resolved by label."""
 
@@ -117,16 +127,36 @@ class JobService:
         """Return every managed job, sorted by label.
 
         A missing root yields an empty list. Only direct-child ``*.json``
-        files are considered.
+        files are considered; a file that fails to load is skipped and
+        reported by :meth:`catalog_diagnostics`.
         """
+        return self._scan()[0]
+
+    def catalog_diagnostics(self) -> list[CatalogDiagnostic]:
+        """Return the catalog files that failed to load, from a fresh scan.
+
+        Each call re-scans the catalog (no caching). A missing root and a
+        fully valid catalog both yield an empty list.
+        """
+        return self._scan()[1]
+
+    def _scan(self) -> tuple[list[JobDefinition], list[CatalogDiagnostic]]:
+        """Scan the catalog root; files that fail to load become diagnostics."""
         if not self._root.is_dir():
-            return []
-        jobs = [
-            self._repository.load(path)
-            for path in self._root.iterdir()
-            if path.name.endswith(".json") and path.is_file()
-        ]
-        return sorted(jobs, key=lambda job: job.label)
+            return [], []
+        jobs: list[JobDefinition] = []
+        diagnostics: list[CatalogDiagnostic] = []
+        for path in self._root.iterdir():
+            if not path.name.endswith(".json") or not path.is_file():
+                continue
+            try:
+                jobs.append(self._repository.load(path))
+            except (OSError, ValueError) as exc:
+                diagnostics.append(
+                    CatalogDiagnostic(path=path, message=f"{type(exc).__name__}: {exc}")
+                )
+        diagnostics.sort(key=lambda diagnostic: diagnostic.path)
+        return sorted(jobs, key=lambda job: job.label), diagnostics
 
     def find(self, label: str) -> JobDefinition | None:
         """Return the managed job for ``label``, or ``None`` when absent."""
@@ -214,11 +244,12 @@ class JobService:
         different managed job already claiming ``job.label`` raises
         :class:`JobConflictError`.
         """
-        owner = self.find(job.label)
-        if owner is not None and owner.id != job.id:
-            raise JobConflictError(label=job.label, path=self._path_for(owner.id))
-        path = self._path_for(job.id)
-        self._repository.save(job, path, create_parent=True)
+        with self._catalog_lock():
+            owner = self.find(job.label)
+            if owner is not None and owner.id != job.id:
+                raise JobConflictError(label=job.label, path=self._path_for(owner.id))
+            path = self._path_for(job.id)
+            self._repository.save(job, path, create_parent=True)
         return path
 
     def remove(self, job_id: UUID) -> bool:

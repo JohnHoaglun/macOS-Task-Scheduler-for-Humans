@@ -11,9 +11,7 @@ from tests.fakes import FakeTaskWorld
 from conftest import make_job
 from task_scheduler.domain import JobDefinition
 from task_scheduler.domain.command import ShellCommand
-from task_scheduler.gui.controllers.diagnostics_controller import (
-    DiagnosticsController,
-)
+from task_scheduler.gui.controllers.diagnostics_controller import DiagnosticsController
 from task_scheduler.platform.macos import ProcessResult
 
 JOB_LABEL = "io.github.macos-task-scheduler.user.daily-backup"

@@ -16,9 +16,7 @@ from task_scheduler.application.history_models import (
     HistoryEventKind,
     HistoryOutcome,
 )
-from task_scheduler.storage import (
-    ExecutionHistoryRepository,
-)
+from task_scheduler.storage import ExecutionHistoryRepository
 
 
 def _make_event(
@@ -48,71 +46,37 @@ def _make_event(
     )
 
 
-# ── round-trip ──────────────────────────────────────────────────────────────
-
-# ── job isolation ───────────────────────────────────────────────────────────
-
-# ── limit ───────────────────────────────────────────────────────────────────
-
-
 def test_limit_over_100_raises(tmp_path: Path) -> None:
     repo = ExecutionHistoryRepository(tmp_path / "hist.db")
     with pytest.raises(ValueError):
         repo.read(uuid4(), limit=101)
 
 
-# ── healthy empty ───────────────────────────────────────────────────────────
-
-# ── corrupt file ────────────────────────────────────────────────────────────
-
-# ── unusable path ───────────────────────────────────────────────────────────
-
-
 def test_unusable_path(tmp_path: Path) -> None:
     bad_path = tmp_path / "no" / "such" / "dir.sqlite3"
     repo = ExecutionHistoryRepository(bad_path)
     assert repo._unavailable is True
-
     repo.append(_make_event())
-
     result = repo.read(uuid4(), limit=10)
     assert result.events == ()
     assert result.error == HISTORY_UNAVAILABLE
 
 
-# ── default_history_path ────────────────────────────────────────────────────
-
-# ── loaded field round-trip ─────────────────────────────────────────────────
-
-
 def test_loaded_field_round_trip(tmp_path: Path) -> None:
     repo = ExecutionHistoryRepository(tmp_path / "hist.db")
     jid = uuid4()
-
     e_true = _make_event(job_id=jid, loaded=True, created_at=datetime(2025, 1, 1, tzinfo=UTC))
     e_false = _make_event(job_id=jid, loaded=False, created_at=datetime(2025, 1, 2, tzinfo=UTC))
     e_none = _make_event(job_id=jid, loaded=None, created_at=datetime(2025, 1, 3, tzinfo=UTC))
-
     repo.append(e_true)
     repo.append(e_false)
     repo.append(e_none)
-
     result = repo.read(jid, limit=10)
     assert len(result.events) == 3
-
     # newest-first: e_none (day 3), e_false (day 2), e_true (day 1)
     assert result.events[0].loaded is None
     assert result.events[1].loaded is False
     assert result.events[2].loaded is True
-
-
-# ── kind and outcome decode ─────────────────────────────────────────────────
-
-# ── no events when job_id not found ─────────────────────────────────────────
-
-# ── diagnostic_codes round-trip ─────────────────────────────────────────────
-
-# ── sqlite3 error in append ─────────────────────────────────────────────────
 
 
 def test_append_sqlite_error_is_noop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -127,7 +91,6 @@ def test_append_sqlite_error_is_noop(tmp_path: Path, monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(ehr_module, "_connect", _failing_connect)
     repo.append(_make_event(job_id=jid))  # marks the repository unavailable
     monkeypatch.undo()
-
     result = repo.read(jid, limit=10)
     assert result.events == ()
     assert result.error == HISTORY_UNAVAILABLE
@@ -140,7 +103,6 @@ def test_append_failure_logs_once_then_unavailable(
     caplog: pytest.LogCaptureFixture,
     exc_type: type[Exception],
 ) -> None:
-    """The first append failure logs one ERROR and disables further recording."""
     repo = ExecutionHistoryRepository(tmp_path / "hist.db")
 
     def _failing_connect(path: Path) -> sqlite3.Connection:
@@ -159,13 +121,9 @@ def test_append_failure_logs_once_then_unavailable(
         )
         repo.append(_make_event())
         assert sum(1 for record in caplog.records if record.levelno == logging.ERROR) == 1
-
     result = repo.read(uuid4(), limit=10)
     assert result.events == ()
     assert result.error == HISTORY_UNAVAILABLE
-
-
-# ── sqlite3 error in read ───────────────────────────────────────────────────
 
 
 def test_read_sqlite_error_returns_unavailable(
@@ -181,9 +139,6 @@ def test_read_sqlite_error_returns_unavailable(
     result = repo.read(uuid4(), limit=10)
     assert result.events == ()
     assert result.error == HISTORY_UNAVAILABLE
-
-
-# ── malformed diagnostic_codes column (not a list) ──────────────────────────
 
 
 def test_diagnostic_codes_not_list_stored_raw(tmp_path: Path) -> None:
@@ -210,16 +165,12 @@ def test_diagnostic_codes_not_list_stored_raw(tmp_path: Path) -> None:
     assert result.events[0].diagnostic_codes == ()
 
 
-# ── malformed row (invalid kind string) is skipped ─────────────────────────
-
-
 def test_malformed_row_is_skipped(tmp_path: Path) -> None:
     db_path = tmp_path / "hist.db"
     repo = ExecutionHistoryRepository(db_path)
     jid = uuid4()
     e = _make_event(job_id=jid)
     repo.append(e)
-
     cols = (
         "created_at, job_id, label, kind, outcome, exit_code, "
         "duration_seconds, loaded, diagnostic_codes"
@@ -232,10 +183,163 @@ def test_malformed_row_is_skipped(tmp_path: Path) -> None:
             (str(jid),),
         )
         db.commit()
-
     result = repo.read(jid, limit=10)
     assert len(result.events) == 1
     assert result.events[0].kind == e.kind
 
 
-# ── per-operation connections ───────────────────────────────────────────────
+def _seed(db_path: Path, job_id: UUID, count: int, prefix: str = "seed") -> None:
+    ExecutionHistoryRepository(db_path)
+    with contextlib.closing(sqlite3.connect(str(db_path))) as db:
+        db.executemany(
+            "INSERT INTO execution_history "
+            "(created_at, job_id, label, kind, outcome, diagnostic_codes) "
+            "VALUES ('2025-01-01T00:00:00+00:00', ?, ?, 'manual_run', 'success', '[]')",
+            [(str(job_id), f"{prefix}-{i:04d}") for i in range(count)],
+        )
+        db.commit()
+
+
+def _count(db_path: Path, job_id: UUID) -> int:
+    with contextlib.closing(sqlite3.connect(str(db_path))) as db:
+        return db.execute(
+            "SELECT COUNT(*) FROM execution_history WHERE job_id = ?", (str(job_id),)
+        ).fetchone()[0]
+
+
+def test_max_events_per_job_is_1000() -> None:
+    assert ehr_module.MAX_EVENTS_PER_JOB == 1000
+
+
+def test_append_prunes_oldest_beyond_cap(tmp_path: Path) -> None:
+    db_path = tmp_path / "hist.db"
+    jid = uuid4()
+    _seed(db_path, jid, 1000)
+    ExecutionHistoryRepository(db_path).append(_make_event(job_id=jid))
+    assert _count(db_path, jid) == 1000
+
+
+def test_append_at_cap_boundary_keeps_all(tmp_path: Path) -> None:
+    db_path = tmp_path / "hist.db"
+    jid = uuid4()
+    _seed(db_path, jid, 999)
+    ExecutionHistoryRepository(db_path).append(_make_event(job_id=jid))
+    assert _count(db_path, jid) == 1000
+
+
+def test_append_below_cap_keeps_all(tmp_path: Path) -> None:
+    db_path = tmp_path / "hist.db"
+    jid = uuid4()
+    _seed(db_path, jid, 5)
+    ExecutionHistoryRepository(db_path).append(_make_event(job_id=jid))
+    assert _count(db_path, jid) == 6
+
+
+def test_append_prune_leaves_other_jobs_untouched(tmp_path: Path) -> None:
+    db_path = tmp_path / "hist.db"
+    jid_a, jid_b = uuid4(), uuid4()
+    _seed(db_path, jid_a, 1000)
+    _seed(db_path, jid_b, 1000)
+    ExecutionHistoryRepository(db_path).append(_make_event(job_id=jid_a))
+    assert _count(db_path, jid_a) == 1000
+    assert _count(db_path, jid_b) == 1000
+
+
+def test_open_prunes_preexisting_oversized_job(tmp_path: Path) -> None:
+    db_path = tmp_path / "hist.db"
+    jid = uuid4()
+    _seed(db_path, jid, 1005)
+    ExecutionHistoryRepository(db_path)
+    assert _count(db_path, jid) == 1000
+
+
+def test_open_prunes_every_job(tmp_path: Path) -> None:
+    db_path = tmp_path / "hist.db"
+    jid_a, jid_b = uuid4(), uuid4()
+    _seed(db_path, jid_a, 1001)
+    _seed(db_path, jid_b, 1002)
+    ExecutionHistoryRepository(db_path)
+    assert _count(db_path, jid_a) == 1000
+    assert _count(db_path, jid_b) == 1000
+
+
+def test_prune_deletes_oldest_keeps_newest(tmp_path: Path) -> None:
+    db_path = tmp_path / "hist.db"
+    jid = uuid4()
+    _seed(db_path, jid, 1001, prefix="e")
+    ExecutionHistoryRepository(db_path)
+    with contextlib.closing(sqlite3.connect(str(db_path))) as db:
+        labels = {
+            row[0]
+            for row in db.execute(
+                "SELECT label FROM execution_history WHERE job_id = ?", (str(jid),)
+            )
+        }
+    assert len(labels) == 1000
+    assert "e-0000" not in labels
+    assert "e-1000" in labels
+
+
+def test_retention_is_by_row_id_not_created_at(tmp_path: Path) -> None:
+    # rowid grows while created_at shrinks: timestamp-based retention would
+    # keep r-0000 (newest timestamp), rowid-based retention deletes it.
+    db_path = tmp_path / "hist.db"
+    ExecutionHistoryRepository(db_path)
+    jid = uuid4()
+    with contextlib.closing(sqlite3.connect(str(db_path))) as db:
+        db.executemany(
+            "INSERT INTO execution_history "
+            "(created_at, job_id, label, kind, outcome, diagnostic_codes) "
+            "VALUES (?, ?, ?, 'manual_run', 'success', '[]')",
+            [
+                (
+                    f"2025-{1 + (1000 - i) // 366:02d}-01T00:00:00+00:00",
+                    str(jid),
+                    f"r-{i:04d}",
+                )
+                for i in range(1001)
+            ],
+        )
+        db.commit()
+    ExecutionHistoryRepository(db_path)
+    assert _count(db_path, jid) == 1000
+    with contextlib.closing(sqlite3.connect(str(db_path))) as db:
+        labels = {
+            row[0]
+            for row in db.execute(
+                "SELECT label FROM execution_history WHERE job_id = ?", (str(jid),)
+            )
+        }
+    assert "r-0000" not in labels
+    assert "r-1000" in labels
+
+
+def test_read_after_prune_returns_newest_first(tmp_path: Path) -> None:
+    db_path = tmp_path / "hist.db"
+    jid = uuid4()
+    _seed(db_path, jid, 1001)
+    repo = ExecutionHistoryRepository(db_path)
+    result = repo.read(jid, limit=100)
+    assert len(result.events) == 100
+    assert {event.label for event in result.events} == {f"seed-{i:04d}" for i in range(901, 1001)}
+
+
+def test_repeated_appends_stay_at_cap(tmp_path: Path) -> None:
+    db_path = tmp_path / "hist.db"
+    jid = uuid4()
+    _seed(db_path, jid, 999)
+    repo = ExecutionHistoryRepository(db_path)
+    for _ in range(3):
+        repo.append(_make_event(job_id=jid))
+    assert _count(db_path, jid) == 1000
+
+
+def test_pruned_repository_still_appends(tmp_path: Path) -> None:
+    db_path = tmp_path / "hist.db"
+    jid = uuid4()
+    _seed(db_path, jid, 1001)
+    repo = ExecutionHistoryRepository(db_path)
+    repo.append(_make_event(job_id=jid, label="newest"))
+    assert _count(db_path, jid) == 1000
+    result = repo.read(jid, limit=1)
+    assert result.events[0].label == "newest"

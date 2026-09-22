@@ -51,17 +51,12 @@ class FakeProcessRunner:
         return self._result
 
 
-# ── format_history renderer tests ──────────────────────────────────────────
-
-
 def test_format_history_empty_events() -> None:
-    """Empty events tuple produces empty string."""
     result = HistoryReadResult(events=())
     assert render.format_history(result, "com.example.job") == ""
 
 
 def test_format_history_codes_comma_join_no_spaces() -> None:
-    """Diagnostic codes must be comma-joined with NO spaces."""
     ts = datetime(2025, 6, 15, 10, 30, 0, tzinfo=UTC)
     result = HistoryReadResult(
         events=(
@@ -81,7 +76,6 @@ def test_format_history_codes_comma_join_no_spaces() -> None:
 
 
 def test_format_history_status_observation_loaded_unknown() -> None:
-    """loaded=None for status_observation → loaded=unknown."""
     ts = datetime(2025, 6, 15, 10, 30, 0, tzinfo=UTC)
     result = HistoryReadResult(
         events=(
@@ -99,11 +93,7 @@ def test_format_history_status_observation_loaded_unknown() -> None:
     assert "loaded=unknown" in out
 
 
-# ── CLI history command tests ──────────────────────────────────────────────
-
-
 def test_history_unknown_label_exits_usage(tmp_path: Path) -> None:
-    """Unknown label → exit 2 with JobNotFoundError message."""
     world = FakeTaskWorld(tmp_path)
     result = invoke(world, "history", "missing.label")
     assert result.exit_code == 2
@@ -111,7 +101,6 @@ def test_history_unknown_label_exits_usage(tmp_path: Path) -> None:
 
 
 def test_history_limit_negative_exits_usage(tmp_path: Path) -> None:
-    """limit=-1 → exit 2."""
     world = FakeTaskWorld(tmp_path)
     result = invoke(world, "history", "com.example.job", "--limit", "-1")
     assert result.exit_code == 2
@@ -119,7 +108,6 @@ def test_history_limit_negative_exits_usage(tmp_path: Path) -> None:
 
 
 def test_history_unavailable_service_exits_failure(tmp_path: Path) -> None:
-    """Service without history repo → exit 1, error on stderr."""
     catalog_root = tmp_path / "catalog"
     catalog_root.mkdir()
     la_root = tmp_path / "launchagents"
@@ -147,7 +135,6 @@ def test_history_unavailable_service_exits_failure(tmp_path: Path) -> None:
 
 
 def test_history_zero_events(tmp_path: Path) -> None:
-    """No history events → exit 0 with 'No history found.'"""
     world = FakeTaskWorld(tmp_path)
     job = make_job()
     world.manage(job)
@@ -157,7 +144,6 @@ def test_history_zero_events(tmp_path: Path) -> None:
 
 
 def test_history_limit_option(tmp_path: Path) -> None:
-    """--limit option works."""
     world = FakeTaskWorld(tmp_path)
     job = make_job()
     world.manage(job)

@@ -8,10 +8,7 @@ from tests.conftest import make_job
 
 from task_scheduler.application import ExternalPlistImportPreview
 from task_scheduler.domain import JobDefinition
-from task_scheduler.gui.controllers.import_controller import (
-    ImportController,
-    ImportOutcome,
-)
+from task_scheduler.gui.controllers.import_controller import ImportController, ImportOutcome
 
 
 class FakeImportService:

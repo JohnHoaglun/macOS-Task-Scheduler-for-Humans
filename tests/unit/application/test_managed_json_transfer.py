@@ -14,13 +14,8 @@ import pytest
 from tests.conftest import make_job
 from tests.fakes import FakeTaskWorld
 
-from task_scheduler.application import (
-    JobConflictError,
-    StrictJsonDecodeError,
-)
-from task_scheduler.application.managed_json_transfer import (
-    strict_decode_job_json,
-)
+from task_scheduler.application import JobConflictError, StrictJsonDecodeError
+from task_scheduler.application.managed_json_transfer import strict_decode_job_json
 
 _ID = "12345678-1234-5678-1234-567812345678"
 _OTHER_ID = "ffffffff-ffff-ffff-ffff-ffffffffffff"
@@ -69,9 +64,6 @@ def write_json(path: Path, payload: object) -> Path:
     return path
 
 
-# -- strict decoder --------------------------------------------------------
-
-
 def test_decode_valid_v1_migrates_to_calendar() -> None:
     job = strict_decode_job_json(json.dumps(v1_payload()))
     assert job.schema_version == 2
@@ -117,12 +109,6 @@ def test_decode_skips_key_check_when_shape_unknown(base, patch) -> None:
         strict_decode_job_json(json.dumps(payload))
 
 
-# -- JobService.transfer_conflicts ----------------------------------------
-
-
-# -- service façades -------------------------------------------------------
-
-
 def test_export_refuses_existing_destination(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
     world.jobs.import_job(make_job())
@@ -139,9 +125,6 @@ def test_import_rechecks_conflict_at_commit(tmp_path: Path) -> None:
     world.jobs.import_job(make_job())  # concurrent import claims the id
     with pytest.raises(JobConflictError):
         world.services.import_managed_json(preview)
-
-
-# -- reveal_path -----------------------------------------------------------
 
 
 def test_reveal_missing_path_returns_message(tmp_path: Path) -> None:
@@ -165,9 +148,6 @@ def test_reveal_without_finder_reports_unavailable(tmp_path: Path) -> None:
     target = tmp_path / "target.txt"
     target.write_text("x", "utf-8")
     assert world.services.reveal_path(target) == "reveal in Finder is not available"
-
-
-# -- eager loaded status in list_agents -----------------------------------
 
 
 def test_loaded_status(tmp_path: Path) -> None:

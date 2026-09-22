@@ -25,19 +25,12 @@ from tests.conftest import make_job
 from tests.fakes import FakeTaskWorld
 
 from task_scheduler.application.job_service import default_job_logs_root, managed_label
-from task_scheduler.domain import (
-    JobDefinition,
-    LoggingConfig,
-)
+from task_scheduler.domain import JobDefinition, LoggingConfig
 from task_scheduler.gui.controllers.diagnostics_controller import DiagnosticsController
 from task_scheduler.gui.controllers.editor_controller import EditorController
-from task_scheduler.gui.presenters.agent_presenter import (
-    PREVIEW_INCOMPLETE,
-)
+from task_scheduler.gui.presenters.agent_presenter import PREVIEW_INCOMPLETE
 from task_scheduler.gui.widgets.direct_test_dialog import DirectTestDialog
-from task_scheduler.gui.widgets.job_editor import (
-    JobEditor,
-)
+from task_scheduler.gui.widgets.job_editor import JobEditor
 from task_scheduler.platform.macos import (
     CandidateSource,
     DetectionNote,
@@ -52,7 +45,6 @@ def make_editor(
     tmp_path: Path,
     job: JobDefinition | None = None,
 ) -> tuple[FakeTaskWorld, JobEditor, EditorController]:
-    """A dialog bound to a world's services, opened on the given job or empty."""
     world = FakeTaskWorld(tmp_path)
     controller = EditorController(world.services)
     editor = JobEditor(controller, detection_debounce_ms=0)
@@ -66,14 +58,12 @@ def make_editor(
 
 
 def line_edit(editor: JobEditor, object_name: str) -> QLineEdit:
-    """The named line edit, asserted present."""
     edit = editor.findChild(QLineEdit, object_name)
     assert edit is not None
     return edit
 
 
 def label(editor: JobEditor) -> QLabel:
-    """The label display, asserted present as plain text, not a line edit."""
     assert editor.findChild(QLineEdit, "editor-label") is None
     found = editor.findChild(QLabel, "editor-label")
     assert found is not None
@@ -81,35 +71,30 @@ def label(editor: JobEditor) -> QLabel:
 
 
 def button(editor: JobEditor, object_name: str) -> QPushButton:
-    """The named button, asserted present."""
     found = editor.findChild(QPushButton, object_name)
     assert found is not None
     return found
 
 
 def checkbox(editor: JobEditor, day: str) -> QCheckBox:
-    """The named weekday checkbox, asserted present."""
     found = editor.findChild(QCheckBox, f"editor-weekday-{day}")
     assert found is not None
     return found
 
 
 def combo(editor: JobEditor) -> QComboBox:
-    """The command-kind combo box, asserted present."""
     found = editor.findChild(QComboBox, "editor-command-kind")
     assert found is not None
     return found
 
 
 def stack(editor: JobEditor) -> QStackedWidget:
-    """The command-kind page stack, asserted present."""
     found = editor.findChild(QStackedWidget, "editor-command-stack")
     assert found is not None
     return found
 
 
 def fill_valid_python(editor: JobEditor) -> None:
-    """Fill a new python draft so it validates."""
     line_edit(editor, "editor-name").setText("Nightly Sync")
     line_edit(editor, "editor-interpreter").setText("/tmp/venv/bin/python")
     line_edit(editor, "editor-script").setText("/tmp/nightly.py")
@@ -123,7 +108,6 @@ def _detection_result(
     working_directory=None,
     notes=None,
 ) -> PythonDetectionResult:
-    """A canned detection result for dialog tests."""
     return PythonDetectionResult(
         script=Path(script_text),
         candidates=candidates,
@@ -138,21 +122,18 @@ def fake_detection(
     working_directory=None,
     notes=None,
 ) -> None:
-    """Replace the controller's detect_python with a canned responder."""
     editor._controller.detect_python = lambda script: _detection_result(
         str(script), candidates, working_directory, notes
     )
 
 
 def errors(editor: JobEditor) -> QPlainTextEdit:
-    """The hidden error pane, asserted present."""
     found = editor.findChild(QPlainTextEdit, "editor-errors")
     assert found is not None
     return found
 
 
 def preview(editor: JobEditor) -> QTextEdit:
-    """The preview pane, asserted present."""
     found = editor.findChild(QTextEdit, "editor-preview")
     assert found is not None
     return found
@@ -160,7 +141,6 @@ def preview(editor: JobEditor) -> QTextEdit:
 
 class TestKindSwitching:
     def test_selecting_kind_switches_page(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """Moving the combo follows with the page stack."""
         _, editor, _ = make_editor(qtbot, tmp_path)
         box = combo(editor)
         box.setCurrentIndex(1)
@@ -186,7 +166,6 @@ class TestIdentity:
     """The Identity group: one editable name, a plain-text derived label."""
 
     def test_label_is_plain_text(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """The label shows as single-line plain text, never an editable field."""
         job = make_job()
         _, editor, _ = make_editor(qtbot, tmp_path, job=job)
         shown = label(editor)
@@ -214,7 +193,6 @@ class TestIdentity:
         assert editor._draft.name == "nightly sync"
 
     def test_renaming_existing_job_keeps_label(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """Renaming a stored job leaves its fixed label in place."""
         job = make_job()
         _, editor, _ = make_editor(qtbot, tmp_path, job=job)
         line_edit(editor, "editor-name").textEdited.emit("Renamed Backup")
@@ -225,7 +203,6 @@ class TestIdentity:
 
 class TestPreview:
     def test_invalid_preview_shows_errors(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """An invalid draft shows errors instead of a preview."""
         _, editor, _ = make_editor(qtbot, tmp_path)
         button(editor, "editor-preview").click()
         assert errors(editor).isVisible()
@@ -235,7 +212,6 @@ class TestPreview:
 
 class TestSave:
     def test_save_invalid_rejects(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """Saving an invalid draft shows errors and writes nothing."""
         world, editor, _ = make_editor(qtbot, tmp_path)
         button(editor, "editor-save").click()
         assert editor.result() == 0
@@ -248,7 +224,6 @@ class TestCloseAndBrowse:
     def test_browse_directory_sets_path(
         self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Directory browse mode writes the chosen directory."""
         _, editor, _ = make_editor(qtbot, tmp_path)
         fake = staticmethod(lambda *_a: "/tmp/workdir")
         monkeypatch.setattr(QFileDialog, "getExistingDirectory", fake)
@@ -258,7 +233,6 @@ class TestCloseAndBrowse:
     def test_browse_empty_path_unchanged(
         self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A cancelled browse leaves the line edit untouched."""
         _, editor, _ = make_editor(qtbot, tmp_path)
         fake = staticmethod(lambda *_a: ("", ""))
         monkeypatch.setattr(QFileDialog, "getOpenFileName", fake)
@@ -279,7 +253,6 @@ class TestCloseAndBrowse:
     def test_stream_fields_are_read_only_in_managed_mode(
         self, qtbot: QtBot, tmp_path: Path
     ) -> None:
-        """Managed stream paths are derived, not hand-edited."""
         _, editor, _ = make_editor(qtbot, tmp_path)
         assert line_edit(editor, "editor-stdout-path").isReadOnly()
         assert line_edit(editor, "editor-stderr-path").isReadOnly()
@@ -287,7 +260,6 @@ class TestCloseAndBrowse:
     def test_browse_log_directory_derives_both_stream_paths(
         self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Log directory browse derives both stream paths in the one directory."""
         _, editor, _ = make_editor(qtbot, tmp_path)
         fake = staticmethod(lambda *_a: "/tmp/logs")
         monkeypatch.setattr(QFileDialog, "getExistingDirectory", fake)
@@ -300,7 +272,6 @@ class TestCloseAndBrowse:
 
 class TestUnopenedDialog:
     def test_actions_noop_without_draft(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """Action slots no-op on a dialog that was never opened."""
         world = FakeTaskWorld(tmp_path)
         editor = JobEditor(EditorController(world.services))
         qtbot.addWidget(editor)
@@ -314,13 +285,11 @@ class TestUnopenedDialog:
         assert editor.result() == 0
 
     def test_validate_invalid_draft_shows_errors(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """Validate preserves field-error feedback when the form is invalid."""
         _, editor, _ = make_editor(qtbot, tmp_path)
         button(editor, "editor-validate").click()
         assert errors(editor).isVisible()
 
     def test_test_draft_noop_without_draft(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """Test Draft no-ops on a dialog that was never opened."""
         world = FakeTaskWorld(tmp_path)
         editor = JobEditor(
             EditorController(world.services),
@@ -335,7 +304,6 @@ class TestPythonDetection:
     def test_top_candidate_autofills_and_use_keeps_alternatives(
         self, qtbot: QtBot, tmp_path: Path
     ) -> None:
-        """Detection fills the top candidate while Use still selects an alternative."""
         _, editor, _ = make_editor(qtbot, tmp_path)
         fake_detection(
             editor,
@@ -364,7 +332,6 @@ class TestPythonDetection:
     def test_no_candidates_with_notes_appends_to_base_note(
         self, qtbot: QtBot, tmp_path: Path
     ) -> None:
-        """Notes also append to the no-match base note."""
         _, editor, _ = make_editor(qtbot, tmp_path)
         fake_detection(
             editor,
@@ -401,7 +368,6 @@ def make_test_draft_editor(
     *,
     on_test_worker_started: Callable[[QThread, QObject], None] | None = None,
 ) -> tuple[FakeTaskWorld, JobEditor]:
-    """An editor with a diagnostics controller, ready to run Test Draft."""
     world = FakeTaskWorld(tmp_path)
     controller = EditorController(world.services)
     editor = JobEditor(
@@ -447,7 +413,6 @@ class TestDirectTestDraft:
     def test_test_draft_uses_current_edited_fields(
         self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Fields edited before the click are part of the tested job."""
         _, editor = make_test_draft_editor(qtbot, tmp_path, job=make_job())
         opened = fake_dialog_exec(monkeypatch)
         line_edit(editor, "editor-name").setText("Renamed Backup")
@@ -497,7 +462,6 @@ class TestMultiTimeSchedule:
     """Increment 16: multi-time calendar authoring through the time row editor."""
 
     def _occurrences(self, editor: JobEditor) -> str:
-        """The live preview text, asserted present."""
         label = editor.findChild(QLabel, "editor-preview-occurrences")
         assert label is not None
         return label.text()
@@ -531,25 +495,21 @@ class TestIntervalSchedule:
     """Increment 17: interval and login-trigger authoring through the Schedule group."""
 
     def _kind_combo(self, editor: JobEditor) -> QComboBox:
-        """The schedule-kind combo box, asserted present."""
         found = editor.findChild(QComboBox, "editor-schedule-kind")
         assert found is not None
         return found
 
     def _unit_combo(self, editor: JobEditor) -> QComboBox:
-        """The interval-unit combo box, asserted present."""
         found = editor.findChild(QComboBox, "editor-interval-unit")
         assert found is not None
         return found
 
     def _schedule_stack(self, editor: JobEditor) -> QStackedWidget:
-        """The schedule page stack, asserted present."""
         found = editor.findChild(QStackedWidget, "editor-schedule-stack")
         assert found is not None
         return found
 
     def _run_at_load(self, editor: JobEditor) -> QCheckBox:
-        """The Run at login checkbox, asserted present."""
         found = editor.findChild(QCheckBox, "editor-run-at-load")
         assert found is not None
         return found
@@ -561,7 +521,6 @@ class TestIntervalSchedule:
         return label.text()
 
     def _fill_command(self, editor: JobEditor) -> None:
-        """Fill the command fields so a draft can validate or save."""
         line_edit(editor, "editor-name").setText("Nightly Sync")
         line_edit(editor, "editor-interpreter").setText("/tmp/venv/bin/python")
         line_edit(editor, "editor-script").setText("/tmp/nightly.py")
@@ -578,7 +537,6 @@ class TestIntervalSchedule:
     def test_invalid_interval_value_is_neutral(
         self, qtbot: QtBot, tmp_path: Path, value: str
     ) -> None:
-        """A non-whole, zero, or negative duration keeps the preview neutral."""
         editor = self._fixed_editor(qtbot, tmp_path)
         self._kind_combo(editor).setCurrentIndex(1)
         edit = line_edit(editor, "editor-interval-value")
@@ -587,7 +545,6 @@ class TestIntervalSchedule:
         assert self._occurrences(editor) == PREVIEW_INCOMPLETE
 
     def test_sub_minimum_interval_is_neutral(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """A duration below the domain minimum keeps the preview neutral."""
         editor = self._fixed_editor(qtbot, tmp_path)
         self._kind_combo(editor).setCurrentIndex(1)
         self._unit_combo(editor).setCurrentIndex(0)
@@ -630,7 +587,6 @@ class TestExternalMode:
         assert errors(editor).isVisible()
 
     def test_external_detection_never_autofills(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """Candidate detection does not change an external draft automatically."""
         _, editor = self._open_external(qtbot, tmp_path)
         line_edit(editor, "editor-interpreter").setText("")
         fake_detection(
@@ -644,7 +600,6 @@ class TestExternalMode:
     def test_external_mode_hides_log_directory_and_keeps_manual_paths(
         self, qtbot: QtBot, tmp_path: Path
     ) -> None:
-        """External edits keep the manual stream fields; the log directory row is hidden."""
         world = FakeTaskWorld(tmp_path)
         editor = JobEditor(EditorController(world.services))
         qtbot.addWidget(editor)

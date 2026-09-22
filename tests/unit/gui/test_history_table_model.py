@@ -9,11 +9,7 @@ import pytest
 from PySide6.QtCore import Qt
 from pytestqt.qtbot import QtBot
 
-from task_scheduler.application.history_models import (
-    HistoryEvent,
-    HistoryEventKind,
-    HistoryOutcome,
-)
+from task_scheduler.application.history_models import HistoryEvent, HistoryEventKind, HistoryOutcome
 from task_scheduler.gui.models.history_table_model import COLUMNS, HistoryTableModel
 
 
@@ -52,6 +48,12 @@ class TestHeader:
     def test_vertical_headers(self, model: HistoryTableModel):
         assert model.header(0, Qt.Orientation.Vertical) == "1"
         assert model.header(1, Qt.Orientation.Vertical) == "2"
+
+    def test_out_of_range_section_returns_none(self, model: HistoryTableModel):
+        for section in (len(COLUMNS), -1):
+            assert model.header(section, Qt.Orientation.Horizontal) is None
+        for i in range(len(COLUMNS)):
+            assert model.header(i, Qt.Orientation.Horizontal) == COLUMNS[i]
 
 
 class TestData:

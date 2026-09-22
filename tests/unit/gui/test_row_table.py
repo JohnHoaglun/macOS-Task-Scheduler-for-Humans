@@ -9,7 +9,6 @@ from task_scheduler.gui.widgets.row_table import RowTable
 
 
 def make_table(qtbot: QtBot, columns: int) -> RowTable:
-    """A fresh table kept alive by qtbot."""
     table = RowTable(columns)
     qtbot.addWidget(table)
     return table
@@ -49,14 +48,12 @@ class TestSignalsAndButtons:
 
 class TestGaps:
     def test_columns_reports_count(self, qtbot: QtBot) -> None:
-        """columns() reports the constructor's column count."""
         t = make_table(qtbot, 2)
         assert t.columns() == 2
         t.add_row(["a", "b"])
         assert t.columns() == 2
 
     def test_remove_out_of_range_is_noop(self, qtbot: QtBot) -> None:
-        """Removing an out-of-range index leaves the rows untouched."""
         t = make_table(qtbot, 1)
         t.set_rows([["a"], ["b"]])
         t.remove_row(5)
@@ -64,7 +61,6 @@ class TestGaps:
         assert t.rows() == [["a"], ["b"]]
 
     def test_remove_button_drops_focused_row(self, qtbot: QtBot) -> None:
-        """With a cell focused, the remove button drops that row, not the last."""
         t = make_table(qtbot, 1)
         t.set_rows([["a"], ["b"], ["c"]])
         t.show()

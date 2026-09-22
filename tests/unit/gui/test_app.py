@@ -89,7 +89,6 @@ def test_main_module_launcher_exits_with_return_code(
     qtbot: QtBot, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The ``__main__`` launcher exits with the event-loop exit code.
-
     ``QApplication.instance()`` must keep working: pytest-qt processes events
     after every test and resolves the class through the module attribute.
     """

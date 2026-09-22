@@ -4,14 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from task_scheduler.application.history_models import (
-    HistoryEvent,
-    HistoryEventKind,
-    HistoryOutcome,
-)
-from task_scheduler.gui.presenters.history_presenter import (
-    format_event_details,
-)
+from task_scheduler.application.history_models import HistoryEvent, HistoryEventKind, HistoryOutcome
+from task_scheduler.gui.presenters.history_presenter import format_event_details
 
 
 def _event(**overrides) -> HistoryEvent:
@@ -51,8 +45,6 @@ class TestFormatEventDetails:
         assert "load state unknown" in result
 
     def test_diagnostic_codes_comma_joined(self):
-        event = _event(
-            diagnostic_codes=("err_one", "err_two", "err_three"),
-        )
+        event = _event(diagnostic_codes=("err_one", "err_two", "err_three"))
         result = format_event_details(event)
         assert "codes: err_one, err_two, err_three" in result

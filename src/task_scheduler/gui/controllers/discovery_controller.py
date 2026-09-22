@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from task_scheduler.application.diagnostic_models import Diagnostic
+from task_scheduler.application.job_service import CatalogDiagnostic
 from task_scheduler.application.task_command_service import (
     DiscoveredInspectReport,
     ListingKind,
@@ -21,6 +22,7 @@ class RefreshOutcome:
 
     agents: list[TaskListing] | None
     error: str | None
+    diagnostics: tuple[CatalogDiagnostic, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,7 +50,11 @@ class DiscoveryController:
             agents = self._services.list_agents()
         except Exception as exc:
             return RefreshOutcome(agents=None, error=str(exc))
-        return RefreshOutcome(agents=agents, error=None)
+        try:
+            diagnostics = self._services.catalog_diagnostics()
+        except Exception as exc:
+            return RefreshOutcome(agents=None, error=str(exc))
+        return RefreshOutcome(agents=agents, error=None, diagnostics=tuple(diagnostics))
 
     def inspect(self, listing: TaskListing) -> InspectOutcome:
         """Inspect one discovered plist, converting boundary errors to text.

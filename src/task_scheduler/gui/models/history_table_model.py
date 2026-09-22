@@ -49,7 +49,9 @@ class HistoryTableModel(QAbstractTableModel):
 
     def header(self, section: int, orientation: Qt.Orientation) -> object:
         if orientation == Qt.Orientation.Horizontal:
-            return COLUMNS[section]
+            if 0 <= section < len(COLUMNS):
+                return COLUMNS[section]
+            return None
         return str(section + 1)
 
     def data(

@@ -4,11 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtWidgets import (
-    QGroupBox,
-    QLabel,
-    QPlainTextEdit,
-)
+from PySide6.QtWidgets import QGroupBox, QLabel, QPlainTextEdit
 from pytestqt.qtbot import QtBot
 
 from conftest import make_job
@@ -17,10 +13,7 @@ from task_scheduler.application.task_command_service import (
     InstallResult,
     UninstallResult,
 )
-from task_scheduler.gui.controllers.lifecycle_controller import (
-    LifecycleAction,
-    LifecycleOutcome,
-)
+from task_scheduler.gui.controllers.lifecycle_controller import LifecycleAction, LifecycleOutcome
 from task_scheduler.gui.widgets.lifecycle_result import LifecycleResultDialog
 from task_scheduler.platform.macos import (
     LaunchAgentStatus,
@@ -40,11 +33,7 @@ def _process(**overrides: object) -> ProcessResult:
 
 
 def _install_result(**overrides: object) -> InstallResult:
-    kwargs: dict[str, object] = {
-        "job": make_job(),
-        "plist_path": PLIST_PATH,
-        "process": _process(),
-    }
+    kwargs: dict[str, object] = {"job": make_job(), "plist_path": PLIST_PATH, "process": _process()}
     kwargs.update(overrides)
     return InstallResult(**kwargs)  # type: ignore[arg-type]
 

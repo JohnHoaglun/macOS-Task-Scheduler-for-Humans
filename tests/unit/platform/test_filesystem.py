@@ -8,11 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from task_scheduler.platform.macos import (
-    LocalFilesystem,
-    SourceChangedError,
-    SourceSnapshot,
-)
+from task_scheduler.platform.macos import LocalFilesystem, SourceChangedError, SourceSnapshot
 
 
 class TestLocalFilesystemReplaceVerified:
@@ -32,13 +28,7 @@ class TestLocalFilesystemReplaceVerified:
         source = tmp_path / "source.plist"
         source.write_bytes(b"data")
         missing = tmp_path / "nope.plist"
-        snap = SourceSnapshot(
-            payload=b"x",
-            sha256="abc123",
-            st_dev=1,
-            st_ino=2,
-            st_size=1,
-        )
+        snap = SourceSnapshot(payload=b"x", sha256="abc123", st_dev=1, st_ino=2, st_size=1)
         with pytest.raises(SourceChangedError):
             fs.replace_verified(source, missing, snap)
 
@@ -81,6 +71,38 @@ class TestReadSnapshotDescriptorCoherent:
         snap = LocalFilesystem().read_snapshot(dest)
         assert snap.payload == b"0123456789" and snap.st_size == 10
         assert snap.st_ino == dest.stat().st_ino
+
+
+class TestDiscoveryReadSymlinkContainment:
+    def test_list_plist_files_skips_symlinked_entries(self, tmp_path: Path) -> None:
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        target = outside / "target.plist"
+        target.write_bytes(b"outside")
+        regular = tmp_path / "regular.plist"
+        regular.write_bytes(b"inside")
+        (tmp_path / "link.plist").symlink_to(target)
+        (tmp_path / "broken.plist").symlink_to(outside / "gone.plist")
+        assert LocalFilesystem().list_plist_files(tmp_path) == [regular]
+
+    def test_read_plist_bytes_rejects_symlinks(self, tmp_path: Path) -> None:
+        fs = LocalFilesystem()
+        regular = tmp_path / "regular.plist"
+        regular.write_bytes(b"inside")
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        target = outside / "target.plist"
+        target.write_bytes(b"outside")
+        (tmp_path / "link_in.plist").symlink_to(regular)
+        (tmp_path / "link_out.plist").symlink_to(target)
+        for link in (tmp_path / "link_in.plist", tmp_path / "link_out.plist"):
+            with pytest.raises(ValueError, match="symlinked plist"):
+                fs.read_plist_bytes(link)
+
+    def test_read_plist_bytes_reads_regular_file(self, tmp_path: Path) -> None:
+        regular = tmp_path / "regular.plist"
+        regular.write_bytes(b"payload")
+        assert LocalFilesystem().read_plist_bytes(regular) == b"payload"
 
 
 def _raise_oserror(*_args: object, **_kwargs: object) -> None:

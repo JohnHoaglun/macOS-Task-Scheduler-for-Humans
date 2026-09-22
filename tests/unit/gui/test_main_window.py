@@ -27,19 +27,11 @@ from tests.fakes import FakeTaskWorld
 
 import task_scheduler.gui.main_window as main_window_module
 from conftest import make_job
-from task_scheduler.application import ExternalEditResult, TaskCommandService
-from task_scheduler.application.task_command_service import (
-    ListingKind,
-    TaskListing,
-)
+from task_scheduler.application import CatalogDiagnostic, ExternalEditResult, TaskCommandService
+from task_scheduler.application.task_command_service import ListingKind, TaskListing
 from task_scheduler.domain import JobDefinition, LoggingConfig
-from task_scheduler.gui.controllers.diagnostics_controller import (
-    DiagnosticsController,
-    TestOutcome,
-)
-from task_scheduler.gui.controllers.diagnostics_controller import (
-    RequestVerdict as TestVerdict,
-)
+from task_scheduler.gui.controllers.diagnostics_controller import DiagnosticsController, TestOutcome
+from task_scheduler.gui.controllers.diagnostics_controller import RequestVerdict as TestVerdict
 from task_scheduler.gui.controllers.discovery_controller import DiscoveryController
 from task_scheduler.gui.controllers.editor_controller import EditorController
 from task_scheduler.gui.controllers.external_control_worker import (
@@ -47,9 +39,7 @@ from task_scheduler.gui.controllers.external_control_worker import (
     ExternalControlRequest,
     ExternalControlWorker,
 )
-from task_scheduler.gui.controllers.history_controller import (
-    HistoryController,
-)
+from task_scheduler.gui.controllers.history_controller import HistoryController
 from task_scheduler.gui.controllers.import_controller import ImportController
 from task_scheduler.gui.controllers.json_transfer_controller import (
     JsonImportCommitOutcome,
@@ -88,9 +78,7 @@ from task_scheduler.gui.main_window import (
     MainWindow,
 )
 from task_scheduler.gui.models.agent_table_model import AgentTableModel
-from task_scheduler.gui.presenters.agent_presenter import (
-    shell_safe_command,
-)
+from task_scheduler.gui.presenters.agent_presenter import shell_safe_command
 from task_scheduler.gui.widgets.agent_inspector import AgentInspector
 from task_scheduler.gui.widgets.external_control_dialog import (
     ExternalDisableConfirmDialog,
@@ -103,11 +91,7 @@ from task_scheduler.gui.widgets.import_preview_dialog import ImportPreviewDialog
 from task_scheduler.gui.widgets.job_editor import JobEditor
 from task_scheduler.gui.widgets.lifecycle_result import LifecycleResultDialog
 from task_scheduler.gui.widgets.raw_plist_editor import RawPlistEditor
-from task_scheduler.platform.macos import (
-    CommandSpec,
-    ProcessResult,
-    parse_path,
-)
+from task_scheduler.platform.macos import CommandSpec, ProcessResult, parse_path
 
 EXTERNAL_A_ID = UUID("11111111-1111-4111-8111-111111111111")
 EXTERNAL_B_ID = UUID("22222222-2222-4222-8222-222222222222")
@@ -116,7 +100,6 @@ INVALID_LABEL = "com.example.invalid"
 
 
 def _value_label(inspector: AgentInspector, object_name: str) -> QLabel:
-    """The named value QLabel, asserted present."""
     label = inspector.findChild(QLabel, object_name)
     assert label is not None
     return label
@@ -124,7 +107,6 @@ def _value_label(inspector: AgentInspector, object_name: str) -> QLabel:
 
 def _message_label(inspector: AgentInspector) -> QLabel:
     """The top-level message QLabel.
-
     Every value QLabel is re-parented into its group box by the layouts, so
     the message is the only QLabel whose parent is the inspector itself.
     """
@@ -148,7 +130,6 @@ def _window(
     controller: DiscoveryController,
     editor: EditorController | None = None,
 ) -> MainWindow:
-    """A constructed, shown window kept alive by qtbot."""
     window = MainWindow(
         controller,
         editor or EditorController(controller._services),
@@ -180,7 +161,6 @@ def _window_full(qtbot: QtBot, controller: DiscoveryController) -> MainWindow:
 
 
 def _row_by_path(model: AgentTableModel, path: Path) -> int:
-    """The table row holding *path*, asserted present."""
     for row in range(model.rowCount()):
         listing = model.listing_at(row)
         if listing is not None and listing.path == path:
@@ -189,7 +169,6 @@ def _row_by_path(model: AgentTableModel, path: Path) -> int:
 
 
 def _fill_valid_python(editor: JobEditor) -> None:
-    """Fill a new python draft so it validates."""
     editor.findChild(QLineEdit, "editor-name").setText("Nightly Sync")
     editor.findChild(QLineEdit, "editor-interpreter").setText("/tmp/venv/bin/python")
     editor.findChild(QLineEdit, "editor-script").setText("/tmp/nightly.py")
@@ -247,11 +226,19 @@ class TestSelectionOutOfRange:
 class _InspectFailingServices:
     """Duck-typed TaskCommandService: discovery works, inspect always fails."""
 
-    def __init__(self, inner: TaskCommandService) -> None:
+    def __init__(
+        self,
+        inner: TaskCommandService,
+        diagnostics: tuple[CatalogDiagnostic, ...] = (),
+    ) -> None:
         self._inner = inner
+        self._diagnostics = diagnostics
 
     def list_agents(self) -> list[TaskListing]:
         return self._inner.list_agents()
+
+    def catalog_diagnostics(self) -> tuple[CatalogDiagnostic, ...]:
+        return self._diagnostics
 
     def inspect_discovered(self, path: Path) -> None:
         raise ValueError("plist is corrupted")
@@ -271,9 +258,25 @@ class TestInspectFailure:
         assert _scroll_area(window.inspector).isHidden()
 
 
+class TestCatalogDiagnosticsStatus:
+    def test_unreadable_catalog_files_show_status(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        world.manage(make_job())
+        services = _InspectFailingServices(
+            world.services, (CatalogDiagnostic(tmp_path / "broken.plist", "unreadable"),)
+        )
+        window = _window(qtbot, DiscoveryController(services))
+        assert window.statusBar().currentMessage() == "1 catalog file(s) could not be read"
+
+    def test_clean_scan_clears_status(self, qtbot: QtBot, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        world.manage(make_job())
+        window = _window(qtbot, DiscoveryController(_InspectFailingServices(world.services)))
+        assert window.statusBar().currentMessage() == ""
+
+
 class TestTaskActions:
     def test_new_task_save_writes_catalog(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """Saving from New Task writes a catalog file and accepts."""
         world = FakeTaskWorld(tmp_path)
         window = _window(qtbot, DiscoveryController(world.services))
         editor = window._editor
@@ -289,7 +292,6 @@ class TestTaskActions:
         assert "Nightly Sync" in editor.saved_path.read_text()
 
     def test_edit_action_requires_selection(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """Edit Task is disabled with no selection; the method shows a hint."""
         world = FakeTaskWorld(tmp_path)
         window = _window(qtbot, DiscoveryController(world.services))
         hint = "Select a task to edit it."
@@ -299,7 +301,6 @@ class TestTaskActions:
         assert not window._editor.isVisible()
 
     def test_edit_managed_task_save_renames(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """Renaming and saving a managed job rewrites its catalog file."""
         world, managed, _, _ = _seed_three(tmp_path)
         window = _window(qtbot, DiscoveryController(world.services))
         model = window.table.model()
@@ -355,7 +356,6 @@ def _capture_lifecycle(
 
 
 def _panel_text(window: MainWindow, object_name: str) -> str:
-    """The panel's named text element (label or log tab), asserted present."""
     found = window.panel.findChild(object, object_name)
     assert found is not None
     if isinstance(found, QPlainTextEdit):
@@ -612,7 +612,6 @@ class TestHistoryPanelWiring:
         """
         world, managed, *_ = _seed_three(tmp_path)
         window = _window_full(qtbot, DiscoveryController(world.services))
-
         real_qthread: type[QThread] = main_window_module.QThread
         created: list[QObject | None] = []
 
@@ -631,19 +630,15 @@ class TestHistoryPanelWiring:
 
         monkeypatch.setattr(LifecycleResultDialog, "exec", fake_exec)
         _script_external_dialogs(monkeypatch, disable=True)
-
         _select_managed(world, window, managed)
         window.run_now_action.trigger()
         qtbot.waitUntil(lambda: not window._lifecycle_busy and len(outcomes) == 1, timeout=5000)
-
         listing = next(item for item in world.services.list_agents() if not item.managed)
         window._run_external_lifecycle(LifecycleAction.DISABLE, listing)
         qtbot.waitUntil(lambda: not window._external_busy, timeout=5000)
-
         _select_managed(world, window, managed)
         window._on_test_triggered()
         qtbot.waitUntil(lambda: not window._diagnostics_busy, timeout=5000)
-
         qtbot.waitUntil(lambda: window._worker_threads == set(), timeout=5000)
         assert created == [None, None, None]
         window.close()
@@ -751,7 +746,6 @@ EXTERNAL_PARTIAL_PLIST = """\
 
 
 def _import_window(qtbot: QtBot, world: FakeTaskWorld) -> MainWindow:
-    """A window with an import controller."""
     from task_scheduler.gui.controllers.import_controller import ImportController
 
     window = MainWindow(
@@ -1013,8 +1007,6 @@ class TestWave3Composition:
         assert "No command available" in window.statusBar().currentMessage()
 
 
-# -- universal task controls ---------------------------------------------------
-
 EXTERNAL_EDIT_LABEL = "com.example.editable"
 QUARANTINE_LABEL = "com.example.quarantine"
 RAW_LABEL = "com.example.raw"
@@ -1054,7 +1046,6 @@ def _seed_all_kinds(tmp_path: Path) -> tuple[FakeTaskWorld, dict[str, Path]]:
 
 
 def _row_by_label(window: MainWindow, label: str) -> int:
-    """The table row whose listing carries *label*, asserted present."""
     model = window.table.model()
     for row in range(model.rowCount()):
         listing = model.listing_at(row)
@@ -1542,7 +1533,6 @@ def _ext_result(
 
 
 def _unresolved_listing(kind: ListingKind, *, managed: bool) -> TaskListing:
-    """A discovered listing with no path/parsed/job (unresolved state)."""
     return TaskListing(kind=kind, path=None, parsed=None, job=None, managed=managed)
 
 

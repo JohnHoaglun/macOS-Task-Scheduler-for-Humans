@@ -27,10 +27,7 @@ from task_scheduler.platform.macos import (
     LocalFilesystem,
     merge_external_edit,
 )
-from task_scheduler.platform.macos.filesystem import (
-    SourceChangedError,
-    SourceSnapshot,
-)
+from task_scheduler.platform.macos.filesystem import SourceChangedError, SourceSnapshot
 
 FIXED_JOB_ID = UUID("12345678-1234-5678-1234-567812345678")
 
@@ -48,10 +45,7 @@ def _make_job(
     if schedule is None:
         schedule = CalendarSchedule(times=["07:30"], weekdays={Weekday.MONDAY})
     if command is None:
-        command = ShellCommand(
-            executable=Path("/bin/zsh"),
-            arguments=["/tmp/test.sh"],
-        )
+        command = ShellCommand(executable=Path("/bin/zsh"), arguments=["/tmp/test.sh"])
     return JobDefinition(
         schema_version=2,
         id=FIXED_JOB_ID,
@@ -103,11 +97,7 @@ class TestMergeExternalEditEachField:
 
     def test_run_at_load_applied(self) -> None:
         original = {"Label": "x", "KeepAlive": True}
-        cal = CalendarSchedule(
-            times=["09:00"],
-            weekdays={Weekday.MONDAY},
-            run_at_load=True,
-        )
+        cal = CalendarSchedule(times=["09:00"], weekdays={Weekday.MONDAY}, run_at_load=True)
         job = _make_job(schedule=cal)
         result = merge_external_edit(
             original, job, dirty=frozenset({ExternalEditField.RUN_AT_LOAD})
@@ -136,11 +126,7 @@ class TestMergeExternalEditEachField:
 
     def test_run_at_load_false_removes_key(self) -> None:
         original = {"Label": "x", "RunAtLoad": True}
-        cal = CalendarSchedule(
-            times=["09:00"],
-            weekdays={Weekday.MONDAY},
-            run_at_load=False,
-        )
+        cal = CalendarSchedule(times=["09:00"], weekdays={Weekday.MONDAY}, run_at_load=False)
         job = _make_job(schedule=cal)
         result = merge_external_edit(
             original, job, dirty=frozenset({ExternalEditField.RUN_AT_LOAD})
@@ -184,13 +170,7 @@ class TestRemoveVerifiedLocal:
     def test_absent_raises_source_changed(self, tmp_path: Path) -> None:
         fs = LocalFilesystem()
         f = tmp_path / "gone.plist"
-        snap = SourceSnapshot(
-            payload=b"x",
-            sha256="abc",
-            st_dev=1,
-            st_ino=2,
-            st_size=1,
-        )
+        snap = SourceSnapshot(payload=b"x", sha256="abc", st_dev=1, st_ino=2, st_size=1)
         with pytest.raises(SourceChangedError):
             fs.remove_verified(f, snap)
 

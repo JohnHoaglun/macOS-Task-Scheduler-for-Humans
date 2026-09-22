@@ -22,9 +22,7 @@ from task_scheduler.gui.controllers.diagnostics_controller import (
 )
 from task_scheduler.gui.widgets.diagnostic_logs_panel import DiagnosticLogsPanel
 from task_scheduler.platform.macos.process_runner import ProcessResult
-from task_scheduler.platform.macos.python_detection import (
-    PythonDetectionResult,
-)
+from task_scheduler.platform.macos.python_detection import PythonDetectionResult
 
 
 def _outcome(

@@ -103,9 +103,7 @@ class TestFormatLogStream:
             path=Path("/logs/stdout.log"),
             error="log file not found: /logs/stdout.log",
         )
-        assert format_log_stream(stream) == (
-            "Log unavailable: log file not found: /logs/stdout.log"
-        )
+        assert format_log_stream(stream) == "Log unavailable: log file not found: /logs/stdout.log"
 
     def test_empty_content(self) -> None:
         stream = LogStream(name="stdout", path=Path("/logs/stdout.log"), content="")

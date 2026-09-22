@@ -22,11 +22,7 @@ from task_scheduler.application.managed_json_transfer import strict_decode_job_j
 from task_scheduler.cli import app as cli_app
 from task_scheduler.cli.app import main
 from task_scheduler.cli.render import format_import_disclosure
-from task_scheduler.domain import (
-    EnvironmentConfig,
-    ExecutableCommand,
-    LoggingConfig,
-)
+from task_scheduler.domain import EnvironmentConfig, ExecutableCommand, LoggingConfig
 from task_scheduler.platform.macos import ProcessLaunchFailure, ProcessResult
 
 RUNNER = CliRunner()
@@ -107,6 +103,32 @@ def test_list_shows_saved_catalog_only_jobs(tmp_path: Path) -> None:
     assert f"{job.label} [saved] (managed) (task catalog — not installed)" in result.stdout
 
 
+def test_list_shows_corrupt_catalog_file_as_warning(tmp_path: Path) -> None:
+    world = FakeTaskWorld(tmp_path)
+    managed = make_job()
+    world.manage(managed)
+    corrupt = world.catalog_root / "corrupt.json"
+    corrupt.write_text("{not json", encoding="utf-8")
+    result = invoke(world, "list")
+    assert result.exit_code == 0
+    assert f"{managed.label} [supported] (managed)" in result.stdout
+    assert f"warning: {corrupt}: ValidationError:" in result.stderr
+
+
+def test_list_service_failure_exits_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    world = FakeTaskWorld(tmp_path)
+
+    def _unavailable() -> object:
+        raise OSError("launchagents directory unavailable")
+
+    monkeypatch.setattr(world.services, "list_agents", _unavailable)
+    result = invoke(world, "list")
+    assert result.exit_code == 1
+    assert "list failed: launchagents directory unavailable" in result.stderr
+
+
 def test_inspect_managed_job(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
     job = make_job(
@@ -167,6 +189,26 @@ def test_inspect_unknown_label_exits_usage(tmp_path: Path) -> None:
     assert "no managed job with label" in result.stderr
 
 
+@pytest.mark.parametrize(
+    ("error", "code"),
+    [
+        (ValueError("label rejected"), 2),
+        (OSError("plist unreadable"), 1),
+    ],
+)
+def test_inspect_service_errors_exit_by_matrix(
+    tmp_path: Path,
+    error: Exception,
+    code: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    world = FakeTaskWorld(tmp_path)
+    monkeypatch.setattr(world.services, "inspect", lambda label: (_ for _ in ()).throw(error))
+    result = invoke(world, "inspect", "com.example.job")
+    assert result.exit_code == code
+    assert result.stderr.strip()
+
+
 def test_validate_ok(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
     job = make_job()
@@ -183,6 +225,20 @@ def test_validate_non_utf8_file_exits_usage(tmp_path: Path) -> None:
     result = invoke(world, "validate", str(bad))
     assert result.exit_code == 2
     assert "invalid job definition:" in result.stderr
+
+
+def test_validate_unreadable_file_exits_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    world = FakeTaskWorld(tmp_path)
+
+    def _unavailable(path: Path) -> object:
+        raise PermissionError("file unreadable")
+
+    monkeypatch.setattr(world.services, "validate_json", _unavailable)
+    result = invoke(world, "validate", str(job_file(tmp_path, make_job())))
+    assert result.exit_code == 1
+    assert "validate failed: file unreadable" in result.stderr
 
 
 def test_generate_prints_xml_without_side_effects(tmp_path: Path) -> None:
@@ -204,6 +260,20 @@ def test_generate_invalid_json_exits_usage(tmp_path: Path) -> None:
     result = invoke(world, "generate", str(bad))
     assert result.exit_code == 2
     assert "invalid job definition:" in result.stderr
+
+
+def test_generate_unreadable_file_exits_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    world = FakeTaskWorld(tmp_path)
+
+    def _unavailable(path: Path) -> object:
+        raise PermissionError("file unreadable")
+
+    monkeypatch.setattr(world.services, "generate_plist", _unavailable)
+    result = invoke(world, "generate", str(job_file(tmp_path, make_job())))
+    assert result.exit_code == 1
+    assert "generate failed: file unreadable" in result.stderr
 
 
 def test_install_success(tmp_path: Path) -> None:
@@ -232,6 +302,20 @@ def test_install_invalid_json_exits_usage(tmp_path: Path) -> None:
     result = invoke(world, "install", str(bad))
     assert result.exit_code == 2
     assert "invalid job definition:" in result.stderr
+
+
+def test_install_store_failure_exits_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    world = FakeTaskWorld(tmp_path)
+
+    def _readonly(path: Path) -> object:
+        raise PermissionError("catalog not writable")
+
+    monkeypatch.setattr(world.services, "install_json", _readonly)
+    result = invoke(world, "install", str(job_file(tmp_path, make_job())))
+    assert result.exit_code == 1
+    assert "install failed: catalog not writable" in result.stderr
 
 
 def test_install_failed_bootstrap_exits_failure(tmp_path: Path) -> None:
@@ -417,6 +501,18 @@ def test_test_unknown_label_exits_usage(tmp_path: Path) -> None:
     assert "no managed job with label" in result.stderr
 
 
+def test_test_invalid_label_exits_usage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    world = FakeTaskWorld(tmp_path)
+
+    def _rejected(label: str) -> object:
+        raise ValueError(f"invalid label: {label!r}")
+
+    monkeypatch.setattr(world.services, "test", _rejected)
+    result = invoke(world, "test", "../escape")
+    assert result.exit_code == 2
+    assert "invalid label: '../escape'" in result.stderr
+
+
 def test_logs_reads_configured_streams(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
     out = tmp_path / "out.log"
@@ -433,12 +529,12 @@ def test_logs_reads_configured_streams(tmp_path: Path) -> None:
     assert "err line" in result.stdout
 
 
-def test_logs_missing_file_exits_usage(tmp_path: Path) -> None:
+def test_logs_missing_file_exits_failure(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
     job = make_job(logging=LoggingConfig(stdout_path=tmp_path / "missing.log", stderr_path=None))
     world.jobs.import_job(job)
     result = invoke(world, "logs", job.label)
-    assert result.exit_code == 2
+    assert result.exit_code == 1
     assert "log file not found" in result.stdout
 
 
@@ -481,9 +577,6 @@ def test_main_entrypoint_shows_help(monkeypatch: pytest.MonkeyPatch) -> None:
     assert exc.value.code == 2
 
 
-# ---- import command tests ----
-
-
 def _write_external_plist(tmp_path: Path, payload: dict) -> Path:
     path = tmp_path / "external.plist"
     path.write_bytes(plistlib.dumps(payload))
@@ -523,6 +616,7 @@ def test_import_partial_no_flag_exits_2(tmp_path: Path) -> None:
     assert result.exit_code == 2
     assert "unsupported key: KeepAlive" in result.stderr
     assert "Use --acknowledge-partial to import a partially supported plist." in result.stderr
+    assert "import refused: use --acknowledge-partial to import this plist" in result.stderr
     catalog_files = list(world.catalog_root.glob("*.json"))
     assert len(catalog_files) == 0
 
@@ -559,6 +653,52 @@ def test_import_nonexistent_path_exits_2(tmp_path: Path) -> None:
     assert "file not found" in result.stderr
 
 
+def test_import_commit_drift_exits_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    world = FakeTaskWorld(tmp_path)
+    payload = {
+        "Label": "com.example.drift",
+        "ProgramArguments": ["/bin/echo", "hi"],
+        "StartCalendarInterval": [{"Hour": 9, "Minute": 0, "Weekday": 1}],
+    }
+    plist_path = _write_external_plist(tmp_path, payload)
+    preview = world.services.preview_external_plist(plist_path)
+
+    def _preview_then_mutate(path: Path) -> object:
+        drifted = dict(payload)
+        drifted["ProgramArguments"] = ["/bin/echo", "changed"]
+        plist_path.write_bytes(plistlib.dumps(drifted))
+        return preview
+
+    monkeypatch.setattr(world.services, "preview_external_plist", _preview_then_mutate)
+    result = invoke(world, "import", str(plist_path))
+    assert result.exit_code == 1
+    assert "the source plist changed between preview and import" in result.stderr
+    assert list(world.catalog_root.glob("*.json")) == []
+
+
+def test_import_commit_io_failure_exits_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    world = FakeTaskWorld(tmp_path)
+    plist_path = _write_external_plist(
+        tmp_path,
+        {
+            "Label": "com.example.io",
+            "ProgramArguments": ["/bin/echo", "hi"],
+            "StartCalendarInterval": [{"Hour": 9, "Minute": 0, "Weekday": 1}],
+        },
+    )
+
+    def _readonly(preview, *, acknowledge_partial: bool) -> object:
+        raise OSError("catalog read-only")
+
+    monkeypatch.setattr(world.services, "import_external_plist", _readonly)
+    result = invoke(world, "import", str(plist_path))
+    assert result.exit_code == 1
+    assert "catalog read-only" in result.stderr
+    assert list(world.catalog_root.glob("*.json")) == []
+
+
 def test_import_disclosure_renders_warnings_and_keys() -> None:
     preview = ExternalPlistImportPreview(
         source_path=Path("/tmp/warn.plist"),
@@ -578,17 +718,11 @@ def test_import_disclosure_renders_warnings_and_keys() -> None:
     )
 
 
-# ---- export-json tests ----
-
-
 def test_export_json_unknown_label_exits_2(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
     result = invoke(world, "export-json", "missing.label", str(tmp_path / "out.json"))
     assert result.exit_code == 2
     assert "no managed job with label" in result.stderr
-
-
-# ---- import-json tests ----
 
 
 def test_import_json_identity_and_v2(tmp_path: Path) -> None:
@@ -598,19 +732,16 @@ def test_import_json_identity_and_v2(tmp_path: Path) -> None:
     out = tmp_path / "export.json"
     invoke(world1, "export-json", job.label, str(out))
     assert out.read_text().endswith("\n")
-
     world2 = FakeTaskWorld(tmp_path / "world2")
     result = invoke(world2, "import-json", str(out))
     assert result.exit_code == 0 and "schema v2" in result.stdout
     assert job.label in result.stdout
-
     catalog_files = list(world2.catalog_root.glob("*.json"))
     assert len(catalog_files) == 1
     imported_job = strict_decode_job_json(catalog_files[0].read_text(encoding="utf-8"))
     assert imported_job.id == job.id
     assert imported_job.label == job.label
     assert imported_job.schema_version == 2
-
     plist_files = list(world2.la_root.glob("*.plist"))
     assert len(plist_files) == 0
 
@@ -627,6 +758,7 @@ def test_import_json_id_conflict(tmp_path: Path) -> None:
     result = invoke(world, "import-json", str(json_file))
     assert result.exit_code == 2
     assert "id conflict" in result.stderr or "already exists" in result.stderr
+    assert "import refused: unresolved conflicts (see above)" in result.stderr
     catalog_files = list(world.catalog_root.glob("*.json"))
     assert len(catalog_files) == 1
 

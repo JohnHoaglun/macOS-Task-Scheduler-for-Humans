@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 from task_scheduler.application.job_service import JobNotFoundError
-from task_scheduler.gui.controllers.history_controller import (
-    HistoryController,
-)
+from task_scheduler.gui.controllers.history_controller import HistoryController
 
 
 class FakeService:

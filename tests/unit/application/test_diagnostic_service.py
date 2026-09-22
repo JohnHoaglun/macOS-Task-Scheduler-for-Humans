@@ -13,20 +13,13 @@ import pytest
 
 from conftest import make_job
 from task_scheduler.application import InstallPhase, InstallResult
-from task_scheduler.application.diagnostic_models import (
-    InspectionContext,
-    LifecycleContext,
-)
+from task_scheduler.application.diagnostic_models import InspectionContext, LifecycleContext
 from task_scheduler.application.diagnostic_service import (
     evaluate_diagnostic_report,
     evaluate_diagnostics,
 )
 from task_scheduler.domain import JobDefinition, PythonCommand
-from task_scheduler.platform.macos import (
-    LaunchFailureKind,
-    ProcessLaunchFailure,
-    ProcessResult,
-)
+from task_scheduler.platform.macos import LaunchFailureKind, ProcessLaunchFailure, ProcessResult
 from task_scheduler.platform.macos.plist_models import ParsedLaunchAgent, ParseSupport
 
 

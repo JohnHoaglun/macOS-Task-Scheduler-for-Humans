@@ -9,6 +9,7 @@ returns structured results, never presentation text.
 
 from __future__ import annotations
 
+import hashlib
 import plistlib
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -46,7 +47,7 @@ from task_scheduler.application.history_models import (
     HistoryReadResult,
     HistoryRepository,
 )
-from task_scheduler.application.job_service import JobService
+from task_scheduler.application.job_service import CatalogDiagnostic, JobService
 from task_scheduler.application.log_service import JobLogs, LogService
 from task_scheduler.application.managed_json_transfer import (
     ManagedJsonImportPreview,
@@ -300,6 +301,10 @@ class TaskCommandService:
                 )
         return listings
 
+    def catalog_diagnostics(self) -> list[CatalogDiagnostic]:
+        """Return the catalog files that failed to load, from a fresh scan."""
+        return self._jobs.catalog_diagnostics()
+
     def inspect(self, label: str) -> InspectReport:
         """Return the managed job's definition, plist parse, and launchd status."""
         job = self._jobs.resolve(label)
@@ -438,7 +443,12 @@ class TaskCommandService:
         normalized candidate plus every warning and unsupported key. Raises
         ``ValueError`` when the plist is invalid or has no representable job.
         """
-        parsed = parse_path(path)
+        try:
+            payload = path.read_bytes()
+            st = path.stat()
+        except OSError as exc:
+            raise ValueError(f"cannot import {path}: could not read {path}: {exc}") from exc
+        parsed = parse_bytes(payload)
         if parsed.status is ParseSupport.INVALID or parsed.job is None:
             detail = "; ".join(parsed.warnings) if parsed.warnings else "not representable"
             raise ValueError(f"cannot import {path}: {detail}")
@@ -448,6 +458,8 @@ class TaskCommandService:
             warnings=tuple(parsed.warnings),
             unsupported_keys=tuple(parsed.unsupported_keys),
             requires_acknowledgement=parsed.status is ParseSupport.PARTIALLY_SUPPORTED,
+            source_sha256=hashlib.sha256(payload).hexdigest(),
+            source_identity=(st.st_dev, st.st_ino),
         )
 
     def import_external_plist(
@@ -458,12 +470,26 @@ class TaskCommandService:
     ) -> JobDefinition:
         """Commit a previewed external plist into the managed catalog (catalog only).
 
-        Raises ``ValueError`` when a partial preview is not acknowledged.
-        Regenerates the durable UUID (never reusing the parser's transient id),
-        keeps the external label, and writes managed JSON only — the source
-        plist is never touched and nothing is deployed. Raises
-        ``JobConflictError`` when the label is already managed.
+        Raises ``ValueError`` when a partial preview is not acknowledged or when
+        the source plist changed between preview and commit. Regenerates the
+        durable UUID (never reusing the parser's transient id), keeps the
+        external label, and writes managed JSON only — the source plist is
+        never touched and nothing is deployed. Raises ``JobConflictError``
+        when the label is already managed.
         """
+        source = preview.source_path
+        try:
+            payload = source.read_bytes()
+            st = source.stat()
+        except OSError as exc:
+            raise ValueError(f"cannot import {source}: could not read {source}: {exc}") from exc
+        if (
+            hashlib.sha256(payload).hexdigest() != preview.source_sha256
+            or (st.st_dev, st.st_ino) != preview.source_identity
+        ):
+            raise ValueError(
+                "the source plist changed between preview and import; preview it again"
+            )
         if preview.requires_acknowledgement and not acknowledge_partial:
             raise ValueError(
                 "this plist is only partially supported; every warning and "

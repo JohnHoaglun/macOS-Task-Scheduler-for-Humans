@@ -9,19 +9,16 @@ from task_scheduler.gui.widgets.time_row_editor import TimeRowEditor
 
 
 def make_editor(qtbot: QtBot) -> TimeRowEditor:
-    """A fresh editor kept alive by qtbot."""
     editor = TimeRowEditor()
     qtbot.addWidget(editor)
     return editor
 
 
 def row_edits(editor: TimeRowEditor) -> list[QLineEdit]:
-    """The row edits in row order, keyed by object name."""
     return sorted(editor.findChildren(QLineEdit), key=lambda edit: edit.objectName())
 
 
 def spy(editor: TimeRowEditor) -> list[int]:
-    """A list that gains one entry per rowsChanged emission."""
     emissions: list[int] = []
 
     def count() -> None:

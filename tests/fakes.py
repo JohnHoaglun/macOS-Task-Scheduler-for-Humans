@@ -6,11 +6,7 @@ import hashlib
 from collections.abc import Sequence
 from pathlib import Path
 
-from task_scheduler.application import (
-    JobService,
-    LogService,
-    TaskCommandService,
-)
+from task_scheduler.application import JobService, LogService, TaskCommandService
 from task_scheduler.application.test_service import DirectTestService
 from task_scheduler.domain import JobDefinition
 from task_scheduler.platform.macos import (
@@ -27,14 +23,8 @@ from task_scheduler.platform.macos.diagnostic_probes import (
     DiagnosticProbes,
     ProtectedPathFinding,
 )
-from task_scheduler.platform.macos.filesystem import (
-    SourceChangedError,
-    SourceSnapshot,
-)
-from task_scheduler.storage import (
-    ExecutionHistoryRepository,
-    JsonJobRepository,
-)
+from task_scheduler.platform.macos.filesystem import SourceChangedError, SourceSnapshot
+from task_scheduler.storage import ExecutionHistoryRepository, JsonJobRepository
 
 
 class FakeClock:

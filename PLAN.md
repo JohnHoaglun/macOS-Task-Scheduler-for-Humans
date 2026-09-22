@@ -31,12 +31,23 @@
 
 **Slice 2 — Catalog, History, Trust, CLI (v0.0.49):** R2-04, R2-07, R2-11, R2-14, R2-16, R2-20, R2-22.
 
-- **Wave 0 (build, serial):** pin the listing-result contract — immutable application-level result carrying valid `TaskListing` values + catalog diagnostics (path, safe message, failure category); no synthetic rows; GUI renders diagnostics in Diagnostics; CLI `list` warns on stderr with exit success when valid listing completed; no listing operation auto-deletes/repairs/quarantines.
-- **Wave 1A (smarter lane):** R2-04 resilient catalog enumeration (malformed JSON, schema failure, unreadable file → structured issue; valid records unaffected); R2-11 `JobService.save()` conflict re-check + write inside `.catalog.lock` (matching `import_job`); update GUI discovery + CLI list consumers to the pinned result.
-- **Wave 1B (smarter lane):** R2-07 history retention (1,000/job, prune at init + after append; newest-first reads of 100 unchanged; composes with Slice 1 R2-12).
-- **Wave 1C (smarter lane):** R2-16 symlink rejection at discovery/read/import/edit (existing `O_NOFOLLOW` read path extended to the full path set); R2-22 external-import commit re-snapshots preview source (bytes/identity) and rejects changed bytes, replacement inode, or missing source with a stable source-changed error and no catalog write.
-- **Wave 1D (smarter lane):** R2-14 CLI error matrix (narrow catches in validate/generate/install; containment in list/inspect/test/logs; log-read failure exit 1; explicit acknowledgement/conflict messages; generic operational error for unexpected failures); R2-20 `HistoryTableModel.header()` bounds check mirroring `AgentTableModel.headerData()`.
-- **Integration + closeout (build, serial):** as Slice 1 pattern; v0.0.49.
+- **Wave 0 (build, serial) — DONE (2026-09-21):** all contract surfaces read and pinned (contracts 1–7 below). `list_jobs()` keeps its `list[JobDefinition]` signature; no synthetic rows; no auto-delete/repair/quarantine during reads.
+- **Pinned shared contracts (lanes code against these, not each other's files):**
+  1. `CatalogDiagnostic(path: Path, message: str)` frozen dataclass in `application/job_service.py`; exported from `application/__init__.py` (+ `__all__`).
+  2. `JobService.catalog_diagnostics() -> list[CatalogDiagnostic]`; `TaskCommandService.catalog_diagnostics() -> list[CatalogDiagnostic]` (delegates to the job service). `list_jobs()` keeps its signature — returns only valid `JobDefinition`s, skips corrupt files, records them as diagnostics. `find` / `resolve` / `transfer_conflicts` / `list_agents` continue via `list_jobs()` and are fault-tolerant by construction.
+  3. `ExternalPlistImportPreview` gains `source_sha256: str = ""` and `source_identity: tuple[int, int] = (0, 0)` (defaulted; no existing construction site changes). `preview_external_plist` reads the file once (`path.read_bytes()`, `OSError` → `ValueError` preserving the current message), stats it, and parses the same payload via `parse_bytes`; `import_external_plist` re-snapshots (bytes + `stat` + `hashlib.sha256`) and raises `ValueError` on drift or unreadable source, mirroring the raw-edit drift message style. GUI needs no change — `ImportController.commit` already catches `ValueError`.
+  4. `RefreshOutcome` gains `diagnostics: tuple[CatalogDiagnostic, ...] = ()` (defaulted); `DiscoveryController.refresh()` populates it from `catalog_diagnostics()`; `MainWindow.refresh()` surfaces non-empty diagnostics via the status bar (non-blocking; the listing still succeeds).
+  5. `MAX_EVENTS_PER_JOB = 1000` module constant in `storage/execution_history_repository.py`; `_prune_job(db, job_id)` helper (`DELETE … WHERE job_id=? AND id < (SELECT id … ORDER BY id DESC LIMIT 1 OFFSET ?)`); prune in `append` (same transaction, after INSERT) and in `__init__` (loop distinct job_ids).
+  6. R2-14 exit matrix (pinned): usage errors (bad flags, unknown job, parse/validation errors, empty catalog paths, invalid source at usage time) → `EXIT_USAGE` (2); operational errors (I/O, launchctl, backend, store, source drift at commit) → `EXIT_FAILURE` (1); every error path emits a non-empty message; no tracebacks for expected failures. `list` exits 0 when a valid listing completed even with non-empty diagnostics (diagnostics go to stderr).
+  7. `list_plist_files`: `entry.is_file() and not entry.is_symlink()`; `read_plist_bytes` raises `ValueError` when `path.is_symlink()` (mirrors the `read_snapshot` O_NOFOLLOW policy).
+- **Lane map (5 parallel `general` lanes, conflict-free file ownership — one lane per file set):**
+  - **Lane A (service core):** `application/job_service.py` (R2-04 fault-tolerant `_scan` / `list_jobs` + `catalog_diagnostics` + `CatalogDiagnostic`; R2-11 `save()` under `_catalog_lock()`), `application/task_command_service.py` (R2-04 `catalog_diagnostics()` delegation; R2-22 `preview_external_plist` / `import_external_plist` snapshot + drift), `application/external_import.py` (preview fields), `application/__init__.py` (export). Tests: `tests/unit/application/test_job_service.py`, `test_task_command_service.py`.
+  - **Lane B (CLI):** `cli/app.py` (+ `cli/render.py` only if needed) — R2-14 error/exit matrix; R2-04 `list` diagnostics to stderr; R2-22 import-commit `ValueError` → `EXIT_FAILURE`; non-empty message on every error path. Tests: `tests/unit/cli/test_cli.py`.
+  - **Lane C (GUI):** `gui/controllers/discovery_controller.py` (`RefreshOutcome.diagnostics` + `refresh()`), `gui/main_window.py` (status-bar surfacing), `gui/models/history_table_model.py` (R2-20 `header()` bounds). Tests: `tests/unit/gui/test_discovery_controller.py`, `test_main_window.py`, `test_history_table_model.py`.
+  - **Lane D (storage):** `storage/execution_history_repository.py` (R2-07 retention). Tests: `tests/unit/storage/test_execution_history_repository.py`.
+  - **Lane E (platform):** `platform/macos/filesystem.py` (R2-16 symlink rejection). Tests: `tests/unit/platform/test_filesystem.py`.
+  - `tests/fakes.py`: no changes expected (fakes hold the real `TaskCommandService` / `LaunchAgentStore`); if a contract change forces a minimal compatible fake edit, the lane makes it and flags it in its report.
+- **Integration + closeout (build, serial):** as Slice 1 pattern — full `make check`, per-finding tests, ratio ≤ 0.75, v0.0.49 registry + `SUMMARY.md` changelog + `Resolved (v0.0.49)` markers, commit + push.
 
 **Slice 3 — GUI Responsiveness And Presentation (v0.0.50):** R2-03, R2-08, R2-18, R2-19, R2-21, R2-23.
 
@@ -48,11 +59,11 @@
 
 **Shared-surface inventory (ownership, exclusive):**
 - Slice 1 Wave 0 owns process-result/timeout semantics + worker-outcome DTOs; Waves 1A/1B/1C consume them unchanged.
-- Slice 2 Wave 0 owns the listing-result/diagnostics contract; Slice 3 discovery transports it without reinterpretation.
-- Slice 2 Wave 1C owns symlink/snapshot trust semantics; all preview/edit/import callers consume it.
+- Slice 2 Wave 0 owns the listing-result/diagnostics contract (`CatalogDiagnostic`, `catalog_diagnostics()`, `RefreshOutcome.diagnostics`); Slice 3 discovery transports it without reinterpretation.
+- Slice 2 Lane A owns import-snapshot/drift semantics; Lane E owns symlink rejection; all preview/edit/import callers consume them unchanged.
 - Slice 3 Wave 0 owns the log-truncation DTO, raw-read result DTO, and shared formatting helpers.
-- Global test/source ratio: build owns measurement after every wave; currently 74.9665% against the 75% cap — lanes write compact parametrized tests and no redundant fixtures; serial closeout trims redundancy if the cap is breached.
-- Lane file ownership follows the wave tables; a lane never edits another lane's files. `tests/fakes.py` is edited only by the lane that owns the platform contract under change (Slice 1: Wave 1A; Slice 2: Wave 1C).
+- Global test/source ratio: build owns measurement after every wave; currently 74.6273% against the 75% cap (~53 test lines of headroom at the current src line count, growing ~0.75× per added src line) — lanes write compact tests and no redundant fixtures; serial closeout trims redundancy if the cap is breached.
+- Lane file ownership follows the lane maps; a lane never edits another lane's files. `tests/fakes.py` is expected to need no Slice 2 edits; a lane forced to edit it makes a minimal compatible change and flags it in its report.
 
 **Gates (per slice, in addition to full `make check` + 100% coverage + ratio ≤ 75%):**
 - Slice 1: timeout/launch/nonzero distinct through all consumers; exactly one typed worker outcome per request; label-less raw edit cannot bootstrap; staged-plist label mismatch never invokes launchctl; confirmed-not-loaded recovery removes artifacts, other bootout failures preserve state; qFatal path cannot return; first history append failure observable and stable; no production references to `backup_external()`.

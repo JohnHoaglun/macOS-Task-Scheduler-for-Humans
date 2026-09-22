@@ -11,10 +11,7 @@ from pathlib import Path
 import pytest
 from tests.fakes import FakeFilesystem
 
-from task_scheduler.platform.macos import (
-    LaunchAgentStore,
-    SourceSnapshot,
-)
+from task_scheduler.platform.macos import LaunchAgentStore, SourceSnapshot
 
 
 class TestRemove:
@@ -60,7 +57,6 @@ class TestStaging:
     def test_stage_exhaustion_raises(self, tmp_path: Path) -> None:
         filesystem = FakeFilesystem(create_error=FileExistsError("taken"))
         store = LaunchAgentStore(tmp_path / "agents", filesystem=filesystem)
-
         with pytest.raises(RuntimeError, match="unique staged sibling"):
             store.stage_plist("x", b"x")
 
@@ -73,17 +69,14 @@ class TestStaging:
             files={"x.plist": b"old"}, create_error=FileExistsError("taken")
         )
         store = LaunchAgentStore(tmp_path / "agents", filesystem=filesystem)
-
         with pytest.raises(RuntimeError, match="unique backup sibling"):
             store.backup_plist("x")
 
     def test_remove_sibling_rejects_outside_root(self, tmp_path: Path) -> None:
         store = LaunchAgentStore(tmp_path / "agents")
         (tmp_path / "outside.plist").write_bytes(b"x")
-
         with pytest.raises(ValueError, match="outside the LaunchAgent root"):
             store.remove_sibling(tmp_path / "outside.plist")
-
         assert (tmp_path / "outside.plist").is_file()
 
 
@@ -91,7 +84,6 @@ class TestExternalEdgeCases:
     def test_stage_external_exhaustion_raises(self, tmp_path: Path) -> None:
         filesystem = FakeFilesystem(create_error=FileExistsError("taken"))
         store = LaunchAgentStore(tmp_path / "agents", filesystem=filesystem)
-
         with pytest.raises(RuntimeError, match="unique staged sibling"):
             store.stage_external(tmp_path / "agents" / "x.plist", b"new")
 
@@ -99,7 +91,6 @@ class TestExternalEdgeCases:
         filesystem = FakeFilesystem(files={"x.plist": b"old", "x.plist.staged.1": b"new"})
         store = LaunchAgentStore(tmp_path / "agents", filesystem=filesystem)
         snapshot = filesystem.read_snapshot(tmp_path / "agents" / "x.plist")
-
         with pytest.raises(ValueError, match="outside the LaunchAgent root"):
             store.activate_external(
                 tmp_path / "agents" / "x.plist.staged.1",

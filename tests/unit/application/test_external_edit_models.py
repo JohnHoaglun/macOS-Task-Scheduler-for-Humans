@@ -13,9 +13,7 @@ from pathlib import Path
 
 from tests.conftest import make_job
 
-from task_scheduler.application import (
-    ExternalEditSession,
-)
+from task_scheduler.application import ExternalEditSession
 from task_scheduler.platform.macos import ParseSupport
 
 

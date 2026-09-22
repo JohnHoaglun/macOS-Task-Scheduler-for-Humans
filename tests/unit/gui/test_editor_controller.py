@@ -32,7 +32,6 @@ def make_controller(tmp_path: Path) -> tuple[FakeTaskWorld, EditorController]:
 
 class TestArguments:
     def test_arguments_per_kind(self, tmp_path: Path) -> None:
-        """Each kind appends to its own argument list."""
         world, controller = make_controller(tmp_path)
         for kind, attr in [
             ("python", "python_arguments"),
@@ -47,7 +46,6 @@ class TestArguments:
             assert controller.arguments_for(d, kind) is getattr(d, attr)
 
     def test_set_and_remove_argument(self, tmp_path: Path) -> None:
-        """Arguments can be set in place and removed by index."""
         world, controller = make_controller(tmp_path)
         d = controller.open_new()
         controller.add_argument(d, "python")
@@ -61,7 +59,6 @@ class TestArguments:
 
 class TestOtherMutators:
     def test_environment_rows(self, tmp_path: Path) -> None:
-        """Environment rows are appended, edited in place, and removable."""
         world, controller = make_controller(tmp_path)
         d = controller.open_new()
         controller.add_environment_row(d)
@@ -76,7 +73,6 @@ class TestOtherMutators:
 
 class TestLogPaths:
     def test_set_log_directory_derives_from_current_name(self, tmp_path: Path) -> None:
-        """Setting the log directory derives both stream paths from the draft name."""
         world, controller = make_controller(tmp_path)
         d = controller.open_new()
         controller.set_name(d, "Nightly Sync")
@@ -86,7 +82,6 @@ class TestLogPaths:
         assert d.stderr_path == "/tmp/logs/Nightly Sync.stderr.log"
 
     def test_set_log_directory_blank_disables_both_streams(self, tmp_path: Path) -> None:
-        """Clearing the log directory disables both stream paths."""
         world, controller = make_controller(tmp_path)
         d = controller.open_new()
         controller.set_name(d, "Nightly Sync")
@@ -99,7 +94,6 @@ class TestLogPaths:
 
 class TestOpenExisting:
     def test_shell_job(self, tmp_path: Path) -> None:
-        """A persisted shell job populates only the shell fields."""
         world, controller = make_controller(tmp_path)
         job = make_job(command=ShellCommand(executable="/bin/zsh", arguments=["-c", "echo hi"]))
         d = controller.open_existing(job)
@@ -111,7 +105,6 @@ class TestOpenExisting:
         assert d.executable_path == ""
 
     def test_executable_job(self, tmp_path: Path) -> None:
-        """A persisted executable job populates only the executable fields."""
         world, controller = make_controller(tmp_path)
         job = make_job(
             command=ExecutableCommand(executable="/usr/local/bin/backup", arguments=["--all"])
@@ -145,14 +138,12 @@ class TestOpenExisting:
         assert d.interval_unit == unit
 
     def test_interval_job_preserves_run_at_load(self, tmp_path: Path) -> None:
-        """An interval job with login behavior opens with run_at_load set."""
         world, controller = make_controller(tmp_path)
         job = make_job(schedule=IntervalSchedule(seconds=1800, run_at_load=True))
         d = controller.open_existing(job)
         assert d.run_at_load is True
 
     def test_log_directory_shared_parent(self, tmp_path: Path) -> None:
-        """Stream paths in one directory load as that shared directory."""
         world, controller = make_controller(tmp_path)
         job = make_job(
             logging=LoggingConfig(
@@ -166,7 +157,6 @@ class TestOpenExisting:
         assert d.stderr_path == "/tmp/logs/err.log"
 
     def test_log_directory_stdout_parent_when_parents_differ(self, tmp_path: Path) -> None:
-        """Differing stream parents load the stdout path's parent."""
         world, controller = make_controller(tmp_path)
         job = make_job(
             logging=LoggingConfig(
@@ -178,7 +168,6 @@ class TestOpenExisting:
         assert d.log_directory == "/tmp/a"
 
     def test_log_directory_blank_when_no_streams(self, tmp_path: Path) -> None:
-        """A job without stream paths loads with a blank log directory."""
         world, controller = make_controller(tmp_path)
         d = controller.open_existing(make_job())
         assert d.log_directory == ""
@@ -196,7 +185,6 @@ def valid_draft(controller: EditorController, tmp_path: Path) -> JobDraft:
 
 class TestValidate:
     def test_missing_interpreter(self, tmp_path: Path) -> None:
-        """A blank interpreter fails with an interpreter field error."""
         world, controller = make_controller(tmp_path)
         d = valid_draft(controller, tmp_path)
         controller.set_interpreter(d, "")
@@ -204,7 +192,6 @@ class TestValidate:
         assert o.fields == {"interpreter": "an interpreter is required"}
 
     def test_relative_interpreter(self, tmp_path: Path) -> None:
-        """A relative interpreter path fails validation."""
         world, controller = make_controller(tmp_path)
         d = valid_draft(controller, tmp_path)
         controller.set_interpreter(d, "python3")
@@ -212,7 +199,6 @@ class TestValidate:
         assert o.fields == {"interpreter": "the interpreter path must be absolute"}
 
     def test_relative_script(self, tmp_path: Path) -> None:
-        """A relative script path fails validation."""
         world, controller = make_controller(tmp_path)
         d = valid_draft(controller, tmp_path)
         controller.set_script(d, "job.py")
@@ -220,7 +206,6 @@ class TestValidate:
         assert o.fields == {"script": "the script path must be absolute"}
 
     def test_shell_kind_missing_executable(self, tmp_path: Path) -> None:
-        """A shell draft without an executable fails validation."""
         world, controller = make_controller(tmp_path)
         d = valid_draft(controller, tmp_path)
         controller.set_command_kind(d, "shell")
@@ -228,7 +213,6 @@ class TestValidate:
         assert o.fields == {"shell_executable": "a shell executable is required"}
 
     def test_executable_kind_missing_executable(self, tmp_path: Path) -> None:
-        """An executable draft without a path fails validation."""
         world, controller = make_controller(tmp_path)
         d = valid_draft(controller, tmp_path)
         controller.set_command_kind(d, "executable")
@@ -236,7 +220,6 @@ class TestValidate:
         assert o.fields == {"executable": "an executable is required"}
 
     def test_no_times(self, tmp_path: Path) -> None:
-        """A draft with no times fails with a times field error."""
         world, controller = make_controller(tmp_path)
         d = valid_draft(controller, tmp_path)
         controller.set_times(d, [])
@@ -244,7 +227,6 @@ class TestValidate:
         assert o.fields == {"times": "at least one time is required"}
 
     def test_bad_time_value(self, tmp_path: Path) -> None:
-        """An invalid time value surfaces the exact domain message on the times field."""
         world, controller = make_controller(tmp_path)
         d = valid_draft(controller, tmp_path)
         controller.set_times(d, ["99:99"])
@@ -252,7 +234,6 @@ class TestValidate:
         assert o.fields == {"times": "schedule time out of range (00:00-23:59), got '99:99'"}
 
     def test_no_weekdays(self, tmp_path: Path) -> None:
-        """A draft with no weekdays fails validation."""
         world, controller = make_controller(tmp_path)
         d = valid_draft(controller, tmp_path)
         controller.set_weekdays(d, set())
@@ -260,7 +241,6 @@ class TestValidate:
         assert o.fields == {"weekdays": "at least one weekday is required"}
 
     def test_relative_stdout(self, tmp_path: Path) -> None:
-        """A relative stdout path fails validation."""
         world, controller = make_controller(tmp_path)
         d = valid_draft(controller, tmp_path)
         controller.set_stdout_path(d, "rel/out.log")
@@ -289,7 +269,6 @@ class TestIntervalSchedule:
         return draft
 
     def test_interval_sub_minimum_uses_domain_message(self, tmp_path: Path) -> None:
-        """A converted total below 60 seconds fails with the domain message on interval."""
         world, controller = make_controller(tmp_path)
         o = controller.validate(self.interval_draft(controller, tmp_path, "30", "seconds"))
         assert o.ok is False
@@ -297,7 +276,6 @@ class TestIntervalSchedule:
 
     @pytest.mark.parametrize("value", ["", "  ", "1.5", "abc"])
     def test_interval_non_whole_number(self, tmp_path: Path, value: str) -> None:
-        """A blank or non-integer duration fails with a whole-number message on interval."""
         world, controller = make_controller(tmp_path)
         o = controller.validate(self.interval_draft(controller, tmp_path, value, "minutes"))
         assert o.ok is False
@@ -305,7 +283,6 @@ class TestIntervalSchedule:
 
     @pytest.mark.parametrize("value", ["0", "-5"])
     def test_interval_non_positive(self, tmp_path: Path, value: str) -> None:
-        """A zero or negative duration fails with a positive-number message on interval."""
         world, controller = make_controller(tmp_path)
         o = controller.validate(self.interval_draft(controller, tmp_path, value, "minutes"))
         assert o.ok is False
@@ -314,7 +291,6 @@ class TestIntervalSchedule:
         }
 
     def test_interval_bad_unit(self, tmp_path: Path) -> None:
-        """An unknown unit fails with a unit message on interval."""
         world, controller = make_controller(tmp_path)
         draft = self.interval_draft(controller, tmp_path, "5", "fortnights")
         o = controller.validate(draft)
@@ -360,7 +336,6 @@ class TestSave:
         assert o.path is None
 
     def test_save_shell_kind(self, tmp_path: Path) -> None:
-        """A populated shell draft saves and persists a shell command job."""
         world, controller = make_controller(tmp_path)
         d = valid_draft(controller, tmp_path)
         controller.set_command_kind(d, "shell")
@@ -373,7 +348,6 @@ class TestSave:
         assert isinstance(saved.command, ShellCommand)
 
     def test_save_relative_shell_executable(self, tmp_path: Path) -> None:
-        """A relative shell executable fails with a shell_executable error."""
         world, controller = make_controller(tmp_path)
         d = valid_draft(controller, tmp_path)
         controller.set_command_kind(d, "shell")
@@ -383,7 +357,6 @@ class TestSave:
         assert o.fields == {"shell_executable": "the shell executable path must be absolute"}
 
     def test_save_executable_kind(self, tmp_path: Path) -> None:
-        """A populated executable draft saves and persists an executable job."""
         world, controller = make_controller(tmp_path)
         d = valid_draft(controller, tmp_path)
         controller.set_command_kind(d, "executable")
@@ -396,7 +369,6 @@ class TestSave:
         assert isinstance(saved.command, ExecutableCommand)
 
     def test_save_relative_executable(self, tmp_path: Path) -> None:
-        """A relative executable path fails with an executable error."""
         world, controller = make_controller(tmp_path)
         d = valid_draft(controller, tmp_path)
         controller.set_command_kind(d, "executable")
@@ -406,7 +378,6 @@ class TestSave:
         assert o.fields == {"executable": "the executable path must be absolute"}
 
     def test_save_blank_environment_key(self, tmp_path: Path) -> None:
-        """A blank environment key fails with an environment error."""
         world, controller = make_controller(tmp_path)
         d = valid_draft(controller, tmp_path)
         controller.add_environment_row(d)
@@ -415,7 +386,6 @@ class TestSave:
         assert o.fields == {"environment": "environment variable names must not be empty"}
 
     def test_save_duplicate_environment_key(self, tmp_path: Path) -> None:
-        """A duplicated environment key fails with an environment error."""
         world, controller = make_controller(tmp_path)
         d = valid_draft(controller, tmp_path)
         controller.add_environment_row(d)
@@ -429,7 +399,6 @@ class TestSave:
 
 class TestFieldErrors:
     def test_command_type_loc(self, tmp_path: Path) -> None:
-        """An unknown command type maps to the script fallback key."""
         world, controller = make_controller(tmp_path)
         data = make_job().model_dump()
         data["command"]["type"] = "bogus"
@@ -439,7 +408,6 @@ class TestFieldErrors:
         assert list(result) == ["script"]
 
     def test_command_executable_loc(self, tmp_path: Path) -> None:
-        """A relative executable maps to the executable key in the command branch."""
         world, controller = make_controller(tmp_path)
         data = make_job(
             command=ExecutableCommand(executable="/usr/local/bin/backup", arguments=["--all"])
@@ -452,7 +420,6 @@ class TestFieldErrors:
         assert result["executable"]
 
     def test_schedule_time_loc(self, tmp_path: Path) -> None:
-        """A malformed schedule time maps to the times key."""
         world, controller = make_controller(tmp_path)
         data = make_job().model_dump()
         data["schedule"]["times"] = ["garbage"]
@@ -462,7 +429,6 @@ class TestFieldErrors:
         assert list(result) == ["times"]
 
     def test_schedule_weekdays_loc(self, tmp_path: Path) -> None:
-        """Empty schedule weekdays map to the weekdays key."""
         world, controller = make_controller(tmp_path)
         data = make_job().model_dump()
         data["schedule"]["weekdays"] = []
@@ -472,7 +438,6 @@ class TestFieldErrors:
         assert list(result) == ["weekdays"]
 
     def test_schedule_seconds_loc(self, tmp_path: Path) -> None:
-        """A sub-minimum interval seconds loc maps to the interval key."""
         world, controller = make_controller(tmp_path)
         data = make_job().model_dump()
         data["schedule"] = {"kind": "interval", "seconds": 30}
@@ -494,7 +459,6 @@ class TestFieldErrors:
 
 class TestBulkMutators:
     def test_set_arguments_shell_and_executable(self, tmp_path: Path) -> None:
-        """set_arguments targets the right per-kind list."""
         world, controller = make_controller(tmp_path)
         d = controller.open_new()
         controller.set_arguments(d, "shell", ["-c", "true"])

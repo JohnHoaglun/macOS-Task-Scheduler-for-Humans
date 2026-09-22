@@ -3,11 +3,7 @@
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from task_scheduler.domain import (
-    Command,
-    PythonCommand,
-    ShellCommand,
-)
+from task_scheduler.domain import Command, PythonCommand, ShellCommand
 
 COMMAND_ADAPTER = TypeAdapter(Command)
 

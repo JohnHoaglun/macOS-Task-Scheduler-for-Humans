@@ -1,4 +1,4 @@
-# TODOS.md (v0.0.48)
+# TODOS.md (v0.0.49)
 
 ## Round-2 Review Remediation (IN PROGRESS — v0.0.48 → v0.0.50)
 
@@ -11,13 +11,14 @@ Approved scope from `docs/code-review-round-2.md`: all 25 findings (R2-01…R2-2
 - [x] Wave 1C (general): R2-06 qFatal `os.abort()`; R2-13 faulthandler to log + GUI-thread-marshaled crash dialog; R2-25 documented CLI degraded-output caveat
 - [x] Integration + full gate + v0.0.48 closeout: `make check` green (ruff, mypy strict, 649 tests, 100% coverage); test/source ratio 74.6273% (10,662 : 14,287, ≤75%) after 22 line-redundant test cuts (per-line coverage attribution, no unique coverage lost); version 0.0.47 → 0.0.48 (all 4 registry locations); round-2 findings marked Resolved; commit, push
 
-### Slice 2 — Catalog, History, Trust, CLI (v0.0.49) — R2-04,07,11,14,16,20,22
-- [ ] Wave 0 (build): pin listing-result contract (valid tasks + catalog diagnostics; no synthetic rows; no auto-repair)
-- [ ] Wave 1A (smarter): R2-04 resilient catalog enumeration + diagnostics; R2-11 `save()` under `.catalog.lock`; GUI/CLI consumer updates
-- [ ] Wave 1B (smarter): R2-07 history retention 1,000/job (init + post-append prune)
-- [ ] Wave 1C (smarter): R2-16 symlink rejection at discovery/read/import; R2-22 import-commit source re-snapshot + drift rejection
-- [ ] Wave 1D (smarter): R2-14 CLI error matrix (exit 1 vs 2, messages, no tracebacks); R2-20 `HistoryTableModel.header()` bounds
-- [ ] Integration + full gate + v0.0.49 closeout (commit + push)
+### Slice 2 — Catalog, History, Trust, CLI (v0.0.49) — R2-04,07,11,14,16,20,22 — DONE (v0.0.49)
+- [x] Wave 0 (build): pin contracts (diagnostics DTO + `catalog_diagnostics()`; import snapshot/drift → `ValueError`; `RefreshOutcome.diagnostics`; `MAX_EVENTS_PER_JOB = 1000`; R2-14 exit matrix; symlink rejection) + 5-lane conflict-free decomposition (PLAN.md)
+- [x] Lane A (general): R2-04 fault-tolerant catalog scan + diagnostics; R2-11 `save()` under `.catalog.lock`; R2-22 preview/import snapshot + drift (`job_service.py`, `task_command_service.py`, `external_import.py`, `application/__init__.py`)
+- [x] Lane B (general): R2-14 CLI error matrix (exit 1 vs 2, non-empty messages, no tracebacks); R2-04 `list` diagnostics to stderr; R2-22 import-commit `ValueError` → exit 1 (`cli/app.py`)
+- [x] Lane C (general): R2-04 GUI diagnostics (`RefreshOutcome.diagnostics`, discovery `refresh()`, status bar); R2-20 `HistoryTableModel.header()` bounds
+- [x] Lane D (general): R2-07 history retention 1,000/job (init + post-append prune)
+- [x] Lane E (general): R2-16 symlink rejection in `list_plist_files` / `read_plist_bytes`
+- [x] Integration + full gate + v0.0.49 closeout: `make check` green (ruff, mypy strict, 690 tests, 100% coverage); test/source ratio 74.5787% (10,755 : 14,421, ≤75%) after banner/import/docstring/redundancy trims; 15 lane tests re-authored after accidental checkout loss; version 0.0.48 → 0.0.49 (all 4 registry locations); round-2 findings marked Resolved; commit, push
 
 ### Slice 3 — GUI Responsiveness And Presentation (v0.0.50) — R2-03,08,18,19,21,23
 - [ ] Wave 0 (build): pin async-read contracts (discovery generation, coalesced refresh, log-truncation DTO, raw-read DTO) + shared pure formatting helpers

@@ -34,7 +34,6 @@ def _thin(cputype: int, magic: int = THIN_64_MAGIC, little_endian: bool = True) 
 
 def _fat(cputypes: list[int], little_endian: bool) -> bytes:
     """Fat header bytes.
-
     The four magic bytes are always read big-endian by parsers: a
     big-endian fat holds 0xCAFEBABE (bytes CA FE BA BE), a little-endian
     fat holds 0xBEBAFECA (bytes BE BA FE CA). The nfat count and entry

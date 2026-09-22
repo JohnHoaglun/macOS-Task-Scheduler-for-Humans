@@ -89,11 +89,15 @@ class LocalFilesystem:
     """Production :class:`LaunchAgentFilesystem` built on :mod:`pathlib`."""
 
     def read_plist_bytes(self, path: Path) -> bytes:
+        if path.is_symlink():
+            raise ValueError(f"refusing to read a symlinked plist file: {path}")
         return path.read_bytes()
 
     def list_plist_files(self, root: Path) -> list[Path]:
         return sorted(
-            entry for entry in root.iterdir() if entry.name.endswith(".plist") and entry.is_file()
+            entry
+            for entry in root.iterdir()
+            if entry.name.endswith(".plist") and entry.is_file() and not entry.is_symlink()
         )
 
     def create_root(self, root: Path) -> None:

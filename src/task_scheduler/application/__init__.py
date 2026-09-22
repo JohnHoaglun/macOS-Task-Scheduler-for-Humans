@@ -10,6 +10,7 @@ from task_scheduler.application.external_edit_models import (
 )
 from task_scheduler.application.external_import import ExternalPlistImportPreview
 from task_scheduler.application.job_service import (
+    CatalogDiagnostic,
     JobConflictError,
     JobNotFoundError,
     JobService,
@@ -33,6 +34,7 @@ from task_scheduler.application.test_service import DirectTestResult, DirectTest
 from task_scheduler.platform.macos import ExternalEditField
 
 __all__ = [
+    "CatalogDiagnostic",
     "DirectTestResult",
     "DirectTestService",
     "ExternalEditField",

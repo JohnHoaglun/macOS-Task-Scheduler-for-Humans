@@ -7,6 +7,7 @@ invokes the real launchctl.
 
 from __future__ import annotations
 
+import hashlib
 import plistlib
 from pathlib import Path
 from uuid import UUID
@@ -16,14 +17,9 @@ from tests.conftest import make_job
 from tests.fakes import OK_PROCESS, FakeTaskWorld
 
 from task_scheduler.application.diagnostic_models import DiagnosticSource
-from task_scheduler.application.job_service import (
-    default_job_logs_root,
-    managed_label,
-)
+from task_scheduler.application.job_service import default_job_logs_root, managed_label
 from task_scheduler.application.log_service import JobLogs, LogStream
-from task_scheduler.domain import (
-    JobDefinition,
-)
+from task_scheduler.domain import JobDefinition
 from task_scheduler.platform.macos import (
     LAUNCHCTL_PATH,
     CandidateSource,
@@ -163,10 +159,7 @@ class TestReinstall:
         assert backup.name == f"{job.label}.plist.backup.1"
         assert backup.is_file()
         assert backup.read_bytes() == PlistCodec().encode_bytes(job)
-        assert [spec.argv[1] for spec in world.launch_runner.specs] == [
-            "bootout",
-            "bootstrap",
-        ]
+        assert [spec.argv[1] for spec in world.launch_runner.specs] == ["bootout", "bootstrap"]
 
 
 class TestUninstall:
@@ -293,10 +286,7 @@ class TestDiagnosticsFacade:
             stderr=LogStream(name="stderr", path=Path("/tmp/b.log"), error="gone"),
         )
         diagnostics = world.services.log_diagnostics_for(job, logs)
-        assert [d.code for d in diagnostics] == [
-            "log_path_unreadable",
-            "log_path_unreadable",
-        ]
+        assert [d.code for d in diagnostics] == ["log_path_unreadable", "log_path_unreadable"]
         assert "stdout" in diagnostics[0].description
         assert "stderr" in diagnostics[1].description
         clean = JobLogs(
@@ -304,3 +294,67 @@ class TestDiagnosticsFacade:
             stderr=LogStream(name="stderr", path=None),
         )
         assert world.services.log_diagnostics_for(job, clean) == ()
+
+
+EXTERNAL_PLIST_PAYLOAD = {
+    "Label": "com.example.external",
+    "ProgramArguments": ["/bin/echo", "hi"],
+    "StartCalendarInterval": [{"Hour": 9, "Minute": 0, "Weekday": 1}],
+}
+
+
+def _external_plist(tmp_path: Path) -> Path:
+    path = tmp_path / "external.plist"
+    path.write_bytes(plistlib.dumps(EXTERNAL_PLIST_PAYLOAD))
+    return path
+
+
+class TestExternalImportDrift:
+    def test_preview_records_source_snapshot_and_commits_unchanged(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        path = _external_plist(tmp_path)
+        preview = world.services.preview_external_plist(path)
+        st = path.stat()
+        assert preview.source_path == path
+        assert preview.source_sha256 == hashlib.sha256(path.read_bytes()).hexdigest()
+        assert preview.source_identity == (st.st_dev, st.st_ino)
+        assert preview.requires_acknowledgement is False
+        assert world.services.catalog_diagnostics() == []
+        job = world.services.import_external_plist(preview, acknowledge_partial=False)
+        assert job.label == "com.example.external"
+        assert world.jobs.find(job.label) is not None
+
+    def test_unreadable_source_at_preview_raises(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        with pytest.raises(ValueError, match="could not read"):
+            world.services.preview_external_plist(tmp_path / "missing.plist")
+
+    def test_source_changed_after_preview_rejects_import(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        path = _external_plist(tmp_path)
+        preview = world.services.preview_external_plist(path)
+        changed = {**EXTERNAL_PLIST_PAYLOAD, "ProgramArguments": ["/bin/echo", "changed"]}
+        path.write_bytes(plistlib.dumps(changed))
+        with pytest.raises(ValueError, match="changed between preview and import"):
+            world.services.import_external_plist(preview, acknowledge_partial=False)
+        assert world.jobs.list_jobs() == []
+
+    def test_source_replaced_with_same_bytes_rejects_import(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        path = _external_plist(tmp_path)
+        original = path.read_bytes()
+        preview = world.services.preview_external_plist(path)
+        path.unlink()
+        path.write_bytes(original)
+        with pytest.raises(ValueError, match="changed between preview and import"):
+            world.services.import_external_plist(preview, acknowledge_partial=False)
+        assert world.jobs.list_jobs() == []
+
+    def test_unreadable_source_at_commit_rejects_import(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        path = _external_plist(tmp_path)
+        preview = world.services.preview_external_plist(path)
+        path.unlink()
+        with pytest.raises(ValueError, match="could not read"):
+            world.services.import_external_plist(preview, acknowledge_partial=False)
+        assert world.jobs.list_jobs() == []

@@ -12,9 +12,7 @@ from tests.conftest import make_job
 from tests.fakes import FakeTaskWorld
 
 from task_scheduler.domain import JobDefinition, LoggingConfig
-from task_scheduler.gui.controllers.diagnostics_controller import (
-    DiagnosticsController,
-)
+from task_scheduler.gui.controllers.diagnostics_controller import DiagnosticsController
 from task_scheduler.gui.dialog_sizing import bounded_preferred_size
 from task_scheduler.gui.widgets.direct_test_dialog import DirectTestDialog
 from task_scheduler.platform.macos import ProcessResult
@@ -23,14 +21,12 @@ DEFAULT_SUMMARY = "Run Test to check this task directly."
 
 
 def _summary(dialog: DirectTestDialog) -> str:
-    """The panel's summary line, asserted present."""
     label = dialog.panel.findChild(QLabel, "diagnostics-summary")
     assert label is not None
     return label.text()
 
 
 def _tab(dialog: DirectTestDialog, object_name: str) -> str:
-    """A named log tab's content, asserted present."""
     tab = dialog.panel.findChild(QPlainTextEdit, object_name)
     assert tab is not None
     return tab.toPlainText()
@@ -38,7 +34,6 @@ def _tab(dialog: DirectTestDialog, object_name: str) -> str:
 
 def _wait_rendered(qtbot: QtBot, dialog: DirectTestDialog) -> None:
     """Wait until the main thread has rendered the worker's outcome.
-
     Rendering happens in the same queued-signal batch as the worker thread's
     quit, so the thread is on its way out when the summary changes — safe
     to tear the dialog down at test end. Waiting on ``controller.busy``
@@ -98,7 +93,6 @@ class TestDirectTestDialog:
         qtbot.waitUntil(lambda: dialog not in DirectTestDialog._closing_dialogs)
 
     def test_refresh_rereads_logs_after_change(self, qtbot: QtBot, tmp_path: Path) -> None:
-        """Refresh re-reads the persisted logs and environment comparison."""
         out = tmp_path / "out.log"
         out.write_text("first\n")
         job = make_job(logging=LoggingConfig(stdout_path=out, stderr_path=None))

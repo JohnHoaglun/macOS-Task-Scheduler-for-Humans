@@ -6,10 +6,7 @@ from pathlib import Path
 
 from conftest import make_job
 from task_scheduler.application.task_command_service import ListingKind, TaskListing
-from task_scheduler.domain import (
-    IntervalSchedule,
-    JobDefinition,
-)
+from task_scheduler.domain import IntervalSchedule, JobDefinition
 from task_scheduler.gui.presenters.agent_presenter import (
     PREVIEW_DISABLED_HEADING,
     enabled_state,
@@ -19,10 +16,7 @@ from task_scheduler.gui.presenters.agent_presenter import (
     format_state,
     format_upcoming_heading,
 )
-from task_scheduler.platform.macos import (
-    ParsedLaunchAgent,
-    ParseSupport,
-)
+from task_scheduler.platform.macos import ParsedLaunchAgent, ParseSupport
 
 AGENT_PATH = Path("/Users/example/Library/LaunchAgents/com.example.plist")
 

@@ -8,16 +8,9 @@ from uuid import UUID
 from PySide6.QtWidgets import QToolButton, QWidget
 from pytestqt.qtbot import QtBot
 
-from task_scheduler.application.history_models import (
-    HistoryEvent,
-    HistoryEventKind,
-)
-from task_scheduler.application.history_models import (
-    HistoryOutcome as HistoryOutcomeEnum,
-)
-from task_scheduler.gui.controllers.history_controller import (
-    HistoryOutcome,
-)
+from task_scheduler.application.history_models import HistoryEvent, HistoryEventKind
+from task_scheduler.application.history_models import HistoryOutcome as HistoryOutcomeEnum
+from task_scheduler.gui.controllers.history_controller import HistoryOutcome
 from task_scheduler.gui.widgets.history_panel import HistoryPanel
 
 
@@ -49,7 +42,6 @@ class TestShowHistoryEvents:
 
 class TestCollapsedByDefault:
     def test_show_history_never_expands(self, qtbot: QtBot) -> None:
-        """Rendering events on selection keeps the panel collapsed."""
         panel = HistoryPanel()
         qtbot.addWidget(panel)
         panel.show_history(HistoryOutcome(label="test", events=(_event(),)))

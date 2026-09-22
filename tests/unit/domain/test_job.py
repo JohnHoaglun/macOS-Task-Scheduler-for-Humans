@@ -6,15 +6,9 @@ import pytest
 from pydantic import ValidationError
 from tests.conftest import make_job
 
-from task_scheduler.domain import (
-    UnsupportedSchemaVersionError,
-)
+from task_scheduler.domain import UnsupportedSchemaVersionError
 
-VALID_LABELS = [
-    "io.github.macos-task-scheduler.user.daily-backup",
-    "A_b-c.1",
-    "com.example.job",
-]
+VALID_LABELS = ["io.github.macos-task-scheduler.user.daily-backup", "A_b-c.1", "com.example.job"]
 
 INVALID_LABELS = ["", "has space", "bad/label", "-lead", ".lead", "tab\there"]
 

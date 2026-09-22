@@ -22,7 +22,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from task_scheduler.application import ExternalEditResult, ExternalEditSession
+from task_scheduler.application import (
+    CatalogDiagnostic,
+    ExternalEditResult,
+    ExternalEditSession,
+)
 from task_scheduler.application.job_service import JobNotFoundError
 from task_scheduler.application.task_command_service import (
     ListingKind,
@@ -370,7 +374,7 @@ class MainWindow(QMainWindow):
         if not outcome.agents:
             self._model.set_agents([])
             self.inspector.show_placeholder("No tasks found.")
-            self.statusBar().clearMessage()
+            self._show_refresh_status(outcome.diagnostics)
             self._update_empty_state()
             self._update_lifecycle_actions()
             return
@@ -380,8 +384,15 @@ class MainWindow(QMainWindow):
         row = self._row_for_identity(previous)
         if row < self._proxy.rowCount():
             self.table.setCurrentIndex(self._proxy.index(row, 0))
-        self.statusBar().clearMessage()
+        self._show_refresh_status(outcome.diagnostics)
         self._update_lifecycle_actions()
+
+    def _show_refresh_status(self, diagnostics: tuple[CatalogDiagnostic, ...]) -> None:
+        """Surface unreadable catalog files as a non-blocking status-bar warning."""
+        if diagnostics:
+            self.statusBar().showMessage(f"{len(diagnostics)} catalog file(s) could not be read")
+        else:
+            self.statusBar().clearMessage()
 
     def new_task(self) -> None:
         """Open the editor for a new managed task and refresh on save."""
