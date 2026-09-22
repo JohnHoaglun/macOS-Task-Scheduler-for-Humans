@@ -2,6 +2,67 @@
 
 ## Current State
 
+### Approved Round-2 Review Remediation (2026-09-21)
+
+**Goal:** fix all 25 findings in `docs/code-review-round-2.md` (baseline v0.0.47, commit `6277a2e`) across three released remediation slices: **Slice 1 v0.0.48** (safety + observability), **Slice 2 v0.0.49** (catalog/history/trust/CLI), **Slice 3 v0.0.50** (GUI responsiveness + presentation). Each slice ships with its own full `make check` gate, docs/version closeout, and commit+push.
+
+**Pinned decisions (user-approved 2026-09-21):**
+- Bootout recovery (R2-05): automatic cleanup only after a failed `bootout` is confirmed by a positive follow-up status check (`loaded is False`); every other bootout failure remains fail-closed.
+- History retention (R2-07): newest 1,000 events per job; prune at repository init and after each successful append.
+- Command display (R2-19): `shlex.quote` argv rendering, shared by GUI, import preview, and CLI.
+- Refresh policy (R2-03): discovery runs off the UI thread; repeated refresh requests while one is active coalesce into exactly one follow-up refresh (never concurrent scans).
+- Log views (R2-08): default tail of the latest 256 KiB with an explicit truncation marker; GUI and CLI identical.
+- `launchctl` subprocesses (R2-10): 30-second timeout, an explicit UTF-8 decode, and a timeout outcome distinct from a normal nonzero exit.
+- Catalog corruption (R2-04): valid jobs still list; issues are non-blocking diagnostics (GUI Diagnostics panel + CLI stderr warning); no synthetic table rows; no auto-delete/repair/quarantine during reads.
+- Security defaults (R2-16, R2-22, R2-23): symlinked plists rejected at discovery/read/import; external-import commit re-snapshots and rejects source drift; raw editor loads via an async worker with an explicit loading state.
+- CLI error matrix (R2-14): exit `2` for usage/input/acknowledgement conflicts, exit `1` for storage/log/process/runtime failures, non-empty message on every error path, no tracebacks for expected failures.
+- Telemetry (R2-09): dead `emit_event`/`emit_error` APIs are deleted (structured logging is the telemetry path).
+- Qt fatal (R2-06): on `QtFatalMsg`, log CRITICAL, flush, then abort (process must not continue).
+- History failure (R2-12): first append failure logs once, marks history unavailable; later reads return `HISTORY_UNAVAILABLE`.
+
+**Slice 1 — Safety And Observability (v0.0.48):** R2-01, R2-02, R2-05, R2-06, R2-09, R2-10, R2-12, R2-13, R2-15, R2-17, R2-24, R2-25.
+
+- **Wave 0 (build, serial):** pin shared contracts — process outcome model (success / nonzero-exit / launch-failure / timeout distinct), 30 s timeout + UTF-8 in `SubprocessRunner`; worker invariant (exactly one typed terminal success/failure outcome per accepted request, never `None`); bootout-recovery invariant (confirmed-not-loaded only permits artifact cleanup/redeploy); qFatal invariant (log → flush → abort).
+- **Wave 1A (smarter lane):** R2-01 label-less raw edit cannot gain a label (assert → explicit rejected transition, no bootstrap/replace under another label); R2-15 narrow `plistlib.loads` catch to `InvalidFileException`/`ValueError` (raw-edit session, `json_transfer_controller`, CLI import); R2-17 `bootstrap_path(label, path)` parses the staged plist and requires `Label == label` before the launchctl call; R2-05 confirmed-not-loaded recovery for uninstall (remove deployed plist + catalog record) and reinstall (continue to replacement/bootstrap, never leave a stranded staged artifact); R2-24 delete dead `LaunchAgentStore.backup_external()` + revise/remove its tests (repo-wide unused check first).
+- **Wave 1B (smarter lane):** R2-02 typed failure outcomes for `LifecycleWorker`/`DiagnosticsWorker` (stable user message + internal exception context; traceback logged once at the worker boundary; `MainWindow` always clears busy, shows concise failure, renders diagnostics); R2-09 delete dead telemetry APIs + direct-only tests; R2-12 first SQLite append failure → log once, mark unavailable, reads return `HISTORY_UNAVAILABLE`.
+- **Wave 1C (smarter lane):** R2-06 qFatal log/flush/abort; R2-13 `faulthandler` registered best-effort against the app log + exception dialog marshaled to the GUI thread; R2-25 CLI logging fallback documented (JSONL fallback may interleave with piped output).
+- **Integration (build, serial):** full `make check`, lane-diff review vs pinned contracts, composition gates (timeout/launch/nonzero distinct through all consumers; no `None` worker outcomes; confirmed-not-loaded recovery + fail-closed for all other bootout failures; no real launchctl in unit tests).
+- **Closeout (build, serial):** ratio gate, v0.0.48 at all 4 registry locations, stale-version grep, docs (README/architecture/development + round-2 report status), `TODOS.md`/`SUMMARY.md`, commit + push.
+
+**Slice 2 — Catalog, History, Trust, CLI (v0.0.49):** R2-04, R2-07, R2-11, R2-14, R2-16, R2-20, R2-22.
+
+- **Wave 0 (build, serial):** pin the listing-result contract — immutable application-level result carrying valid `TaskListing` values + catalog diagnostics (path, safe message, failure category); no synthetic rows; GUI renders diagnostics in Diagnostics; CLI `list` warns on stderr with exit success when valid listing completed; no listing operation auto-deletes/repairs/quarantines.
+- **Wave 1A (smarter lane):** R2-04 resilient catalog enumeration (malformed JSON, schema failure, unreadable file → structured issue; valid records unaffected); R2-11 `JobService.save()` conflict re-check + write inside `.catalog.lock` (matching `import_job`); update GUI discovery + CLI list consumers to the pinned result.
+- **Wave 1B (smarter lane):** R2-07 history retention (1,000/job, prune at init + after append; newest-first reads of 100 unchanged; composes with Slice 1 R2-12).
+- **Wave 1C (smarter lane):** R2-16 symlink rejection at discovery/read/import/edit (existing `O_NOFOLLOW` read path extended to the full path set); R2-22 external-import commit re-snapshots preview source (bytes/identity) and rejects changed bytes, replacement inode, or missing source with a stable source-changed error and no catalog write.
+- **Wave 1D (smarter lane):** R2-14 CLI error matrix (narrow catches in validate/generate/install; containment in list/inspect/test/logs; log-read failure exit 1; explicit acknowledgement/conflict messages; generic operational error for unexpected failures); R2-20 `HistoryTableModel.header()` bounds check mirroring `AgentTableModel.headerData()`.
+- **Integration + closeout (build, serial):** as Slice 1 pattern; v0.0.49.
+
+**Slice 3 — GUI Responsiveness And Presentation (v0.0.50):** R2-03, R2-08, R2-18, R2-19, R2-21, R2-23.
+
+- **Wave 0 (build, serial):** pin async-read + formatting contracts — discovery generation counter (old results never replace newer listings); coalesced-refresh flag; log-read result (content + truncation metadata, never raises); raw-plist read result (`text` / `binary_mode` / safe error); shared pure formatting helpers (`%H:%M` schedule time, `shlex.quote` argv) in a Qt-free module importable by both CLI and GUI (no GUI↔CLI imports).
+- **Wave 1A (smarter lane):** R2-03 `DiscoveryController` request/execute/finish state + `DiscoveryWorker` (off-thread `list_agents`), `MainWindow.refresh()` through the worker, selection identity preserved on result, coalesced follow-up refresh, worker thread registered in close drain.
+- **Wave 1B (smarter lane):** R2-08 `LocalLogReader` 256 KiB tail + truncation metadata; GUI + CLI markers; direct-test/diagnostics/raw-editor reads worker-backed; R2-23 raw editor shows loading state before opening and never opens after read failure or window close.
+- **Wave 1C (smarter lane):** R2-18 scoped `QSignalBlocker` during `_load_draft()` (no interpreter-detection scheduling on load; user edits keep the debounced path) + docstring fix; R2-19 replace GUI-local/import-preview/CLI command+time formatting with shared helpers; R2-21 cache filter dimensions + search text in `AgentTableModel.set_agents()`, consumed by `AgentFilterProxyModel` without per-row recompute.
+- **Integration + closeout (build, serial):** as Slice 1 pattern; v0.0.50. Final composition pass across all three slices (import-order checks, full suite, ratio).
+
+**Shared-surface inventory (ownership, exclusive):**
+- Slice 1 Wave 0 owns process-result/timeout semantics + worker-outcome DTOs; Waves 1A/1B/1C consume them unchanged.
+- Slice 2 Wave 0 owns the listing-result/diagnostics contract; Slice 3 discovery transports it without reinterpretation.
+- Slice 2 Wave 1C owns symlink/snapshot trust semantics; all preview/edit/import callers consume it.
+- Slice 3 Wave 0 owns the log-truncation DTO, raw-read result DTO, and shared formatting helpers.
+- Global test/source ratio: build owns measurement after every wave; currently 74.9665% against the 75% cap — lanes write compact parametrized tests and no redundant fixtures; serial closeout trims redundancy if the cap is breached.
+- Lane file ownership follows the wave tables; a lane never edits another lane's files. `tests/fakes.py` is edited only by the lane that owns the platform contract under change (Slice 1: Wave 1A; Slice 2: Wave 1C).
+
+**Gates (per slice, in addition to full `make check` + 100% coverage + ratio ≤ 75%):**
+- Slice 1: timeout/launch/nonzero distinct through all consumers; exactly one typed worker outcome per request; label-less raw edit cannot bootstrap; staged-plist label mismatch never invokes launchctl; confirmed-not-loaded recovery removes artifacts, other bootout failures preserve state; qFatal path cannot return; first history append failure observable and stable; no production references to `backup_external()`.
+- Slice 2: concurrent save/import cannot duplicate a label; one corrupt catalog file does not hide valid jobs; diagnostics visible in GUI panel and CLI stderr; symlinked plists rejected everywhere; source drift blocks import with no catalog write; ≤1,000 history rows/job after append+prune; CLI exit codes match the matrix; invalid header section returns `None`.
+- Slice 3: UI thread never runs `launchctl print`, uncapped log reads, or raw plist reads; no concurrent discovery scans; latest generation wins; selection stable when its row survives; stale read results never rendered for the wrong task; draft load schedules no interpreter detection; CLI/GUI/import-preview render identical quoted argv and calendar times; repeated filtering does not recompute cached dimensions/search text.
+
+**Deferred:** none of the R2 items are deferred; R2-23 lands in Slice 3 (async read path) per the approved security defaults. Run-phase increments 24–29 remain after this remediation.
+
+**Blockers:** none.
+
 ### Approved v0.0.47 Filesystem Safety, Packaging Portability, and Editor Debounce (2026-09-21)
 
 **Goal:** implement the approved v0.0.47 slice of `docs/code-review-findings.md`: secure exclusive temporary-file creation, descriptor-coherent snapshots with honest best-effort verified-operation semantics, snapshot-based external quarantine, portable packaging configuration, explicit macOS package prerequisites, and debounced Python detection.
@@ -51,7 +112,7 @@
 - Final: `make check` green (ruff, mypy strict, 100% coverage, ratio ≤75%), version `0.0.47` in all registry locations, docs updated, commit pushed.
 
 **Deferred:**
-- v0.0.48: remaining Run-phase increments (24–29) and any new findings.
+- Remaining Run-phase increments (24–29) and any new findings. (Note: v0.0.48–v0.0.50 are now reserved for the Round-2 review remediation slices; Run-phase increments resume after v0.0.50.)
 
 **Blockers:** none. (v0.0.47 coverage gate, discovered 2026-09-21 during Wave C composition and resolved the same turn: full `make check` (100% coverage) was RED at `7d2ff65` because Wave A (`8a31c44`) was verified with focused pytest/ruff/mypy only, so `filesystem.py` lines 120-122, 142, and 147-150 were committed uncovered, and Wave C's `job_editor.py:305` blank guard was also uncovered. Fix: added `TestFilesystemFailureCleanup` (`tests/unit/platform/test_filesystem.py`) covering the `os.replace`/`os.fstat` failure paths, exercised the `_run_script_detection` blank guard in the JobEditor burst test, and trimmed genuinely redundant test content to satisfy the 75% ratio cap (a dead `_install_result` helper in `tests/unit/application/test_diagnostic_service.py`, a 4-line reference comment in `tests/unit/domain/test_schedule.py`, and 6 redundant inline comments across `test_main_window.py`, `test_history_presenter.py`, and `test_filesystem.py`). `make check` is green (654 passed, 100% coverage, ratio 10640:14193 = 74.9665%); the full composition gate now runs before every v0.0.47 commit. Gate gap recorded: Wave A was committed without the full composition gate; remedy added: run full `make check` before every v0.0.47 commit.)
 

@@ -1,5 +1,34 @@
 # TODOS.md (v0.0.47)
 
+## Round-2 Review Remediation (IN PROGRESS — v0.0.48 → v0.0.50)
+
+Approved scope from `docs/code-review-round-2.md`: all 25 findings (R2-01…R2-25), shipped as three slices. Pinned decisions (approved 2026-09-21): automatic bootout recovery only on confirmed-not-loaded; 1,000 history events/job; `shlex.quote` command display; coalesced async discovery refresh; 256 KiB log tail with truncation marker; 30 s launchctl timeout; corrupt-catalog diagnostics in GUI panel + CLI stderr; symlink rejection; import-drift rejection; async raw-editor load.
+
+### Slice 1 — Safety And Observability (v0.0.48) — R2-01,02,05,06,09,10,12,13,15,17,24,25
+- [ ] Wave 0 (build): pin process-outcome model (success/nonzero/launch-failure/timeout distinct), 30 s timeout + UTF-8 decode in `SubprocessRunner`; typed worker terminal-outcome invariant (never `None`); bootout-recovery invariant; qFatal log/flush/abort
+- [ ] Wave 1A (smarter): R2-01 label-less raw edit rejected (no label gain); R2-15 narrow plist parse catch; R2-17 staged-plist Label check in `bootstrap_path`; R2-05 confirmed-not-loaded uninstall/reinstall recovery; R2-24 delete dead `backup_external()` + tests
+- [ ] Wave 1B (smarter): R2-02 typed lifecycle/diagnostics worker failures + MainWindow surfacing; R2-09 delete dead telemetry APIs; R2-12 history append-failure → unavailable once
+- [ ] Wave 1C (smarter): R2-06 qFatal abort; R2-13 faulthandler + GUI-thread crash dialog; R2-25 document CLI logging fallback
+- [ ] Integration + full gate + v0.0.48 closeout (ratio, registry ×4, stale grep, docs, SUMMARY/PROJECT, commit + push)
+
+### Slice 2 — Catalog, History, Trust, CLI (v0.0.49) — R2-04,07,11,14,16,20,22
+- [ ] Wave 0 (build): pin listing-result contract (valid tasks + catalog diagnostics; no synthetic rows; no auto-repair)
+- [ ] Wave 1A (smarter): R2-04 resilient catalog enumeration + diagnostics; R2-11 `save()` under `.catalog.lock`; GUI/CLI consumer updates
+- [ ] Wave 1B (smarter): R2-07 history retention 1,000/job (init + post-append prune)
+- [ ] Wave 1C (smarter): R2-16 symlink rejection at discovery/read/import; R2-22 import-commit source re-snapshot + drift rejection
+- [ ] Wave 1D (smarter): R2-14 CLI error matrix (exit 1 vs 2, messages, no tracebacks); R2-20 `HistoryTableModel.header()` bounds
+- [ ] Integration + full gate + v0.0.49 closeout (commit + push)
+
+### Slice 3 — GUI Responsiveness And Presentation (v0.0.50) — R2-03,08,18,19,21,23
+- [ ] Wave 0 (build): pin async-read contracts (discovery generation, coalesced refresh, log-truncation DTO, raw-read DTO) + shared pure formatting helpers
+- [ ] Wave 1A (smarter): R2-03 async `DiscoveryWorker` + controller state + MainWindow.refresh() + coalescing + close-drain registration
+- [ ] Wave 1B (smarter): R2-08 256 KiB log tail (GUI+CLI markers) + worker-backed reads; R2-23 async raw-editor loading state
+- [ ] Wave 1C (smarter): R2-18 `QSignalBlocker` draft load; R2-19 shared formatting adoption; R2-21 filter dimension/search cache
+- [ ] Integration + full gate + v0.0.50 closeout (commit + push)
+
+### Final
+- [ ] Cross-slice composition verification (import orders, full suite, ratio) + closeout summary
+
 ## Filesystem Safety, Packaging Portability, and Editor Debounce (DONE — v0.0.47)
 
 Approved scope from `docs/code-review-findings.md`: CR-08, CR-09, CR-12, CR-16, CR-17, CR-21.
