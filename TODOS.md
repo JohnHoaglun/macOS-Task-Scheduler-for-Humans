@@ -1,4 +1,10 @@
-# TODOS.md (v0.0.51)
+# TODOS.md (v0.0.52)
+
+## Main-List Name Fix — Installed Tasks Keep Showing Their Name (DONE — v0.0.52)
+
+- [x] `format_name` (`gui/presenters/agent_presenter.py`) prefers the catalog job's human name over the deployed parse's label-derived name, so an installed task keeps showing its name in the main list and inspector instead of the long launchd label; external (non-managed) plists still fall back to the label
+- [x] Added `TestFormatName` coverage (installed-managed uses the catalog name; external uses the parsed name)
+- [x] Full gate + v0.0.52 closeout: `make check` green (ruff, mypy strict, 758 tests, 100% coverage); test/source ratio 74.9665% (11,194 : 14,932, ≤75%); version 0.0.51 → 0.0.52 (all 4 registry locations)
 
 ## Gaps A & B — Interpreter Autofill + Saved Direct-Test Report (DONE — v0.0.51)
 

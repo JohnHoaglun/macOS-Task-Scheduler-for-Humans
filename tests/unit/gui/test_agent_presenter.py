@@ -12,6 +12,7 @@ from task_scheduler.gui.presenters.agent_presenter import (
     enabled_state,
     format_enabled,
     format_lifecycle_state,
+    format_name,
     format_schedule,
     format_state,
     format_upcoming_heading,
@@ -109,6 +110,17 @@ class TestFormatState:
         job = make_job(enabled=False)
         listing = _discovered(_parsed(job=job), managed=True, job=job)
         assert format_state(listing) == "Installed, configured disabled"
+
+
+class TestFormatName:
+    def test_installed_managed_uses_catalog_name(self) -> None:
+        catalog = make_job(name="My Task")
+        parsed = _parsed(job=make_job(name="com.example.my-task-abc123"))
+        assert format_name(_discovered(parsed, managed=True, job=catalog)) == "My Task"
+
+    def test_external_uses_parsed_name(self) -> None:
+        parse = _parsed(job=make_job(name="com.example.x"))
+        assert format_name(_discovered(parse)) == "com.example.x"
 
 
 class TestFormatLifecycleState:

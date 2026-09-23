@@ -106,7 +106,12 @@ def classify(listing: TaskListing) -> AgentClassification:
 
 
 def format_name(listing: TaskListing) -> str:
-    """Display name: the job name when available, else the plist file stem."""
+    """Display name: the catalog job's name when present (the deployed plist
+    stores only the launchd Label, so a parsed job's name is the label itself),
+    else the parsed job name, else the plist file stem.
+    """
+    if listing.job is not None:
+        return listing.job.name
     job = _job_of(listing)
     if job is not None:
         return job.name

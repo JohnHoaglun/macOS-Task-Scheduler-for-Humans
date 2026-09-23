@@ -2,6 +2,10 @@
 
 ## Changelog
 
+### v0.0.52
+- Fixed the main task list and the task inspector showing the derived launchd **label** (the long `com...`/`io.github...` string) instead of the task **name** after a task is installed. The deployed plist stores only the `Label` key, so the parsed job's `name` is the label itself, and the discovery presenter preferred the deployed parse over the catalog job. `format_name` (`gui/presenters/agent_presenter.py`) now prefers the catalog job's human name when present (the catalog is the source of truth for a managed job's name), falling back to the parsed job name and then the plist file stem; external (non-managed) plists still display the label.
+- Verification: `make check` passed with ruff, mypy strict, 758 tests, 100% whole-suite coverage, and test/source ratio 74.9665% (11,194 test : 14,932 src, under the 75% cap); version 0.0.51 → 0.0.52 in all registry locations.
+
 ### v0.0.51
 - Gap A — recommended-interpreter autofill in the job editor: `default_interpreter_candidate()` (`platform/macos/python_detection.py`) anchors on the project venv, else falls back to the first candidate that is not the app's own interpreter (else none); when a job's selected interpreter is not among its detected candidates the editor auto-fills it and explains the change, and `interpreter_warning()` (`gui/presenters/diagnostics_presenter.py`) warns when the chosen interpreter shares the app's own venv `bin` directory.
 - Gap B — direct-test reports are now saved to disk: `direct_test_report_path()` resolves the report path beside the job's stdout (else stderr) log, `TestOutcome.saved_to` carries the written path, `DiagnosticsController.execute()` writes the rendered report on success and returns `None` when it cannot be written (a save never fails the test), and the diagnostics log panel appends a "Result saved to: ..." line.
