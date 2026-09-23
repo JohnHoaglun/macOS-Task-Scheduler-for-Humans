@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable
 from datetime import datetime
 from datetime import time as Time
@@ -57,11 +58,12 @@ from task_scheduler.gui.presenters.agent_presenter import (
 from task_scheduler.gui.presenters.diagnostics_presenter import (
     format_detection_notes,
     format_python_candidate,
+    interpreter_warning,
 )
 from task_scheduler.gui.widgets.direct_test_dialog import DirectTestDialog
 from task_scheduler.gui.widgets.row_table import RowTable
 from task_scheduler.gui.widgets.time_row_editor import TimeRowEditor
-from task_scheduler.platform.macos import ExternalEditField
+from task_scheduler.platform.macos import ExternalEditField, default_interpreter_candidate
 
 __all__ = ["JobEditor"]
 
@@ -120,6 +122,7 @@ class JobEditor(QDialog):
         self._dirty_fields: frozenset[ExternalEditField] = frozenset()
         self._external_mode = False
         self._working_dir_hint: Path | None = None
+        self._app_interpreter = Path(sys.executable)
         self._detection_timer = QTimer(self)
         self._detection_timer.setSingleShot(True)
         self._detection_timer.setInterval(detection_debounce_ms)
@@ -180,6 +183,7 @@ class JobEditor(QDialog):
         self._script.textEdited.connect(self._on_draft_changed)
         self._script.textChanged.connect(self._on_script_changed)
         self._use_candidate.clicked.connect(self._on_use_candidate)
+        self._interpreter.textChanged.connect(self._update_interpreter_warning)
         for checkbox in self._weekdays:
             checkbox.toggled.connect(self._on_draft_changed)
         self._schedule_kind_combo.currentIndexChanged.connect(self._on_schedule_kind_changed)
@@ -255,6 +259,11 @@ class JobEditor(QDialog):
         self._detection_note.setWordWrap(True)
         self._detection_note.setText("Select a script to detect its interpreter.")
         python_form.addRow(self._detection_note)
+        self._interpreter_warning = QLabel(python_page)
+        self._interpreter_warning.setObjectName("editor-interpreter-warning")
+        self._interpreter_warning.setWordWrap(True)
+        self._interpreter_warning.hide()
+        python_form.addRow(self._interpreter_warning)
         self._stack.addWidget(python_page)
         shell_page = QWidget(self._stack)
         shell_form = QFormLayout(shell_page)
@@ -310,10 +319,15 @@ class JobEditor(QDialog):
             self._candidates.addItem(format_python_candidate(candidate), candidate.path)
         self._use_candidate.setEnabled(self._candidates.count() > 0)
         if result.candidates:
-            if not self._external_mode and not self._interpreter.text().strip():
-                self._candidates.setCurrentIndex(0)
+            chosen = default_interpreter_candidate(result)
+            if (
+                chosen is not None
+                and not self._external_mode
+                and not self._interpreter.text().strip()
+            ):
+                self._candidates.setCurrentIndex(self._candidates.findData(chosen.path))
                 self._on_use_candidate()
-                note = "The top candidate was filled; you can change it or choose another."
+                note = "The recommended interpreter was filled; change it or pick another."
             else:
                 note = "Choose a candidate or type an interpreter path above."
         else:
@@ -328,6 +342,15 @@ class JobEditor(QDialog):
         self._interpreter.setText(str(self._candidates.currentData()))
         if self._working_dir_hint is not None and not self._working_directory.text().strip():
             self._working_directory.setText(str(self._working_dir_hint))
+
+    def _update_interpreter_warning(self, *_: object) -> None:
+        """Show a warning when the interpreter is the app's own virtualenv."""
+        warning = interpreter_warning(self._interpreter.text(), self._app_interpreter)
+        if warning is None:
+            self._interpreter_warning.hide()
+            return
+        self._interpreter_warning.setText(warning)
+        self._interpreter_warning.show()
 
     def _on_draft_changed(self, *_: object) -> None:
         """Enable Save once any draft field has been edited and refresh the preview."""
@@ -723,6 +746,7 @@ class JobEditor(QDialog):
             self._errors.clear()
             self._save_button.setEnabled(True)
             self._refresh_schedule_preview()
+            self._update_interpreter_warning()
         finally:
             del blockers
 

@@ -1,4 +1,11 @@
-# TODOS.md (v0.0.50)
+# TODOS.md (v0.0.51)
+
+## Gaps A & B — Interpreter Autofill + Saved Direct-Test Report (DONE — v0.0.51)
+
+- [x] Gap A — `default_interpreter_candidate()` (project venv, else first non-app candidate, else none) auto-fills the job editor's interpreter field when the selected interpreter is not a detected candidate; `interpreter_warning()` warns when the chosen interpreter shares the app's own venv `bin` directory
+- [x] Gap B — `direct_test_report_path()` (beside the job's stdout, else stderr log) + `TestOutcome.saved_to` + `DiagnosticsController.execute()` writes the rendered report on success (`None` when it cannot be written) + log-panel "Result saved to: ..." line
+- [x] Ratio-trim closeout to hold the 75% cap (multi-line constructor/assert collapse in the diagnostics presenter + controller tests)
+- [x] Full gate + v0.0.51 closeout: `make check` green (ruff, mypy strict, 756 tests, 100% coverage); test/source ratio 74.9112% (11,182 : 14,927, ≤75%); version 0.0.50 → 0.0.51 (all 4 registry locations)
 
 ## Round-2 Review Remediation (DONE — v0.0.48 → v0.0.50)
 

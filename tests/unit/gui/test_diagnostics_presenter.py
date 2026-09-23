@@ -12,14 +12,18 @@ from task_scheduler.application.diagnostic_models import (
 )
 from task_scheduler.application.log_service import LogStream
 from task_scheduler.application.test_service import DirectTestResult
+from task_scheduler.domain import LoggingConfig
 from task_scheduler.gui.controllers.diagnostics_controller import TestOutcome
 from task_scheduler.gui.presenters.diagnostics_presenter import (
+    direct_test_report_path,
     format_diagnostics,
     format_duration,
     format_evidence,
     format_log_stream,
     format_python_detection,
     format_test_summary,
+    interpreter_warning,
+    render_direct_test,
 )
 from task_scheduler.platform.macos.log_reader import LOG_TAIL_BYTES
 from task_scheduler.platform.macos.process_runner import (
@@ -46,11 +50,8 @@ def _result(
     diagnostics: list[Diagnostic] | None = None,
 ) -> DirectTestResult:
     process = ProcessResult(
-        exit_code=exit_code,
-        stdout=stdout,
-        stderr=stderr,
-        duration=duration,
-        launch_failure=launch_failure,
+        exit_code=exit_code, stdout=stdout, stderr=stderr,
+        duration=duration, launch_failure=launch_failure,
     )
     return DirectTestResult(process=process, diagnostics=diagnostics or [])
 
@@ -58,18 +59,11 @@ def _result(
 class TestFormatTestSummary:
     def test_launch_failure_reports_message_instead_of_exit_code(self) -> None:
         failure = ProcessLaunchFailure(
-            kind=LaunchFailureKind.NOT_FOUND,
-            message="executable not found: /missing/python",
-        )
+            kind=LaunchFailureKind.NOT_FOUND, message="executable not found: /missing/python")
         outcome = TestOutcome(
-            label="job",
-            result=_result(exit_code=None, launch_failure=failure),
-            error=None,
-        )
-        assert (
-            format_test_summary(outcome)
-            == "Failed to launch in 0.25s: executable not found: /missing/python"
-        )
+            label="job", result=_result(exit_code=None, launch_failure=failure), error=None)
+        assert format_test_summary(outcome) == (
+            "Failed to launch in 0.25s: executable not found: /missing/python")
 
 
 class TestFormatDuration:
@@ -82,15 +76,11 @@ class TestFormatDiagnostics:
         assert format_diagnostics([]) == "No diagnostics."
 
     def test_one_per_finding_with_severity_and_suggestion(self) -> None:
-        diagnostics = [
-            Diagnostic(
-                severity=DiagnosticSeverity.WARNING,
-                code="env_differs",
-                title="Environment differs",
-                description="Values changed.",
-                suggested_action="Review the variables.",
-            )
-        ]
+        diagnostics = [Diagnostic(
+            severity=DiagnosticSeverity.WARNING, code="env_differs",
+            title="Environment differs", description="Values changed.",
+            suggested_action="Review the variables.",
+        )]
         text = format_diagnostics(diagnostics)
         assert "[WARNING] Environment differs" in text
         assert "Values changed." in text
@@ -100,10 +90,8 @@ class TestFormatDiagnostics:
 class TestFormatLogStream:
     def test_read_error(self) -> None:
         stream = LogStream(
-            name="stdout",
-            path=Path("/logs/stdout.log"),
-            error="log file not found: /logs/stdout.log",
-        )
+            name="stdout", path=Path("/logs/stdout.log"),
+            error="log file not found: /logs/stdout.log")
         assert format_log_stream(stream) == "Log unavailable: log file not found: /logs/stdout.log"
 
     def test_empty_content(self) -> None:
@@ -112,24 +100,16 @@ class TestFormatLogStream:
 
     def test_truncated_content_is_prefixed_with_marker(self) -> None:
         stream = LogStream(
-            name="stdout",
-            path=Path("/logs/stdout.log"),
-            content="line",
-            truncated=True,
-            total_bytes=LOG_TAIL_BYTES * 3,
-        )
+            name="stdout", path=Path("/logs/stdout.log"), content="line",
+            truncated=True, total_bytes=LOG_TAIL_BYTES * 3)
         assert format_log_stream(stream) == (
             f"(truncated: showing the last 256 KiB of {LOG_TAIL_BYTES * 3} bytes)\nline"
         )
 
     def test_untruncated_content_has_no_marker(self) -> None:
         stream = LogStream(
-            name="stdout",
-            path=Path("/logs/stdout.log"),
-            content="line",
-            truncated=False,
-            total_bytes=4,
-        )
+            name="stdout", path=Path("/logs/stdout.log"), content="line",
+            truncated=False, total_bytes=4)
         assert format_log_stream(stream) == "line"
 
 
@@ -138,12 +118,10 @@ class TestFormatPythonDetection:
         job = make_job()
         other = Path("/Users/example/project/.venv-x/bin/python")
         detection = PythonDetectionResult(
-            script=job.command.script,
-            candidates=[
+            script=job.command.script, candidates=[
                 InterpreterCandidate(path=other, source=CandidateSource.VENV),
                 InterpreterCandidate(path=Path("/usr/bin/python3"), source=CandidateSource.PATH),
-            ],
-        )
+            ])
         text = format_python_detection(job, detection)
         assert f"Recommended interpreter: {other}" in text
         assert str(job.command.interpreter) not in text
@@ -152,31 +130,20 @@ class TestFormatPythonDetection:
         job = make_job()
         other = Path("/Users/example/project/.venv/bin/python")
         detection = PythonDetectionResult(
-            script=job.command.script,
-            candidates=[
-                InterpreterCandidate(
-                    path=other,
-                    source=CandidateSource.VENV,
-                    detectors=(DetectorKind.CORE, DetectorKind.UV),
-                )
-            ],
-        )
+            script=job.command.script, candidates=[InterpreterCandidate(
+                path=other, source=CandidateSource.VENV,
+                detectors=(DetectorKind.CORE, DetectorKind.UV),
+            )])
         text = format_python_detection(job, detection)
         assert f"{other} (.venv; uv)" in text
 
     def test_notes_without_candidates(self) -> None:
         job = make_job()
         detection = PythonDetectionResult(
-            script=job.command.script,
-            candidates=[],
-            notes=[
-                DetectionNote(
-                    detector=DetectorKind.UV,
-                    message="a uv project was detected, but no usable "
-                    ".venv interpreter is available",
-                )
-            ],
-        )
+            script=job.command.script, candidates=[], notes=[DetectionNote(
+                detector=DetectorKind.UV, message="a uv project was detected, "
+                "but no usable .venv interpreter is available",
+            )])
         assert format_python_detection(job, detection) == (
             "No candidate interpreters detected.\n\n"
             "a uv project was detected, but no usable .venv interpreter is available"
@@ -188,3 +155,50 @@ class TestFormatEvidence:
         assert format_evidence(EvidenceState.CONFIRMED) == "(evidence: confirmed)"
         assert format_evidence(EvidenceState.NOT_PROVABLE) == "(evidence: not provable)"
         assert format_evidence(EvidenceState.UNAVAILABLE) == "(evidence: unavailable)"
+
+
+class TestRenderDirectTest:
+    def test_exit_code_streams_and_diagnostics(self) -> None:
+        text = render_direct_test(_result(exit_code=0, stdout="line1\nline2", stderr="boom"))
+        assert "exit code: 0" in text and "duration:" in text
+        assert "line1" in text and "line2" in text and "boom" in text
+        assert "No diagnostics." in text
+        assert render_direct_test(_result(exit_code=1, stdout="", stderr="")).count("(empty)") >= 2
+
+    def test_launch_failure_replaces_exit_code(self) -> None:
+        failure = ProcessLaunchFailure(
+            kind=LaunchFailureKind.NOT_FOUND, message="executable not found: /missing/python"
+        )
+        text = render_direct_test(_result(exit_code=None, launch_failure=failure))
+        assert "launch failed" in text and "executable not found: /missing/python" in text
+        assert "exit code:" not in text
+
+
+class TestInterpreterWarning:
+    def test_blank_and_other_interpreters_have_no_warning(self) -> None:
+        app = Path("/Users/john/app/.venv/bin/python3.14")
+        assert interpreter_warning("", app) is None
+        assert interpreter_warning("   ", app) is None
+        assert interpreter_warning("/Users/john/proj/.venv/bin/python", app) is None
+
+    def test_same_venv_as_app_warns(self) -> None:
+        app = Path("/Users/john/app/.venv/bin/python3.14")
+        assert "runs under" in interpreter_warning("/Users/john/app/.venv/bin/python", app)
+
+
+class TestDirectTestReportPath:
+    def test_prefers_stdout_log_directory(self) -> None:
+        job = make_job(name="daily-backup", logging=LoggingConfig(
+            stdout_path=Path("/logs/daily/stdout.log"), stderr_path=Path("/logs/other/stderr.log"),
+        ))
+        assert direct_test_report_path(job) == Path("/logs/daily/daily-backup.direct-test.log")
+
+    def test_falls_back_to_stderr_log_directory(self) -> None:
+        job = make_job(
+            name="daily-backup",
+            logging=LoggingConfig(stdout_path=None, stderr_path=Path("/logs/other/stderr.log")),
+        )
+        assert direct_test_report_path(job) == Path("/logs/other/daily-backup.direct-test.log")
+
+    def test_no_log_paths_means_no_save(self) -> None:
+        assert direct_test_report_path(make_job()) is None

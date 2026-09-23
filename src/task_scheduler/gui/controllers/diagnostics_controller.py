@@ -46,13 +46,16 @@ class TestOutcome:
     discard stale results after the selection changed. ``result`` is the
     service's structured result; ``error`` is the failure reason for
     exceptions; ``detection`` is the interpreter detection the test was
-    run with (``None`` for non-Python commands or failed starts).
+    run with (``None`` for non-Python commands or failed starts);
+    ``saved_to`` is the path the full report was written to (``None`` when
+    the job has no configured log directory or the write failed).
     """
 
     label: str
     result: DirectTestResult | None
     error: str | None
     detection: PythonDetectionResult | None = None
+    saved_to: str | None = None
 
     @property
     def is_success(self) -> bool:
@@ -138,7 +141,36 @@ class DiagnosticsController:
             result = self._services.test_job(job, detection=detection)
         except Exception as exc:
             return TestOutcome(label=job.label, result=None, error=str(exc))
-        return TestOutcome(label=job.label, result=result, error=None, detection=detection)
+        return TestOutcome(
+            label=job.label,
+            result=result,
+            error=None,
+            detection=detection,
+            saved_to=self._save_report(job, result),
+        )
+
+    def _save_report(self, job: JobDefinition, result: DirectTestResult) -> str | None:
+        """Write the full direct-test report beside the job's configured logs.
+
+        Returns the written path, or ``None`` when the job has no configured
+        log directory or the write fails (a save must never fail the test).
+        The presenter import is local to break the presenter->controller
+        cycle (the presenter imports :class:`TestOutcome` from here).
+        """
+        from task_scheduler.gui.presenters.diagnostics_presenter import (
+            direct_test_report_path,
+            render_direct_test,
+        )
+
+        path = direct_test_report_path(job)
+        if path is None:
+            return None
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(render_direct_test(result), encoding="utf-8")
+        except OSError:
+            return None
+        return str(path)
 
     def finish(self) -> None:
         """Clear the busy state; called by the worker after ``execute()``."""

@@ -189,7 +189,10 @@ class DiagnosticLogsPanel(QWidget):
     def show_test_outcome(self, job: JobDefinition, outcome: TestOutcome) -> None:
         """Render the summary, diagnostics, direct-output tabs, and detection."""
         self._expand()
-        self._summary.setText(format_test_summary(outcome))
+        summary = format_test_summary(outcome)
+        if outcome.saved_to is not None:
+            summary += f"\nResult saved to: {outcome.saved_to}"
+        self._summary.setText(summary)
         if outcome.result is not None:
             self._diagnostics_text.setPlainText(format_report(outcome.result.report))
             self._direct_stdout.setPlainText(outcome.result.process.stdout)

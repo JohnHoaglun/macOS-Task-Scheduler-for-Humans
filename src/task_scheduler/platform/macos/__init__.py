@@ -73,6 +73,7 @@ from task_scheduler.platform.macos.python_detection import (
     PythonDetectorFilesystem,
     PythonEnvironmentDetector,
     compare_environments,
+    default_interpreter_candidate,
     detect_python,
     project_environment_candidate,
 )
@@ -131,6 +132,7 @@ __all__ = [
     "SourceChangedError",
     "SourceSnapshot",
     "compare_environments",
+    "default_interpreter_candidate",
     "default_launch_agents_root",
     "default_python_detectors",
     "detect_python",

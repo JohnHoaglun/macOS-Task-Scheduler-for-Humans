@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import timedelta
+from pathlib import Path
 
 from task_scheduler.application.diagnostic_models import (
     Diagnostic,
@@ -17,6 +18,7 @@ from task_scheduler.application.diagnostic_models import (
     EvidenceState,
 )
 from task_scheduler.application.log_service import LogStream
+from task_scheduler.application.test_service import DirectTestResult
 from task_scheduler.domain import JobDefinition, PythonCommand
 from task_scheduler.domain.formatting import format_truncation_marker
 from task_scheduler.gui.controllers.diagnostics_controller import TestOutcome
@@ -47,6 +49,9 @@ __all__ = [
     "format_python_detection",
     "format_report",
     "format_test_summary",
+    "direct_test_report_path",
+    "interpreter_warning",
+    "render_direct_test",
 ]
 
 SOURCE_TITLES: dict[DiagnosticSource, str] = {
@@ -93,6 +98,32 @@ def format_test_summary(outcome: TestOutcome) -> str:
         return f"Failed to launch{duration}: {detail}"
     state = "Passed" if process.exit_code == 0 else "Failed"
     return f"{state} (exit code {process.exit_code}){duration}"
+
+
+def _block(text: str) -> list[str]:
+    """Render an output stream, marking empty content explicitly."""
+    return text.splitlines() if text else ["(empty)"]
+
+
+def render_direct_test(result: DirectTestResult) -> str:
+    """The full direct-test report: exit code (or launch failure), duration,
+    stdout, stderr, and diagnostics — the artifact saved to disk and shown in
+    the dialog.
+    """
+    process = result.process
+    if process.launch_failure is not None:
+        failure = process.launch_failure
+        lines: list[str] = [f"launch failed ({failure.kind.value}): {failure.message}"]
+    else:
+        lines = [f"exit code: {process.exit_code}"]
+    lines.append(f"duration: {format_duration(process.duration)}")
+    lines.append("stdout:")
+    lines.extend(_block(process.stdout))
+    lines.append("stderr:")
+    lines.extend(_block(process.stderr))
+    lines.append("diagnostics:")
+    lines.extend(_block(format_diagnostics(result.diagnostics)))
+    return "\n".join(lines)
 
 
 def format_duration(duration: timedelta) -> str:
@@ -239,3 +270,36 @@ def format_python_detection(job: JobDefinition, detection: PythonDetectionResult
         lines.append("")
         lines.append(notes)
     return "\n".join(lines)
+
+
+def interpreter_warning(interpreter_text: str, app_interpreter: Path) -> str | None:
+    """Warn when the chosen interpreter lives in the app's own venv.
+
+    The GUI runs from its own virtualenv, which has the app's dependencies but
+    not the user's project's. Picking that interpreter (same ``bin`` directory
+    as the app's Python) usually means a missing-package failure. Blank or any
+    other interpreter yields ``None``.
+    """
+    text = interpreter_text.strip()
+    if not text:
+        return None
+    if Path(text).parent == app_interpreter.parent:
+        return (
+            "This is the Python this app runs under; it may lack your script's "
+            "dependencies. Pick your project's interpreter instead."
+        )
+    return None
+
+
+def direct_test_report_path(job: JobDefinition) -> Path | None:
+    """Where a direct-test report is saved: beside the job's configured logs.
+
+    Uses the parent of the job's stdout (else stderr) log path — the log
+    directory the user chose in the editor. ``None`` when the job has no
+    configured log directory, so nothing is written by default.
+    """
+    base = job.logging.stdout_path or job.logging.stderr_path
+    if base is None:
+        return None
+    name = job.name.strip() or "task"
+    return base.parent / f"{name}.direct-test.log"

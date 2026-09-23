@@ -2,6 +2,12 @@
 
 ## Changelog
 
+### v0.0.51
+- Gap A — recommended-interpreter autofill in the job editor: `default_interpreter_candidate()` (`platform/macos/python_detection.py`) anchors on the project venv, else falls back to the first candidate that is not the app's own interpreter (else none); when a job's selected interpreter is not among its detected candidates the editor auto-fills it and explains the change, and `interpreter_warning()` (`gui/presenters/diagnostics_presenter.py`) warns when the chosen interpreter shares the app's own venv `bin` directory.
+- Gap B — direct-test reports are now saved to disk: `direct_test_report_path()` resolves the report path beside the job's stdout (else stderr) log, `TestOutcome.saved_to` carries the written path, `DiagnosticsController.execute()` writes the rendered report on success and returns `None` when it cannot be written (a save never fails the test), and the diagnostics log panel appends a "Result saved to: ..." line.
+- Test/coverage closeout: added coverage for the candidate autofill, the interpreter warning, the saved-report path/outcome, and the report save; the suite was trimmed with no coverage or unique-assertion loss (multi-line constructor/assert collapse in the diagnostics presenter + controller tests) to hold the 75% ratio cap.
+- Verification: `make check` passed with ruff, mypy strict, 756 tests, 100% whole-suite coverage (7,808 statements), and test/source ratio 74.9112% (11,182 test : 14,927 src, under the 75% cap); version 0.0.50 → 0.0.51 in all registry locations.
+
 ### v0.0.50
 - Round-2 code-review remediation, slice 3 (GUI responsiveness and presentation): R2-03, R2-08, R2-18, R2-19, R2-21, and R2-23 from `docs/code-review-round-2.md` are resolved.
 - R2-03 — catalog discovery no longer blocks the GUI thread: `DiscoveryController.refresh()` now dispatches a parentless `DiscoveryWorker` (`gui/controllers/discovery_worker.py`) that runs the per-agent `launchctl` loaded-status fan-out off-thread and returns a typed result; `MainWindow.refresh()` coalesces rapid triggers into a single in-flight refresh (a pending refresh is queued, never stacked) and registers the worker thread with the window's close drain so shutdown can never free a live discovery thread.

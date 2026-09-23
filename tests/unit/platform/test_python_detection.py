@@ -10,9 +10,11 @@ from tests.fakes import EMPTY_DETECTION_ROOTS, FakePythonDetectorFilesystem, det
 from task_scheduler.platform.macos import (
     CandidateSource,
     DetectorKind,
+    InterpreterCandidate,
     LocalPythonDetectorFilesystem,
     PythonDetectionResult,
     PythonDetectionRoots,
+    default_interpreter_candidate,
     detect_python,
 )
 from task_scheduler.platform.macos.python_detectors import (
@@ -202,3 +204,26 @@ class TestPipenvDetector:
         fs = FakePythonDetectorFilesystem(files=files, executable=set())
         context = detect_context(tmp_path / "job.py", fs, EMPTY_DETECTION_ROOTS)
         assert [n.message for n in PipenvPythonDetector().detect(context).notes] == [PIPENV_NO_VENV]
+
+
+class TestDefaultInterpreterCandidate:
+    def _result(self, *candidates: InterpreterCandidate) -> PythonDetectionResult:
+        return PythonDetectionResult(script=Path("/p/job.py"), candidates=list(candidates))
+
+    def _cand(self, path: str, source: CandidateSource) -> InterpreterCandidate:
+        return InterpreterCandidate(path=Path(path), source=source)
+
+    def test_project_venv_is_preferred(self) -> None:
+        venv = self._cand("/p/.venv/bin/python", CandidateSource.VENV)
+        homebrew = self._cand("/opt/homebrew/bin/python3", CandidateSource.PATH)
+        assert default_interpreter_candidate(self._result(venv, homebrew)) is venv
+
+    def test_first_non_app_candidate_is_recommended(self) -> None:
+        current = self._cand("/app/.venv/bin/python3.14", CandidateSource.CURRENT)
+        homebrew = self._cand("/opt/homebrew/bin/python3", CandidateSource.PATH)
+        assert default_interpreter_candidate(self._result(current, homebrew)) is homebrew
+
+    def test_only_app_or_empty_yields_none(self) -> None:
+        current = self._cand("/app/.venv/bin/python3.14", CandidateSource.CURRENT)
+        assert default_interpreter_candidate(self._result(current)) is None
+        assert default_interpreter_candidate(self._result()) is None

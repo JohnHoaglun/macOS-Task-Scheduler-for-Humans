@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
@@ -125,6 +126,10 @@ def fake_detection(
     editor._controller.detect_python = lambda script: _detection_result(
         str(script), candidates, working_directory, notes
     )
+
+
+def _cand(path: str, source: CandidateSource) -> InterpreterCandidate:
+    return InterpreterCandidate(path=Path(path), source=source)
 
 
 def errors(editor: JobEditor) -> QPlainTextEdit:
@@ -322,6 +327,31 @@ class TestPythonDetection:
         button(editor, "editor-use-candidate").click()
         assert line_edit(editor, "editor-interpreter").text() == "/usr/bin/python3"
         assert line_edit(editor, "editor-working-directory").text() == "/tmp/proj"
+
+    def test_recommended_candidate_autofills_when_top_is_the_app_python(
+        self, qtbot: QtBot, tmp_path: Path
+    ) -> None:
+        _, editor, _ = make_editor(qtbot, tmp_path)
+        fake_detection(
+            editor,
+            [_cand("/app/.venv/bin/python3.14", CandidateSource.CURRENT),
+             _cand("/opt/homebrew/bin/python3", CandidateSource.PATH)],
+            working_directory=Path("/opt/homebrew"),
+        )
+        editor.findChild(QLineEdit, "editor-script").setText("/tmp/proj/main.py")
+        qtbot.wait(50)
+        assert line_edit(editor, "editor-interpreter").text() == "/opt/homebrew/bin/python3"
+        note = editor.findChild(QLabel, "editor-detection-note")
+        assert note is not None and "filled" in note.text()
+
+    def test_interpreter_warning_shows_for_app_venv(self, qtbot: QtBot, tmp_path: Path) -> None:
+        _, editor, _ = make_editor(qtbot, tmp_path)
+        warning = editor.findChild(QLabel, "editor-interpreter-warning")
+        assert warning is not None and not warning.isVisible()
+        line_edit(editor, "editor-interpreter").setText(str(Path(sys.executable).parent / "python"))
+        assert warning.isVisible() and "runs under" in warning.text()
+        line_edit(editor, "editor-interpreter").setText("/tmp/other/bin/python")
+        assert not warning.isVisible()
 
     def test_no_candidates_with_notes_appends_to_base_note(
         self, qtbot: QtBot, tmp_path: Path) -> None:

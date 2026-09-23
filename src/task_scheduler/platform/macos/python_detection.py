@@ -219,6 +219,29 @@ def project_environment_candidate(
     )
 
 
+def default_interpreter_candidate(
+    detection: PythonDetectionResult,
+) -> InterpreterCandidate | None:
+    """The interpreter to auto-fill: the project venv, else the first non-app candidate.
+
+    Anchors on the project venv when one exists. With no project venv, prefers
+    the first candidate that is not the app's own interpreter (e.g. the
+    Homebrew ``python3`` found on ``PATH``); the app's own interpreter is never
+    a useful default. ``None`` when nothing qualifies.
+    """
+    anchored = project_environment_candidate(detection)
+    if anchored is not None:
+        return anchored
+    return next(
+        (
+            candidate
+            for candidate in detection.candidates
+            if candidate.source is not CandidateSource.CURRENT
+        ),
+        None,
+    )
+
+
 def detect_python(
     script: Path,
     *,
