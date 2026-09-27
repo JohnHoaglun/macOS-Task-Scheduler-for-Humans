@@ -12,7 +12,9 @@ from pathlib import Path
 
 from task_scheduler.platform.macos.diagnostic_probes import (
     ArchitectureFinding,
+    InterpreterForwardingFinding,
     probe_executable_architecture,
+    probe_interpreter_forwarding,
     probe_protected_paths,
 )
 
@@ -96,3 +98,29 @@ class TestProbeExecutableArchitecture:
     def test_non_macho_silent(self, tmp_path: Path) -> None:
         executable = _write(tmp_path, b"\x7fELF\x02\x01\x01\x00")
         assert probe_executable_architecture(executable, machine="arm64") is None
+
+
+class TestProbeInterpreterForwarding:
+    def test_default_args_non_shim_returns_none(self) -> None:
+        assert probe_interpreter_forwarding(Path("/tmp/foo/tool")) is None
+
+    def test_shim_resolves_real_binary(self, tmp_path: Path) -> None:
+        shim_dir = tmp_path / "usr" / "bin"
+        dev_dir = tmp_path / "Xcode.app" / "Contents" / "Developer"
+        real = dev_dir / "usr" / "bin" / "python3"
+        real.parent.mkdir(parents=True)
+        real.touch()
+        finding = probe_interpreter_forwarding(
+            shim_dir / "python3", shim_dir=shim_dir, dev_dirs=[dev_dir]
+        )
+        assert finding == InterpreterForwardingFinding(shim=shim_dir / "python3", real=real)
+
+    def test_shim_no_tool_returns_none(self, tmp_path: Path) -> None:
+        dev_dir = tmp_path / "dev"
+        dev_dir.mkdir()
+        result = probe_interpreter_forwarding(
+            tmp_path / "usr" / "bin" / "python3",
+            shim_dir=tmp_path / "usr" / "bin",
+            dev_dirs=[dev_dir],
+        )
+        assert result is None

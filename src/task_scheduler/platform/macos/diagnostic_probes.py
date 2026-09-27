@@ -1,8 +1,10 @@
 """Best-effort, pure, local-only diagnostic probes.
 
-Probes inspect the local machine without invoking subprocesses, resolving
-symlinks, or writing anything. They never raise — instead they return
-None or empty containers when a probe cannot complete.
+Probes inspect the local machine without invoking subprocesses or writing
+anything. Protected-path matching is lexical and never resolves symlinks;
+the interpreter-forwarding probe performs one stat per candidate path.
+Probes never raise — they return None or empty containers when a probe
+cannot complete.
 """
 
 from __future__ import annotations
@@ -41,6 +43,22 @@ class ArchitectureFinding:
     path: Path
     declared: tuple[int, ...]
     host: int
+
+
+@dataclass(frozen=True, slots=True)
+class InterpreterForwardingFinding:
+    """A /usr/bin system tool shim and the real binary it re-execs."""
+
+    shim: Path
+    real: Path
+
+
+# Developer directories a /usr/bin tool shim may forward to, checked in
+# xcode-select fallback order (full Xcode first, then Command Line Tools).
+_KNOWN_DEV_DIRS: tuple[Path, ...] = (
+    Path("/Applications/Xcode.app/Contents/Developer"),
+    Path("/Library/Developer/CommandLineTools"),
+)
 
 
 _HOST_CPU: dict[str, int] = {
@@ -87,6 +105,39 @@ def probe_protected_paths(
             break
 
     return tuple(findings)
+
+
+def probe_interpreter_forwarding(
+    interpreter: Path,
+    *,
+    shim_dir: Path | None = None,
+    dev_dirs: Sequence[Path] | None = None,
+) -> InterpreterForwardingFinding | None:
+    """Identify the real binary behind a /usr/bin Apple tool shim.
+
+    Apple ships /usr/bin/<tool> as a small shim that re-execs the same tool
+    from the active developer directory (xcode-select). The shim's own
+    code-signing identity differs from the real binary, so a TCC (Full Disk
+    Access) grant recorded against the shim does not cover the real process.
+
+    Returns a finding when ``interpreter`` sits directly in ``shim_dir``
+    (default /usr/bin) and a developer directory (defaults to
+    ``_KNOWN_DEV_DIRS``) provides a same-named tool. Pure and stat-based
+    (no subprocesses); returns None for non-shims or when no developer
+    directory provides the tool.
+    """
+    if shim_dir is None:
+        shim_dir = Path("/usr/bin")
+    if dev_dirs is None:
+        dev_dirs = _KNOWN_DEV_DIRS
+    if interpreter.parent != shim_dir:
+        return None
+    name = interpreter.name
+    for dev_dir in dev_dirs:
+        candidate = dev_dir / "usr" / "bin" / name
+        if candidate.is_file():
+            return InterpreterForwardingFinding(shim=interpreter, real=candidate)
+    return None
 
 
 def probe_executable_architecture(

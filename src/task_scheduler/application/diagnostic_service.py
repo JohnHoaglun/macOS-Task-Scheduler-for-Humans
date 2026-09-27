@@ -9,6 +9,7 @@ report models and contexts live in ``diagnostic_models``.
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -32,6 +33,8 @@ from task_scheduler.domain import JobDefinition, PythonCommand
 from task_scheduler.platform.macos.diagnostic_probes import (
     ArchitectureFinding,
     ProtectedPathFinding,
+    probe_interpreter_forwarding,
+    probe_protected_paths,
 )
 from task_scheduler.platform.macos.launch_agent_store import validate_label
 from task_scheduler.platform.macos.plist_models import ParsedLaunchAgent, ParseSupport
@@ -53,6 +56,12 @@ _MODULE_FAILURE_PATTERNS: tuple[str, ...] = (
     "No module named",
     "cannot import name",
 )
+
+# EPERM (errno 1) as Python formats it in OSError messages. This is the
+# signature of a macOS privacy (TCC) denial; EACCES ("Permission denied",
+# errno 13) is a plain file-permission problem and is intentionally not
+# matched here.
+_TCC_EPERM_RE = re.compile(r"Operation not permitted:\s*['\"]([^'\"]+)['\"]")
 
 
 def _first_of[T: DiagnosticContext](
@@ -242,6 +251,56 @@ def _rule_module_not_found(process: ProcessResult | None) -> Diagnostic | None:
     )
 
 
+def _tcc_permission_error(job: JobDefinition | None, text: str | None) -> Diagnostic | None:
+    """Detect a macOS privacy (TCC) denial in process output.
+
+    Fires when the output carries EPERM ("Operation not permitted") for a
+    path under a macOS-protected location. When the job's interpreter is a
+    /usr/bin system shim, the suggested fix names the real binary the shim
+    re-execs — the shim's code-signing identity differs, so a Full Disk
+    Access grant recorded against the shim does not apply.
+    """
+    if job is None or not text:
+        return None
+    matches = list(_TCC_EPERM_RE.finditer(text))
+    if not matches:
+        return None
+    findings = probe_protected_paths([Path(m.group(1)) for m in matches])
+    if not findings:
+        return None
+
+    interpreter = _command_executable(job)
+    forwarding = probe_interpreter_forwarding(interpreter)
+    if forwarding is not None:
+        action = (
+            f"Grant Full Disk Access to {forwarding.real} — {forwarding.shim} is a "
+            "system shim that re-execs it, and a grant recorded against the shim "
+            "does not apply. Alternatively, move the data out of the protected "
+            "folder."
+        )
+    else:
+        action = (
+            f"Grant Full Disk Access to {interpreter}, or move the data out of the "
+            "protected folder."
+        )
+
+    first = findings[0]
+    extra = f" (+{len(findings) - 1} more)" if len(findings) > 1 else ""
+    return Diagnostic(
+        severity=DiagnosticSeverity.ERROR,
+        code="tcc_denied",
+        title="macOS privacy (TCC) blocked file access",
+        description=(
+            f"The output shows macOS denied access to {first.path} under "
+            f"{first.root}{extra}. This is a privacy (TCC) block, not a plain "
+            "file-permission error, and it only surfaces for launchd-run jobs "
+            "because they cannot prompt the user."
+        ),
+        suggested_action=action,
+        evidence_state=EvidenceState.CONFIRMED,
+    )
+
+
 def _rule_protected_path(
     findings: tuple[ProtectedPathFinding, ...],
 ) -> tuple[Diagnostic, ...]:
@@ -387,6 +446,7 @@ def _evaluate_direct_test(context: DirectTestContext) -> tuple[Diagnostic, ...]:
         None if static is not None else runtime,
         _rule_executable_not_found_runtime(context.job, context.process),
         _rule_module_not_found(context.process),
+        _tcc_permission_error(context.job, context.process.stderr),
     )
     return tuple(d for d in candidates if d is not None)
 
@@ -402,7 +462,15 @@ def _evaluate_lifecycle(context: LifecycleContext) -> tuple[Diagnostic, ...]:
 
 
 def _evaluate_logs(context: LogContext) -> tuple[Diagnostic, ...]:
-    return _rule_log_path_unreadable(context.logs)
+    diagnostics = list(_rule_log_path_unreadable(context.logs))
+    content = "\n".join(
+        stream.content for stream in (context.logs.stdout, context.logs.stderr)
+        if stream.content is not None
+    )
+    tcc = _tcc_permission_error(context.job, content or None)
+    if tcc is not None:
+        diagnostics.append(tcc)
+    return tuple(diagnostics)
 
 
 def _evaluate_plist(context: InspectionContext) -> tuple[Diagnostic, ...]:
@@ -427,6 +495,8 @@ def evaluate_diagnostics(
     imported command inputs. ``permission_denied`` fires once for a static
     or runtime failure; ``executable_not_found_runtime`` follows on a
     not-found launch failure when the executable exists on disk.
+    ``tcc_denied`` fires when process output shows a privacy (TCC) denial
+    for a protected path.
     """
     permission = _rule_permission_denied_static(job) or _rule_permission_denied_runtime(process)
     rules = (
@@ -438,6 +508,7 @@ def evaluate_diagnostics(
         _rule_relative_executable(spec_argv0),
         _rule_interpreter_mismatch(job, detection),
         _rule_module_not_found(process),
+        _tcc_permission_error(job, process.stderr if process is not None else None),
     )
     return [diagnostic for diagnostic in rules if diagnostic is not None]
 
