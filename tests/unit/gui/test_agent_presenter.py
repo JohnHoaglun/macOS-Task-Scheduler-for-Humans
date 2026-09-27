@@ -21,12 +21,10 @@ from task_scheduler.platform.macos import ParsedLaunchAgent, ParseSupport
 
 AGENT_PATH = Path("/Users/example/Library/LaunchAgents/com.example.plist")
 
-
 def _parsed(**overrides: object) -> ParsedLaunchAgent:
     kwargs: dict[str, object] = {"status": ParseSupport.SUPPORTED}
     kwargs.update(overrides)
     return ParsedLaunchAgent(**kwargs)  # type: ignore[arg-type]
-
 
 def _discovered(
     parsed: ParsedLaunchAgent,
@@ -42,10 +40,8 @@ def _discovered(
         managed=managed,
     )
 
-
 def _saved(job: JobDefinition) -> TaskListing:
     return TaskListing(kind=ListingKind.SAVED, path=None, parsed=None, job=job, managed=True)
-
 
 class TestFormatSchedule:
     def test_interval_with_run_at_load(self) -> None:
@@ -70,7 +66,6 @@ class TestFormatSchedule:
     def test_invalid_parse_remains_dash(self) -> None:
         assert format_schedule(_discovered(_parsed(status=ParseSupport.INVALID))) == "—"
 
-
 class TestEnabledState:
     def test_parsed_job_flag_wins_over_raw(self) -> None:
         job = make_job()  # enabled=True, while raw says disabled
@@ -83,7 +78,6 @@ class TestEnabledState:
     def test_invalid_status_is_unknown(self) -> None:
         parsed = _parsed(status=ParseSupport.INVALID, raw={"Disabled": True})
         assert enabled_state(_discovered(parsed)) == "unknown"
-
 
 class TestFormatState:
     def test_missing_parse_is_unknown(self) -> None:
@@ -111,7 +105,6 @@ class TestFormatState:
         listing = _discovered(_parsed(job=job), managed=True, job=job)
         assert format_state(listing) == "Installed, configured disabled"
 
-
 class TestFormatName:
     def test_installed_managed_uses_catalog_name(self) -> None:
         catalog = make_job(name="My Task")
@@ -121,7 +114,6 @@ class TestFormatName:
     def test_external_uses_parsed_name(self) -> None:
         parse = _parsed(job=make_job(name="com.example.x"))
         assert format_name(_discovered(parse)) == "com.example.x"
-
 
 class TestFormatLifecycleState:
     def test_configured_enabled_loaded(self) -> None:
@@ -134,7 +126,6 @@ class TestFormatLifecycleState:
     def test_unknown_enabled(self) -> None:
         assert format_lifecycle_state("unknown", True) == "Status unknown"
 
-
 class TestFormatEnabled:
     def test_external_disabled_key(self) -> None:
         parsed = _parsed(
@@ -142,7 +133,6 @@ class TestFormatEnabled:
             raw={"Label": "com.example.x", "Disabled": True},
         )
         assert format_enabled(_discovered(parsed)) == "disabled"
-
 
 class TestPreviewWording:
     """Increment 15: the next-run preview wording is pinned by the spec."""

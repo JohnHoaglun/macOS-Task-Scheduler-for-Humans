@@ -1,8 +1,5 @@
-"""Unit tests for LaunchAgentStore (Increment 6).
-
-Every test runs against a temporary root or an in-memory fake: no test
-touches the real ``~/Library/LaunchAgents``, ``/Library``, or launchctl.
-"""
+"""Unit tests for LaunchAgentStore (Increment 6). Every test runs against a temporary root or an
+in-memory fake: no test touches the real ``~/Library/LaunchAgents``, ``/Library``, or launchctl."""
 
 from __future__ import annotations
 
@@ -20,15 +17,10 @@ class TestRemove:
         assert store.remove("x") is False
         assert not (tmp_path / "agents").exists()
 
-
 class TestExternal:
     @pytest.mark.parametrize(
         "method",
-        [
-            "read_external",
-            "stage_external",
-            "activate_external",
-        ],
+        [ "read_external", "stage_external", "activate_external", ],
     )
     def test_external_rejects_outside_root(self, tmp_path: Path, method: str) -> None:
         store = LaunchAgentStore(tmp_path / "agents")
@@ -52,7 +44,6 @@ class TestExternal:
         with pytest.raises(ValueError, match="outside the LaunchAgent root"):
             fn(outside, **kwargs)
 
-
 class TestStaging:
     def test_stage_exhaustion_raises(self, tmp_path: Path) -> None:
         filesystem = FakeFilesystem(create_error=FileExistsError("taken"))
@@ -65,10 +56,8 @@ class TestStaging:
         assert store.backup_plist("never-there") is None
 
     def test_backup_exhaustion_raises(self, tmp_path: Path) -> None:
-        filesystem = FakeFilesystem(
-            files={"x.plist": b"old"}, create_error=FileExistsError("taken")
-        )
-        store = LaunchAgentStore(tmp_path / "agents", filesystem=filesystem)
+        fs = FakeFilesystem(files={"x.plist": b"old"}, create_error=FileExistsError("taken"))
+        store = LaunchAgentStore(tmp_path / "agents", filesystem=fs)
         with pytest.raises(RuntimeError, match="unique backup sibling"):
             store.backup_plist("x")
 
@@ -78,7 +67,6 @@ class TestStaging:
         with pytest.raises(ValueError, match="outside the LaunchAgent root"):
             store.remove_sibling(tmp_path / "outside.plist")
         assert (tmp_path / "outside.plist").is_file()
-
 
 class TestExternalEdgeCases:
     def test_stage_external_exhaustion_raises(self, tmp_path: Path) -> None:

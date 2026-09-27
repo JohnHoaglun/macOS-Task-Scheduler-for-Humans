@@ -43,7 +43,6 @@ class FakeImportService:
             return self.import_result
         return preview.candidate
 
-
 class TestCommitSuccess:
     def test_commit_without_preview_returns_error(self) -> None:
         outcome = ImportOutcome(
@@ -51,7 +50,6 @@ class TestCommitSuccess:
         )
         result = ImportController(FakeImportService()).commit(outcome)
         assert result.job is None and result.error == "no preview available to commit"
-
 
 def test_commit_os_error_returns_error() -> None:
     candidate = make_job()

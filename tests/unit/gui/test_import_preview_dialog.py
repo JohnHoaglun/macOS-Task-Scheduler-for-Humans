@@ -40,7 +40,6 @@ def _preview_outcome(
     dialog.show()
     return dialog
 
-
 class TestPartialPreview:
     def test_import_enabled_after_check(self, qtbot: QtBot) -> None:
         dialog = _preview_outcome(qtbot, requires_ack=True)
@@ -48,7 +47,6 @@ class TestPartialPreview:
         confirm = dialog.findChild(QPushButton, "import-confirm")
         ack.setChecked(True)
         assert confirm.isEnabled()
-
 
 class TestWarningRendering:
     def test_warnings_list_populated(self, qtbot: QtBot) -> None:
@@ -62,7 +60,6 @@ class TestWarningRendering:
         assert wlist.count() == 2
         assert wlist.item(0).text() == "warning one"
 
-
 class TestCancel:
     def test_cancel_returns_not_accepted(self, qtbot: QtBot) -> None:
         dialog = _preview_outcome(qtbot)
@@ -70,14 +67,12 @@ class TestCancel:
         assert dialog.result() == 0  # QDialog.Rejected
         assert dialog.is_accepted() is False
 
-
 class TestConfirm:
     def test_confirm_returns_accepted(self, qtbot: QtBot) -> None:
         dialog = _preview_outcome(qtbot)
         dialog.findChild(QPushButton, "import-confirm").click()
         assert dialog.result() == 1  # QDialog.Accepted
         assert dialog.is_accepted() is True
-
 
 class TestErrorOutcome:
     def test_error_outcome_constructs_without_candidate(self, qtbot: QtBot) -> None:

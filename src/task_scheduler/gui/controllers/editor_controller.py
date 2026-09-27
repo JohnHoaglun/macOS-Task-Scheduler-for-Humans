@@ -12,8 +12,8 @@ from pydantic import ValidationError
 
 from task_scheduler.application.job_service import (
     JobConflictError,
+    canonical_logging_for,
     default_job_logs_root,
-    derive_log_paths,
     managed_label,
 )
 from task_scheduler.application.task_command_service import TaskCommandService
@@ -25,13 +25,13 @@ from task_scheduler.domain import (
     ExecutableCommand,
     IntervalSchedule,
     JobDefinition,
-    LoggingConfig,
     PythonCommand,
     Schedule,
     ShellCommand,
     Weekday,
 )
 from task_scheduler.platform.macos import ExternalEditField, PythonDetectionResult
+from task_scheduler.platform.macos.run_wrapper import job_log_dir, stderr_log_path, stdout_log_path
 
 __all__ = [
     "CommandKind",
@@ -386,10 +386,18 @@ class EditorController:
         """Remove one environment variable row."""
         del draft.environment[index]
 
-    def set_log_directory(self, draft: JobDraft, value: str) -> None:
-        """Set the managed-mode log directory and re-derive both stream paths from it."""
-        draft.log_directory = value
-        draft.stdout_path, draft.stderr_path = derive_log_paths(draft.name, value)
+    def managed_log_display(self, draft: JobDraft) -> tuple[str, str, str]:
+        """The ``(folder, stdout, stderr)`` display paths for a managed draft.
+
+        Managed jobs always write to ``jobs/<label>/``; the label falls back to
+        the prospective ``managed_label`` until the name has produced one.
+        """
+        label = draft.label or managed_label(draft.name, draft.job_id)
+        return (
+            str(job_log_dir(label)),
+            str(stdout_log_path(label)),
+            str(stderr_log_path(label)),
+        )
 
     def set_stdout_path(self, draft: JobDraft, value: str) -> None:
         """Set the stdout capture path."""
@@ -522,10 +530,7 @@ class EditorController:
             schedule=self._build_schedule(draft),
             environment=EnvironmentConfig(variables=self._build_variables(draft)),
             working_directory=(Path(draft.working_directory) if draft.working_directory else None),
-            logging=LoggingConfig(
-                stdout_path=Path(draft.stdout_path) if draft.stdout_path else None,
-                stderr_path=Path(draft.stderr_path) if draft.stderr_path else None,
-            ),
+            logging=canonical_logging_for(draft.label),
         )
 
     def _build_command(self, draft: JobDraft) -> Command:

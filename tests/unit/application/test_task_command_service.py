@@ -11,8 +11,14 @@ from tests.conftest import make_job
 from tests.fakes import OK_PROCESS, FakeTaskWorld
 
 from task_scheduler.application.diagnostic_models import DiagnosticSource
-from task_scheduler.application.job_service import default_job_logs_root, managed_label
+from task_scheduler.application.history_models import HistoryEventKind, HistoryOutcome
+from task_scheduler.application.job_service import (
+    JobNotFoundError,
+    canonical_logging_for,
+    managed_label,
+)
 from task_scheduler.application.log_service import JobLogs, LogStream
+from task_scheduler.domain import JobDefinition
 from task_scheduler.platform.macos import (
     LAUNCHCTL_PATH,
     CandidateSource,
@@ -23,16 +29,17 @@ from task_scheduler.platform.macos import (
     ProcessResult,
     PythonDetectionResult,
 )
+from task_scheduler.platform.macos.run_wrapper import stderr_log_path, stdout_log_path
 
 OTHER_ID = UUID("87654321-4321-4321-4321-432143214321")
 
+def _canonical(job: JobDefinition) -> JobDefinition:
+    """The plist form reinstall regenerates: managed logging canonicalized by label."""
+    return job.model_copy(update={"logging": canonical_logging_for(job.label)})
 
 class ScriptedStatusBackend:
-    """Test-local backend wrapper with a scripted ``status`` loaded flag.
-
-    ``status`` returns the fixed *loaded* value (recording every label it was
-    asked for); every other call is delegated to the wrapped backend.
-    """
+    """Test-local backend wrapper with a scripted ``status`` loaded flag: returns the fixed *loaded*
+    value (recording every label); every other call is delegated to the wrapped backend."""
 
     def __init__(self, inner: LaunchAgentBackend, *, loaded: bool | None) -> None:
         self._inner = inner
@@ -46,7 +53,6 @@ class ScriptedStatusBackend:
     def __getattr__(self, name: str) -> object:
         return getattr(self._inner, name)
 
-
 class TestInspectDiscovered:
     def test_path_outside_root_raises(self, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
@@ -54,7 +60,6 @@ class TestInspectDiscovered:
         outside.write_bytes(plistlib.dumps({"Label": "com.example.outside"}))
         with pytest.raises(ValueError):
             world.services.inspect_discovered(outside)
-
 
 class TestReinstall:
     def test_success_replaces_plist_and_retains_nothing(self, tmp_path: Path) -> None:
@@ -68,7 +73,7 @@ class TestReinstall:
         assert [phase.name for phase in result.phases] == ["bootout", "bootstrap"]
         assert result.completed_phases == ("bootout", "bootstrap")
         assert result.retained_artifacts == ()
-        assert result.plist_path.read_bytes() == PlistCodec().encode_bytes(updated)
+        assert result.plist_path.read_bytes() == PlistCodec().encode_bytes(_canonical(updated))
         assert [path.name for path in world.la_root.iterdir()] == [f"{job.label}.plist"]
         assert world.launch_runner.specs[0].argv == [
             LAUNCHCTL_PATH,
@@ -120,7 +125,7 @@ class TestReinstall:
         assert result.phases[0].process.stderr == "bootout failed"
         assert result.completed_phases == ("bootout", "bootstrap")
         assert result.retained_artifacts == ()
-        assert result.plist_path.read_bytes() == PlistCodec().encode_bytes(job)
+        assert result.plist_path.read_bytes() == PlistCodec().encode_bytes(_canonical(job))
         assert [path.name for path in world.la_root.iterdir()] == [f"{job.label}.plist"]
         assert [spec.argv[1] for spec in world.launch_runner.specs] == ["bootout", "bootstrap"]
         assert backend.status_labels == [job.label]
@@ -146,7 +151,6 @@ class TestReinstall:
         assert backup.is_file()
         assert backup.read_bytes() == PlistCodec().encode_bytes(job)
         assert [spec.argv[1] for spec in world.launch_runner.specs] == ["bootout", "bootstrap"]
-
 
 class TestUninstall:
     @pytest.mark.parametrize(
@@ -177,13 +181,10 @@ class TestUninstall:
         assert (world.jobs.find(job.label) is not None) == (not removed)
         assert (backend.status_labels == [job.label]) == (launch.exit_code != 0)
 
-
 class TestCommitRawExternalEditLabelInvariants:
     @pytest.mark.parametrize(
         ("replacement", "match"),
-        [
-            ({"Label": "com.example.new", "ProgramArguments": ["/bin/echo"]}, "cannot add"),
-        ],
+        [ ({"Label": "com.example.new", "ProgramArguments": ["/bin/echo"]}, "cannot add"), ],
     )
     def test_label_less_session_rejected(
         self, tmp_path: Path, replacement: dict[str, object], match: str) -> None:
@@ -199,7 +200,6 @@ class TestCommitRawExternalEditLabelInvariants:
             )
         assert plist_path.read_bytes() == plistlib.dumps({"ProgramArguments": ["/bin/sleep"]})
 
-
 class TestEditorFacade:
     def test_new_managed_job_builds_in_memory_job_without_persisting(self, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
@@ -211,14 +211,13 @@ class TestEditorFacade:
         assert job.name == "Daily Backup"
         assert job.label == managed_label("Daily Backup", OTHER_ID)
         assert job.enabled is True
-        assert job.logging.stdout_path == default_job_logs_root() / "Daily Backup.stdout.log"
-        assert job.logging.stderr_path == default_job_logs_root() / "Daily Backup.stderr.log"
+        assert job.logging.stdout_path == stdout_log_path(job.label)
+        assert job.logging.stderr_path == stderr_log_path(job.label)
         assert not world.catalog_root.exists()
         assert world.jobs.find(job.label) is None
         assert not world.la_root.exists()
         assert world.launch_runner.specs == []
         assert world.test_runner.specs == []
-
 
 class TestDiagnosticsFacade:
     def test_diagnostic_report_for_includes_logs_and_python_groups(self, tmp_path: Path) -> None:
@@ -265,6 +264,42 @@ class TestDiagnosticsFacade:
         )
         assert world.services.log_diagnostics_for(job, clean) == ()
 
+class TestLaunchdTestFacade:
+    def test_requires_configured_service(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        job = make_job()
+        world.manage(job)
+        with pytest.raises(ValueError, match="not configured"):
+            world.services.test_via_launchd(job.label)
+
+    def test_unknown_label_raises(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path, launchd_exit_code=0)
+        with pytest.raises(JobNotFoundError):
+            world.services.test_via_launchd("com.example.missing")
+
+    def test_passes_and_records_success_event(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path, launchd_exit_code=0)
+        job = make_job()
+        world.manage(job)
+        result = world.services.test_via_launchd(job.label)
+        assert result.passed and result.run is not None and result.run.exit_code == 0
+        events = world.history_repo.read(job.id, limit=10).events
+        assert len(events) == 1
+        assert events[0].kind == HistoryEventKind.LAUNCHD_TEST
+        assert events[0].outcome == HistoryOutcome.SUCCESS
+        assert events[0].exit_code == 0
+
+    def test_failed_run_records_failure_event(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path, launchd_exit_code=3)
+        job = make_job()
+        world.manage(job)
+        result = world.services.test_via_launchd(job.label)
+        assert not result.passed and result.run is not None and result.run.exit_code == 3
+        events = world.history_repo.read(job.id, limit=10).events
+        assert len(events) == 1
+        assert events[0].kind == HistoryEventKind.LAUNCHD_TEST
+        assert events[0].outcome == HistoryOutcome.FAILURE
+        assert events[0].exit_code == 3
 
 EXTERNAL_PLIST_PAYLOAD = {
     "Label": "com.example.external",
@@ -272,12 +307,10 @@ EXTERNAL_PLIST_PAYLOAD = {
     "StartCalendarInterval": [{"Hour": 9, "Minute": 0, "Weekday": 1}],
 }
 
-
 def _external_plist(tmp_path: Path) -> Path:
     path = tmp_path / "external.plist"
     path.write_bytes(plistlib.dumps(EXTERNAL_PLIST_PAYLOAD))
     return path
-
 
 class TestExternalImportDrift:
     def test_unreadable_source_at_preview_raises(self, tmp_path: Path) -> None:

@@ -1,8 +1,5 @@
-"""Unit tests for the mactask CLI (Increment 8).
-
-Drives the real Typer app built over a fully faked TaskCommandService:
-no test touches the real home directory or invokes the real launchctl.
-"""
+"""Unit tests for the mactask CLI (Increment 8). Drives the real Typer app over a fully faked
+TaskCommandService: no test touches the real home directory or invokes the real launchctl."""
 
 from __future__ import annotations
 
@@ -22,22 +19,20 @@ from task_scheduler.application.managed_json_transfer import strict_decode_job_j
 from task_scheduler.cli import app as cli_app
 from task_scheduler.cli.app import main
 from task_scheduler.cli.render import format_import_disclosure
-from task_scheduler.domain import EnvironmentConfig, ExecutableCommand, LoggingConfig
-from task_scheduler.platform.macos import ProcessLaunchFailure, ProcessResult
+from task_scheduler.domain import EnvironmentConfig, ExecutableCommand
+from task_scheduler.platform.macos import ProcessLaunchFailure, ProcessResult, run_wrapper
+from task_scheduler.platform.macos.run_wrapper import stderr_log_path, stdout_log_path
 
 RUNNER = CliRunner()
 OTHER_ID = UUID("87654321-4321-4321-4321-432143214321")
 
-
 def invoke(world: FakeTaskWorld, *args: str) -> object:
     return RUNNER.invoke(cli_app.create_app(world.services), list(args))
-
 
 def job_file(tmp_path: Path, job) -> Path:
     path = tmp_path / "job.json"
     path.write_text(job.model_dump_json(exclude_none=True), encoding="utf-8")
     return path
-
 
 def write_v2_json(path: Path, *, job_id: str, label: str, name: str = "Job") -> Path:
     path.write_text(
@@ -66,13 +61,11 @@ def write_v2_json(path: Path, *, job_id: str, label: str, name: str = "Job") -> 
     )
     return path
 
-
 def test_list_empty(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
     result = invoke(world, "list")
     assert result.exit_code == 0
     assert "No LaunchAgents found." in result.stdout
-
 
 def test_list_managed_external_and_invalid(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
@@ -93,7 +86,6 @@ def test_list_managed_external_and_invalid(tmp_path: Path) -> None:
     assert "com.example.partial [partially_supported] (external)" in result.stdout
     assert "com.example.broken.plist [invalid] (external)" in result.stdout
 
-
 def test_list_shows_saved_catalog_only_jobs(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
     job = make_job()
@@ -101,7 +93,6 @@ def test_list_shows_saved_catalog_only_jobs(tmp_path: Path) -> None:
     result = invoke(world, "list")
     assert result.exit_code == 0
     assert f"{job.label} [saved] (managed) (task catalog — not installed)" in result.stdout
-
 
 def test_list_shows_corrupt_catalog_file_as_warning(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
@@ -113,7 +104,6 @@ def test_list_shows_corrupt_catalog_file_as_warning(tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert f"{managed.label} [supported] (managed)" in result.stdout
     assert f"warning: {corrupt}: ValidationError:" in result.stderr
-
 
 def test_list_service_failure_exits_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -127,13 +117,12 @@ def test_list_service_failure_exits_failure(
     assert result.exit_code == 1
     assert "list failed: launchagents directory unavailable" in result.stderr
 
-
-def test_inspect_managed_job(tmp_path: Path) -> None:
+def test_inspect_managed_job(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(run_wrapper, "default_job_logs_root", lambda: tmp_path / "job-logs")
     world = FakeTaskWorld(tmp_path)
     job = make_job(
         working_directory=Path("/tmp"),
         environment=EnvironmentConfig(variables={"FOO": "bar"}),
-        logging=LoggingConfig(stdout_path=Path("/tmp/out.log"), stderr_path=Path("/tmp/err.log")),
     )
     world.manage(job)
     result = invoke(world, "inspect", job.label)
@@ -141,11 +130,10 @@ def test_inspect_managed_job(tmp_path: Path) -> None:
     assert f"label: {job.label}" in result.stdout
     assert "working directory: /tmp" in result.stdout
     assert "env FOO=bar" in result.stdout
-    assert "stdout log: /tmp/out.log" in result.stdout
-    assert "stderr log: /tmp/err.log" in result.stdout
+    assert f"stdout log: {stdout_log_path(job.label)}" in result.stdout
+    assert f"stderr log: {stderr_log_path(job.label)}" in result.stdout
     assert "plist:" in result.stdout
     assert "launchd: loaded in launchd" in result.stdout
-
 
 def test_inspect_shows_unsupported_keys_and_warnings(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
@@ -167,7 +155,6 @@ def test_inspect_shows_unsupported_keys_and_warnings(tmp_path: Path) -> None:
     assert "warning: no schedule found" in result.stdout
     assert "diagnostics:" not in result.stdout
 
-
 def test_inspect_shows_diagnostics_for_malformed_plist(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
     job = make_job()
@@ -180,13 +167,11 @@ def test_inspect_shows_diagnostics_for_malformed_plist(tmp_path: Path) -> None:
     assert "[error] malformed_plist: Plist could not be parsed" in result.stdout
     assert "suggested: Fix the plist syntax or recreate the agent." in result.stdout
 
-
 def test_inspect_unknown_label_exits_usage(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
     result = invoke(world, "inspect", "missing.label")
     assert result.exit_code == 2
     assert "no managed job with label" in result.stderr
-
 
 @pytest.mark.parametrize(
     ("error", "code"),
@@ -207,7 +192,6 @@ def test_inspect_service_errors_exit_by_matrix(
     assert result.exit_code == code
     assert result.stderr.strip()
 
-
 def test_validate_ok(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
     job = make_job()
@@ -216,7 +200,6 @@ def test_validate_ok(tmp_path: Path) -> None:
     assert f"OK: {job.label}" in result.stdout
     assert f"label: {job.label}" in result.stdout
 
-
 def test_validate_non_utf8_file_exits_usage(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
     bad = tmp_path / "binary.json"
@@ -224,7 +207,6 @@ def test_validate_non_utf8_file_exits_usage(tmp_path: Path) -> None:
     result = invoke(world, "validate", str(bad))
     assert result.exit_code == 2
     assert "invalid job definition:" in result.stderr
-
 
 def test_validate_unreadable_file_exits_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -238,7 +220,6 @@ def test_validate_unreadable_file_exits_failure(
     assert result.exit_code == 1
     assert "validate failed: file unreadable" in result.stderr
 
-
 def test_generate_prints_xml_without_side_effects(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
     job = make_job()
@@ -250,7 +231,6 @@ def test_generate_prints_xml_without_side_effects(tmp_path: Path) -> None:
     assert not world.la_root.exists()
     assert result.stderr == ""
 
-
 def test_generate_invalid_json_exits_usage(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
     bad = tmp_path / "bad.json"
@@ -258,7 +238,6 @@ def test_generate_invalid_json_exits_usage(tmp_path: Path) -> None:
     result = invoke(world, "generate", str(bad))
     assert result.exit_code == 2
     assert "invalid job definition:" in result.stderr
-
 
 def test_generate_unreadable_file_exits_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -272,7 +251,6 @@ def test_generate_unreadable_file_exits_failure(
     assert result.exit_code == 1
     assert "generate failed: file unreadable" in result.stderr
 
-
 def test_install_success(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
     job = make_job()
@@ -282,7 +260,6 @@ def test_install_success(tmp_path: Path) -> None:
     assert (world.catalog_root / f"{job.id}.json").is_file()
     assert (world.la_root / f"{job.label}.plist").is_file()
 
-
 def test_install_existing_plist_exits_usage(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
     job = make_job()
@@ -291,7 +268,6 @@ def test_install_existing_plist_exits_usage(tmp_path: Path) -> None:
     assert result.exit_code == 2
     assert "install refused" in result.stderr
 
-
 def test_install_invalid_json_exits_usage(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
     bad = tmp_path / "bad.json"
@@ -299,7 +275,6 @@ def test_install_invalid_json_exits_usage(tmp_path: Path) -> None:
     result = invoke(world, "install", str(bad))
     assert result.exit_code == 2
     assert "invalid job definition:" in result.stderr
-
 
 def test_install_store_failure_exits_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -313,7 +288,6 @@ def test_install_store_failure_exits_failure(
     assert result.exit_code == 1
     assert "install failed: catalog not writable" in result.stderr
 
-
 def test_install_failed_bootstrap_exits_failure(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path, launch=ProcessResult(exit_code=1, stderr="bootstrap failed"))
     job = make_job()
@@ -324,7 +298,6 @@ def test_install_failed_bootstrap_exits_failure(tmp_path: Path) -> None:
     assert "[error] bootstrap_failure: launchctl bootstrap failed" in result.stderr
     assert "during install exited with code 1" in result.stderr
 
-
 def test_uninstall_success(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
     job = make_job()
@@ -332,7 +305,6 @@ def test_uninstall_success(tmp_path: Path) -> None:
     result = invoke(world, "uninstall", job.label)
     assert result.exit_code == 0
     assert f"uninstalled {job.label} and catalog record" in result.stdout
-
 
 def test_uninstall_failure_exits_failure(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path, launch=ProcessResult(exit_code=1, stderr="bootout failed"))
@@ -343,13 +315,11 @@ def test_uninstall_failure_exits_failure(tmp_path: Path) -> None:
     assert "uninstall failed for" in result.stderr
     assert "bootout failed" in result.stderr
 
-
 def test_uninstall_invalid_label_exits_usage(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
     result = invoke(world, "uninstall", "../escape")
     assert result.exit_code == 2
     assert "Label must not be" in result.stderr
-
 
 def test_enable_success(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
@@ -357,7 +327,6 @@ def test_enable_success(tmp_path: Path) -> None:
     result = invoke(world, "enable", "com.example.job")
     assert result.exit_code == 0
     assert "enabled com.example.job" in result.stdout
-
 
 def test_lifecycle_external_labels_exit_usage(tmp_path: Path) -> None:
     """Every lifecycle command rejects a non-managed label with no backend call."""
@@ -370,7 +339,6 @@ def test_lifecycle_external_labels_exit_usage(tmp_path: Path) -> None:
         assert "no managed job with label" in result.stderr
     assert world.launch_runner.specs == []
 
-
 @pytest.mark.parametrize("command", ["enable", "disable", "status", "run"])
 def test_invalid_label_escape_exits_usage(
     tmp_path: Path, command: str) -> None:
@@ -379,7 +347,6 @@ def test_invalid_label_escape_exits_usage(
     assert result.exit_code == 2
     assert "Label must not be" in result.stderr
 
-
 def test_enable_failure_exits_failure(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path, launch=ProcessResult(exit_code=1, stderr="enable failed"))
     world.manage(make_job(label="com.example.job"))
@@ -387,14 +354,12 @@ def test_enable_failure_exits_failure(tmp_path: Path) -> None:
     assert result.exit_code == 1
     assert "enable failed for com.example.job: exit code 1" in result.stderr
 
-
 def test_disable_success(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
     world.manage(make_job(label="com.example.job"))
     result = invoke(world, "disable", "com.example.job")
     assert result.exit_code == 0
     assert "disabled com.example.job" in result.stdout
-
 
 def test_disable_failure_exits_failure(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path, launch=ProcessResult(exit_code=1, stderr="deny"))
@@ -404,14 +369,12 @@ def test_disable_failure_exits_failure(tmp_path: Path) -> None:
     assert "disable failed for com.example.job: exit code 1" in result.stderr
     assert "deny" in result.stderr
 
-
 def test_status_unloaded_still_exits_success(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path, launch=ProcessResult(exit_code=7))
     world.manage(make_job(label="com.example.job"))
     result = invoke(world, "status", "com.example.job")
     assert result.exit_code == 0
     assert "not loaded in launchd" in result.stdout
-
 
 def test_status_launch_failure_exits_failure(tmp_path: Path) -> None:
     world = FakeTaskWorld(
@@ -428,14 +391,12 @@ def test_status_launch_failure_exits_failure(tmp_path: Path) -> None:
     assert "status unknown for com.example.job" in result.stderr
     assert "print failed" in result.stderr
 
-
 def test_run_success(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
     world.manage(make_job(label="com.example.job"))
     result = invoke(world, "run", "com.example.job")
     assert result.exit_code == 0
     assert "requested run of com.example.job" in result.stdout
-
 
 def test_run_failure_exits_failure(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path, launch=ProcessResult(exit_code=1, stderr="kickstart failed"))
@@ -444,7 +405,6 @@ def test_run_failure_exits_failure(tmp_path: Path) -> None:
     assert result.exit_code == 1
     assert "run failed for com.example.job: exit code 1" in result.stderr
     assert "kickstart failed" in result.stderr
-
 
 def test_test_launch_failure_reports_kind(tmp_path: Path) -> None:
     world = FakeTaskWorld(
@@ -460,7 +420,6 @@ def test_test_launch_failure_reports_kind(tmp_path: Path) -> None:
     assert result.exit_code == 1
     assert "launch failed (not_found): no such file" in result.stdout
 
-
 def test_test_no_diagnostics_when_executable_exists(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path, test=ProcessResult(exit_code=0))
     job = make_job(command=ExecutableCommand(executable=Path("/bin/echo"), arguments=["hi"]))
@@ -470,13 +429,11 @@ def test_test_no_diagnostics_when_executable_exists(tmp_path: Path) -> None:
     assert "exit code: 0" in result.stdout
     assert "diagnostics:\nnone" in result.stdout
 
-
 def test_test_unknown_label_exits_usage(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
     result = invoke(world, "test", "missing.label")
     assert result.exit_code == 2
     assert "no managed job with label" in result.stderr
-
 
 def test_test_invalid_label_exits_usage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     world = FakeTaskWorld(tmp_path)
@@ -489,15 +446,46 @@ def test_test_invalid_label_exits_usage(tmp_path: Path, monkeypatch: pytest.Monk
     assert result.exit_code == 2
     assert "invalid label: '../escape'" in result.stderr
 
+def test_test_launchd_passes(tmp_path: Path) -> None:
+    world = FakeTaskWorld(tmp_path, launchd_exit_code=0)
+    job = make_job()
+    world.manage(job)
+    result = invoke(world, "test-launchd", job.label)
+    assert result.exit_code == 0
+    assert f"launchd test passed for {job.label}" in result.stdout
+    assert "reason: " in result.stdout
+    assert "run " in result.stdout
 
-def test_logs_reads_configured_streams(tmp_path: Path) -> None:
+def test_test_launchd_failed_run_exits_failure(tmp_path: Path) -> None:
+    world = FakeTaskWorld(tmp_path, launchd_exit_code=3)
+    job = make_job()
+    world.manage(job)
+    result = invoke(world, "test-launchd", job.label)
+    assert result.exit_code == 1
+    assert f"launchd test FAILED for {job.label}" in result.stdout
+
+def test_test_launchd_unknown_label_exits_usage(tmp_path: Path) -> None:
+    world = FakeTaskWorld(tmp_path, launchd_exit_code=0)
+    result = invoke(world, "test-launchd", "com.example.missing")
+    assert result.exit_code == 2
+    assert "no managed job with label" in result.stderr
+
+def test_test_launchd_not_configured_exits_usage(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
-    out = tmp_path / "out.log"
-    err = tmp_path / "err.log"
-    out.write_text("out line\n")
-    err.write_text("err line\n")
-    job = make_job(logging=LoggingConfig(stdout_path=out, stderr_path=err))
+    job = make_job()
+    world.manage(job)
+    result = invoke(world, "test-launchd", job.label)
+    assert result.exit_code == 2
+    assert "not configured" in result.stderr
+
+def test_logs_reads_configured_streams(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(run_wrapper, "default_job_logs_root", lambda: tmp_path / "job-logs")
+    world = FakeTaskWorld(tmp_path)
+    job = make_job()
     world.jobs.import_job(job)
+    stdout_log_path(job.label).parent.mkdir(parents=True, exist_ok=True)
+    stdout_log_path(job.label).write_text("out line\n", encoding="utf-8")
+    stderr_log_path(job.label).write_text("err line\n", encoding="utf-8")
     result = invoke(world, "logs", job.label)
     assert result.exit_code == 0
     assert "=== stdout ===" in result.stdout
@@ -505,44 +493,34 @@ def test_logs_reads_configured_streams(tmp_path: Path) -> None:
     assert "=== stderr ===" in result.stdout
     assert "err line" in result.stdout
 
-
-def test_logs_missing_file_exits_failure(tmp_path: Path) -> None:
+def test_logs_missing_file_exits_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(run_wrapper, "default_job_logs_root", lambda: tmp_path / "job-logs")
     world = FakeTaskWorld(tmp_path)
-    job = make_job(logging=LoggingConfig(stdout_path=tmp_path / "missing.log", stderr_path=None))
+    job = make_job()
     world.jobs.import_job(job)
     result = invoke(world, "logs", job.label)
     assert result.exit_code == 1
     assert "log file not found" in result.stdout
 
-
-def test_logs_empty_files_show_empty_marker(tmp_path: Path) -> None:
-    world = FakeTaskWorld(tmp_path)
-    out = tmp_path / "out.log"
-    err = tmp_path / "err.log"
-    out.write_text("")
-    err.write_text("")
-    job = make_job(logging=LoggingConfig(stdout_path=out, stderr_path=err))
-    world.jobs.import_job(job)
-    result = invoke(world, "logs", job.label)
-    assert result.exit_code == 0
-    assert result.stdout.count("(empty)") == 2
-
-
-def test_logs_unconfigured_exits_usage(tmp_path: Path) -> None:
+def test_logs_empty_files_show_empty_marker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(run_wrapper, "default_job_logs_root", lambda: tmp_path / "job-logs")
     world = FakeTaskWorld(tmp_path)
     job = make_job()
     world.jobs.import_job(job)
+    stdout_log_path(job.label).parent.mkdir(parents=True, exist_ok=True)
+    stdout_log_path(job.label).write_text("", encoding="utf-8")
+    stderr_log_path(job.label).write_text("", encoding="utf-8")
     result = invoke(world, "logs", job.label)
-    assert result.exit_code == 2
-    assert "not configured" in result.stdout
-
+    assert result.exit_code == 0
+    assert result.stdout.count("(empty)") == 2
 
 def test_logs_unknown_label_exits_usage(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
     result = invoke(world, "logs", "missing.label")
     assert result.exit_code == 2
     assert "no managed job with label" in result.stderr
-
 
 def test_main_entrypoint_shows_help(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sys, "argv", ["mactask"])
@@ -553,12 +531,10 @@ def test_main_entrypoint_shows_help(monkeypatch: pytest.MonkeyPatch) -> None:
         main()
     assert exc.value.code == 2
 
-
 def _write_external_plist(tmp_path: Path, payload: dict) -> Path:
     path = tmp_path / "external.plist"
     path.write_bytes(plistlib.dumps(payload))
     return path
-
 
 def test_import_partial_acknowledge_exits_0(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
@@ -576,7 +552,6 @@ def test_import_partial_acknowledge_exits_0(tmp_path: Path) -> None:
     assert "unsupported key: KeepAlive" in result.stdout
     catalog_files = list(world.catalog_root.glob("*.json"))
     assert len(catalog_files) == 1
-
 
 def test_import_partial_no_flag_exits_2(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
@@ -597,7 +572,6 @@ def test_import_partial_no_flag_exits_2(tmp_path: Path) -> None:
     catalog_files = list(world.catalog_root.glob("*.json"))
     assert len(catalog_files) == 0
 
-
 def test_import_invalid_plist_exits_2(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
     plist_path = tmp_path / "bad.plist"
@@ -605,7 +579,6 @@ def test_import_invalid_plist_exits_2(tmp_path: Path) -> None:
     result = invoke(world, "import", str(plist_path))
     assert result.exit_code == 2
     assert "cannot import" in result.stderr
-
 
 def test_import_duplicate_label_exits_2(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
@@ -622,13 +595,11 @@ def test_import_duplicate_label_exits_2(tmp_path: Path) -> None:
     assert result.exit_code == 2
     assert "a managed job already exists for label" in result.stderr
 
-
 def test_import_nonexistent_path_exits_2(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
     result = invoke(world, "import", "/no/such/file.plist")
     assert result.exit_code == 2
     assert "file not found" in result.stderr
-
 
 def test_import_commit_drift_exits_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     world = FakeTaskWorld(tmp_path)
@@ -652,7 +623,6 @@ def test_import_commit_drift_exits_failure(tmp_path: Path, monkeypatch: pytest.M
     assert "the source plist changed between preview and import" in result.stderr
     assert list(world.catalog_root.glob("*.json")) == []
 
-
 def test_import_commit_io_failure_exits_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     world = FakeTaskWorld(tmp_path)
@@ -674,7 +644,6 @@ def test_import_commit_io_failure_exits_failure(
     assert "catalog read-only" in result.stderr
     assert list(world.catalog_root.glob("*.json")) == []
 
-
 def test_import_disclosure_renders_warnings_and_keys() -> None:
     preview = ExternalPlistImportPreview(
         source_path=Path("/tmp/warn.plist"),
@@ -693,13 +662,11 @@ def test_import_disclosure_renders_warnings_and_keys() -> None:
         preview, include_prompt=False
     )
 
-
 def test_export_json_unknown_label_exits_2(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
     result = invoke(world, "export-json", "missing.label", str(tmp_path / "out.json"))
     assert result.exit_code == 2
     assert "no managed job with label" in result.stderr
-
 
 def test_import_json_identity_and_v2(tmp_path: Path) -> None:
     world1 = FakeTaskWorld(tmp_path)
@@ -721,7 +688,6 @@ def test_import_json_identity_and_v2(tmp_path: Path) -> None:
     plist_files = list(world2.la_root.glob("*.plist"))
     assert len(plist_files) == 0
 
-
 def test_import_json_id_conflict(tmp_path: Path) -> None:
     job = make_job(id=FIXED_JOB_ID)
     json_file = write_v2_json(
@@ -738,7 +704,6 @@ def test_import_json_id_conflict(tmp_path: Path) -> None:
     catalog_files = list(world.catalog_root.glob("*.json"))
     assert len(catalog_files) == 1
 
-
 def test_import_json_label_conflict(tmp_path: Path) -> None:
     job = make_job(id=OTHER_ID, label="io.github.macos-task-scheduler.user.dup")
     json_file = write_v2_json(
@@ -753,7 +718,6 @@ def test_import_json_label_conflict(tmp_path: Path) -> None:
     assert "label conflict" in result.stderr
     catalog_files = list(world.catalog_root.glob("*.json"))
     assert len(catalog_files) == 1
-
 
 @pytest.mark.parametrize(
     ("content", "err_fragment"),
@@ -771,13 +735,11 @@ def test_import_json_strict(tmp_path: Path, content: str, err_fragment: str) -> 
     assert result.exit_code == 2
     assert err_fragment in result.stderr.lower()
 
-
 def test_import_json_nonexistent_file(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
     result = invoke(world, "import-json", "/no/such/file.json")
     assert result.exit_code == 2
     assert "file not found" in result.stderr
-
 
 def test_import_json_job_conflict_at_commit(tmp_path: Path) -> None:
     """Simulate JobConflictError raised inside import_managed_json (race/seed)."""

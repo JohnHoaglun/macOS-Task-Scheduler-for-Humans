@@ -28,7 +28,6 @@ def _event(**overrides) -> HistoryEvent:
     kwargs.update(overrides)
     return HistoryEvent(**kwargs)
 
-
 @pytest.fixture
 def model(qtbot: QtBot) -> HistoryTableModel:
     m = HistoryTableModel()
@@ -38,7 +37,6 @@ def model(qtbot: QtBot) -> HistoryTableModel:
     ]
     m.set_events(events)
     return m
-
 
 class TestHeader:
     def test_horizontal_headers(self, model: HistoryTableModel):
@@ -54,7 +52,6 @@ class TestHeader:
             assert model.header(section, Qt.Orientation.Horizontal) is None
         for i in range(len(COLUMNS)):
             assert model.header(i, Qt.Orientation.Horizontal) == COLUMNS[i]
-
 
 class TestData:
     def test_second_row(self, model: HistoryTableModel):

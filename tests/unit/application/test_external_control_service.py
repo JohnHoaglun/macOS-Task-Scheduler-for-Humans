@@ -17,17 +17,14 @@ from task_scheduler.platform.macos import ExternalEditField, ParseSupport, Plist
 def _ensure_la_root(world: FakeTaskWorld) -> None:
     world.la_root.mkdir(parents=True, exist_ok=True)
 
-
 def _write_plist(world: FakeTaskWorld, name: str, data: dict[str, object]) -> Path:
     path = world.la_root / name
     path.write_bytes(plistlib.dumps(data, fmt=plistlib.FMT_XML))
     return path
 
-
 def _make_raw(replacement: dict[str, object]) -> str:
     """Convert a replacement dict to the str expected by commit_raw_external_edit."""
     return plistlib.dumps(replacement, fmt=plistlib.FMT_XML).decode("utf-8")
-
 
 _CAL_PLIST: dict[str, object] = {
     "Label": "com.example.a",
@@ -35,14 +32,12 @@ _CAL_PLIST: dict[str, object] = {
     "StartCalendarInterval": [{"Weekday": 1, "Hour": 7, "Minute": 30}],
 }
 
-
 def _loaded_calendar_session(world: FakeTaskWorld) -> object:
     """Write the standard loaded com.example.a calendar plist and open its session."""
     _ensure_la_root(world)
     plist_path = _write_plist(world, "com.example.a.plist", _CAL_PLIST)
     world.backend._runner = FakeProcessRunner(result=ProcessResult(exit_code=0))
     return world.services.open_external_edit_session(plist_path)
-
 
 class TestOpenExternalEditSession:
     def test_outside_launchagent_root_raises(self, tmp_path: Path) -> None:
@@ -61,7 +56,6 @@ class TestOpenExternalEditSession:
         plist_path.write_bytes(PlistCodec().encode_bytes(job))
         with pytest.raises(ValueError, match="already managed"):
             world.services.open_external_edit_session(plist_path)
-
 
 class TestCommitStructuredExternalEdit:
     def test_no_job_raises(self, tmp_path: Path) -> None:
@@ -142,7 +136,6 @@ class TestCommitStructuredExternalEdit:
         assert result.reloaded is False
         assert len(result.retained_artifacts) == 1
 
-
 class TestCommitRawExternalEdit:
     def test_non_dict_plist_raises(self, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
@@ -215,7 +208,6 @@ class TestCommitRawExternalEdit:
         assert result.replaced is True
         assert result.reloaded is False
 
-
 class TestDisableExternal:
     def test_outside_root_raises(self, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
@@ -257,7 +249,6 @@ class TestDisableExternal:
         assert result.replaced is True
         expected = plistlib.dumps({**original, "Disabled": True}, fmt=plistlib.FMT_XML)
         assert plist_path.read_bytes() == expected
-
 
 class TestEnableExternal:
     def test_no_label_raises(self, tmp_path: Path) -> None:
@@ -316,7 +307,6 @@ class TestEnableExternal:
         )
         assert plist_path.read_bytes() == expected
 
-
 class TestRunNowExternal:
     def test_no_label_raises(self, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
@@ -347,7 +337,6 @@ class TestRunNowExternal:
         )
         with pytest.raises(ValueError, match="not loaded in launchd"):
             world.services.run_now_external(plist_path)
-
 
 class TestRemoveExternal:
     def test_outside_root_raises(self, tmp_path: Path) -> None:
@@ -407,17 +396,14 @@ class TestRemoveExternal:
         assert plist_path.exists()
         assert len(list(world.la_root.glob("*.backup.*"))) == 1
 
-
 def _boom_status(label: str) -> None:
     raise ValueError("status unavailable")
-
 
 def _labeled_plist(world: FakeTaskWorld, label: str) -> Path:
     _ensure_la_root(world)
     return _write_plist(
         world, f"{label}.plist", {"Label": label, "ProgramArguments": ["/bin/true"]}
     )
-
 
 class TestStatusValueErrorBranches:
     def test_open_session_status_error_yields_none(
@@ -463,7 +449,6 @@ class TestStatusValueErrorBranches:
         result = world.services.remove_external(plist_path)
         assert result.removed is True
         assert "bootout" not in result.completed_phases
-
 
 class TestEdgeValidations:
     def test_commit_structured_original_none_raises(self, tmp_path: Path) -> None:

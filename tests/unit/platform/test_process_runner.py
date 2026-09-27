@@ -17,13 +17,11 @@ def _spec(
 ) -> CommandSpec:
     return CommandSpec(argv=argv, environment=environment or {}, working_directory=cwd)
 
-
 class TestSuccessfulRuns:
     def test_duration_from_injected_clock(self) -> None:
         runner = SubprocessRunner(clock=FakeClock(step=1.5))
         result = runner.run(_spec(["/bin/echo", "x"]))
         assert result.duration == timedelta(seconds=1.5)
-
 
 class TestTimeouts:
     def test_deadline_kills_and_marks_result(self) -> None:
@@ -49,7 +47,6 @@ class TestTimeouts:
         assert decode(b"ab\xff") == "ab\ufffd"
         assert decode("text") == "text"
         assert decode(None) == ""
-
 
 class TestLaunchFailures:
     def test_permission_denied(self, tmp_path: Path) -> None:

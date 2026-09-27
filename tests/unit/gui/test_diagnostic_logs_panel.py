@@ -55,7 +55,6 @@ def _outcome(
         detection=detection,
     )
 
-
 class TestShowTestOutcome:
     def test_error_outcome_updates_summary_only(self, qtbot) -> None:
         panel = DiagnosticLogsPanel()
@@ -67,7 +66,6 @@ class TestShowTestOutcome:
         # Direct output from the earlier render is untouched.
         assert panel.findChild(object, "diagnostics-direct-stdout").toPlainText() == "direct out"
 
-
 class TestShowLogsOutcome:
     def test_read_error_reports_unavailable(self, qtbot) -> None:
         panel = DiagnosticLogsPanel()
@@ -77,7 +75,6 @@ class TestShowLogsOutcome:
             panel.findChild(object, "diagnostics-persisted-stdout").toPlainText()
             == "Logs unavailable: catalog failed"
         )
-
 
 class TestShowEnvironmentOutcome:
     def test_error_reports_unavailable(self, qtbot) -> None:
@@ -90,7 +87,6 @@ class TestShowEnvironmentOutcome:
             panel.findChild(object, "diagnostics-environment-text").text()
             == "Comparison unavailable: nope"
         )
-
 
 class TestPanelCollapse:
     def test_panel_collapsed_by_default(self, qtbot) -> None:
@@ -115,7 +111,6 @@ class TestPanelCollapse:
         inner = panel.findChild(object, "diagnostics-section-content")
         assert toggle is not None and toggle.isChecked()
         assert inner is not None and inner.isHidden()
-
 
 class TestDiagnosticsPane:
     def test_logs_outcome_appends_logs_group(self, qtbot) -> None:

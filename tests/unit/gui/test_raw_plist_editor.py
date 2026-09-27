@@ -13,7 +13,6 @@ from task_scheduler.gui.widgets.raw_plist_editor import RawPlistEditor
 def _editor() -> RawPlistEditor:
     return RawPlistEditor()
 
-
 class TestRawPlistEditor:
     def test_open_binary_mode(self, qtbot: QtBot) -> None:
         e = _editor()

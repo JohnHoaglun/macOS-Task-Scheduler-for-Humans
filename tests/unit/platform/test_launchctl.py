@@ -26,7 +26,6 @@ class TestCommandDeadline:
         assert runner.specs and all(spec.argv[0] == "/bin/launchctl" for spec in runner.specs)
         assert runner.timeouts == [LAUNCHCTL_TIMEOUT_SECONDS] * len(runner.specs)
 
-
 class TestBootstrapPath:
     @staticmethod
     def _write(store: LaunchAgentStore, name: str, data: dict[str, object]) -> Path:

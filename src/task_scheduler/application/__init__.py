@@ -16,6 +16,11 @@ from task_scheduler.application.job_service import (
     JobService,
     default_job_catalog_root,
 )
+from task_scheduler.application.launchd_test_service import (
+    DEFAULT_LAUNCHD_TEST_TIMEOUT,
+    LaunchdTestResult,
+    LaunchdTestService,
+)
 from task_scheduler.application.log_service import JobLogs, LogService, LogStream
 from task_scheduler.application.managed_json_transfer import (
     ManagedJsonImportPreview,
@@ -35,6 +40,7 @@ from task_scheduler.platform.macos import ExternalEditField
 
 __all__ = [
     "CatalogDiagnostic",
+    "DEFAULT_LAUNCHD_TEST_TIMEOUT",
     "DirectTestResult",
     "DirectTestService",
     "ExternalEditField",
@@ -50,6 +56,8 @@ __all__ = [
     "JobLogs",
     "JobNotFoundError",
     "JobService",
+    "LaunchdTestResult",
+    "LaunchdTestService",
     "ListingKind",
     "LogService",
     "LogStream",

@@ -27,7 +27,6 @@ def _event(**overrides) -> HistoryEvent:
         kwargs["job_id"] = UUID(kwargs["job_id"])
     return HistoryEvent(**kwargs)
 
-
 class TestFormatEventDetails:
     def test_loaded_true(self):
         event = _event(kind=HistoryEventKind.STATUS_OBSERVATION, loaded=True)

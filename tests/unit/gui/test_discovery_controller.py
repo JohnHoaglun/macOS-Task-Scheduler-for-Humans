@@ -15,11 +15,9 @@ from task_scheduler.gui.controllers.discovery_controller import DiscoveryControl
 
 EXTERNAL_ID = UUID("87654321-4321-4321-4321-432143214321")
 
-
 class _BoomServices:
     def list_agents(self) -> NoReturn:
         raise RuntimeError("boom")
-
 
 class _DiagnosticServices:
     def __init__(
@@ -39,7 +37,6 @@ class _DiagnosticServices:
             raise self._catalog_error
         return self._diagnostics
 
-
 class TestInspect:
     def test_inspect_saved_listing_is_a_noop(self, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
@@ -53,7 +50,6 @@ class TestInspect:
         assert outcome.report is None
         assert outcome.error is None
         assert outcome.diagnostics == ()
-
 
 class TestRefreshDiagnostics:
     def _diagnostic(self, name: str) -> CatalogDiagnostic:

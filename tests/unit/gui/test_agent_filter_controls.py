@@ -14,7 +14,6 @@ def _c(qtbot: QtBot) -> AgentFilterControls:
     w.show()
     return w
 
-
 class TestAll:
     def test_all(self, qtbot: QtBot) -> None:
         w = _c(qtbot)
@@ -34,10 +33,8 @@ class TestAll:
         w._clear_button.click()
         assert w._search.text() == "" and p.clear_filters_calls == [True]
         state_combo = w.findChild(QComboBox, "filter-state")
-        assert state_combo is not None
         state_combo.setCurrentText("Managed")
         assert p.set_state_calls == [frozenset({"Managed"})]
-
 
 class _Fake:
     """Minimal mock for AgentFilterProxyModel."""

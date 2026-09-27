@@ -38,24 +38,20 @@ INSTALLED_ACTIONS = frozenset(
     }
 )
 
-
 def _saved_world(tmp_path: Path) -> tuple[FakeTaskWorld, TaskListing]:
     world = FakeTaskWorld(tmp_path)
     world.jobs.import_job(make_job(id=EXTERNAL_ID, label=SAVED_LABEL, name="Saved Job"))
     return world, world.services.list_agents()[0]
-
 
 def _managed_world(tmp_path: Path) -> tuple[FakeTaskWorld, TaskListing]:
     world = FakeTaskWorld(tmp_path)
     world.manage(make_job())
     return world, world.services.list_agents()[0]
 
-
 def _external_world(tmp_path: Path) -> tuple[FakeTaskWorld, TaskListing]:
     world = FakeTaskWorld(tmp_path)
     world.store.write(make_job(id=EXTERNAL_ID, label="com.example.external", name="External Job"))
     return world, world.services.list_agents()[0]
-
 
 class TestRequest:
     def test_refuses_second_request_while_busy(self, tmp_path: Path) -> None:
@@ -70,7 +66,6 @@ class TestRequest:
         # External rows are never uninstalled; the File menu's Remove handles them.
         assert controller.request(LifecycleAction.UNINSTALL, listing) is RequestVerdict.NOT_ALLOWED
         assert not controller.busy
-
 
 class TestExecute:
     def test_install_deploys_and_bootstraps(self, tmp_path: Path) -> None:
@@ -119,7 +114,6 @@ class TestExecute:
         assert outcome.result is None
         assert "no managed job" in (outcome.error or "")
 
-
 def _external_result(path: Path) -> ExternalEditResult:
     return ExternalEditResult(
         source_path=path,
@@ -131,7 +125,6 @@ def _external_result(path: Path) -> ExternalEditResult:
         replaced=False,
         reloaded=False,
     )
-
 
 class TestListingEdgeCases:
     def test_enabled_actions_managed_without_job_is_empty(self, tmp_path: Path) -> None:
@@ -181,7 +174,6 @@ class TestListingEdgeCases:
             action=LifecycleAction.RUN_NOW, label=None, result=None, error=None
         )
         assert outcome.is_success is False
-
 
 class TestExternalExecution:
     def test_execute_external_disable(self, tmp_path: Path, monkeypatch) -> None:

@@ -18,7 +18,6 @@ ALL_WEEKDAYS = set(Weekday)
 MON_FRI = {Weekday.MONDAY, Weekday.TUESDAY, Weekday.WEDNESDAY, Weekday.THURSDAY, Weekday.FRIDAY}
 MWF = {Weekday.MONDAY, Weekday.WEDNESDAY, Weekday.FRIDAY}
 
-
 class TestCalendarTimes:
     def test_time_with_seconds_rejected(self) -> None:
         with pytest.raises(ValidationError):
@@ -36,7 +35,6 @@ class TestCalendarTimes:
         with pytest.raises(ValidationError):
             CalendarSchedule(times=[], weekdays={Weekday.MONDAY})
 
-
 class TestUnionAndRendering:
     @pytest.mark.parametrize(
         ("seconds", "expected"),
@@ -53,7 +51,6 @@ class TestUnionAndRendering:
     def test_human_interval(self, seconds: int, expected: str) -> None:
         assert human_interval(seconds) == expected
 
-
 class TestUpcomingOccurrences:
     MONDAY_0730 = CalendarSchedule(times=["07:30"], weekdays={Weekday.MONDAY})
 
@@ -61,7 +58,6 @@ class TestUpcomingOccurrences:
     def test_invalid_count_rejected(self, count: int) -> None:
         with pytest.raises(ValueError):
             upcoming_occurrences(self.MONDAY_0730, now=datetime(2026, 8, 31, 12, 0), count=count)
-
 
 class TestUpcomingIntervalOccurrences:
     NINETY_SECONDS = IntervalSchedule(seconds=90)

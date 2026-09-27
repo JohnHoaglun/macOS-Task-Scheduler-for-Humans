@@ -31,7 +31,6 @@ PYENV_NO_INTERP = "a pyenv project was detected, but no usable configured interp
 CONDA_NO_INTERP = "a Conda project was detected, but no usable configured interpreter is available"
 PIPENV_NO_VENV = "a Pipenv project was detected, but no usable .venv interpreter is available"
 
-
 def _detect(script: Path, filesystem: FakePythonDetectorFilesystem) -> PythonDetectionResult:
     return detect_python(
         script,
@@ -41,17 +40,14 @@ def _detect(script: Path, filesystem: FakePythonDetectorFilesystem) -> PythonDet
         roots=EMPTY_DETECTION_ROOTS,
     )
 
-
 def _lookup(target: Path | None) -> Callable[[str], str | None]:
     def which(name: str) -> str | None:
         return str(target) if name == "python3" and target is not None else None
 
     return which
 
-
 def _roots(pyenv: tuple = (), conda: tuple = (), homebrew: tuple = ()) -> PythonDetectionRoots:
     return PythonDetectionRoots(pyenv=pyenv, conda=conda, homebrew=homebrew)
-
 
 class TestProjectRootWalk:
     def test_table_key_is_ecosystem_specific(self, tmp_path: Path) -> None:
@@ -77,7 +73,6 @@ class TestProjectRootWalk:
         result = _detect(root, filesystem)
         assert result.candidates == []
         assert result.notes == []
-
 
 class TestEcosystemNotes:
     def test_markers_from_both_detectors_order_notes(self, tmp_path: Path) -> None:
@@ -119,7 +114,6 @@ class TestEcosystemNotes:
             (DetectorKind.POETRY, POETRY_PARSE_NOTE),
         ]
 
-
 class TestRegistryAndLocalReader:
     def test_local_reader_roundtrip(self, tmp_path: Path) -> None:
         reader = LocalPythonDetectorFilesystem()
@@ -135,7 +129,6 @@ class TestRegistryAndLocalReader:
         assert not reader.exists(missing)
         assert reader.read_text(missing) is None
         assert reader.is_dir(tmp_path)
-
 
 class TestPyenvDetector:
     def test_system_name_reports_note(self, tmp_path: Path) -> None:
@@ -156,7 +149,6 @@ class TestPyenvDetector:
         fs = FakePythonDetectorFilesystem(files=files, executable=set())
         context = detect_context(tmp_path / "job.py", fs, _roots(pyenv=(tmp_path / "pyenv",)))
         assert [n.message for n in PyenvPythonDetector().detect(context).notes] == [PYENV_NO_INTERP]
-
 
 class TestCondaDetector:
     def test_base_env_selects_prefix_python(self, tmp_path: Path) -> None:
@@ -189,7 +181,6 @@ class TestCondaDetector:
         context = detect_context(tmp_path / "job.py", fs, roots)
         assert [n.message for n in CondaPythonDetector().detect(context).notes] == [CONDA_NO_INTERP]
 
-
 class TestPipenvDetector:
     def test_uses_project_venv(self, tmp_path: Path) -> None:
         interp = tmp_path / ".venv" / "bin" / "python"
@@ -204,7 +195,6 @@ class TestPipenvDetector:
         fs = FakePythonDetectorFilesystem(files=files, executable=set())
         context = detect_context(tmp_path / "job.py", fs, EMPTY_DETECTION_ROOTS)
         assert [n.message for n in PipenvPythonDetector().detect(context).notes] == [PIPENV_NO_VENV]
-
 
 class TestDefaultInterpreterCandidate:
     def _result(self, *candidates: InterpreterCandidate) -> PythonDetectionResult:

@@ -78,12 +78,15 @@ from task_scheduler.platform.macos.python_detection import (
     project_environment_candidate,
 )
 from task_scheduler.platform.macos.python_detectors import default_python_detectors
+from task_scheduler.platform.macos.run_log_watcher import RunLogWatcher, RunObservation
 from task_scheduler.platform.macos.run_wrapper import (
     WRAPPER_BASENAME,
-    default_run_logs_root,
+    default_job_logs_root,
+    ensure_job_log_dir,
+    job_log_dir,
     run_log_path,
-    spool_err_path,
-    spool_out_path,
+    stderr_log_path,
+    stdout_log_path,
 )
 
 __all__ = [
@@ -97,10 +100,14 @@ __all__ = [
     "SUPPORTED_KEYS",
     "WEEKDAY_TO_LAUNCHD",
     "WRAPPER_BASENAME",
-    "default_run_logs_root",
+    "default_job_logs_root",
+    "ensure_job_log_dir",
+    "job_log_dir",
     "run_log_path",
-    "spool_err_path",
-    "spool_out_path",
+    "stderr_log_path",
+    "stdout_log_path",
+    "RunObservation",
+    "RunLogWatcher",
     "CandidateSource",
     "CommandSpec",
     "DetectionContext",

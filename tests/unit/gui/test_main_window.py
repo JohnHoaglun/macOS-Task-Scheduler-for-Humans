@@ -30,7 +30,7 @@ from conftest import make_job
 from task_scheduler.application import CatalogDiagnostic, ExternalEditResult, TaskCommandService
 from task_scheduler.application.external_edit_models import RawPlistRead
 from task_scheduler.application.task_command_service import ListingKind, TaskListing
-from task_scheduler.domain import JobDefinition, LoggingConfig
+from task_scheduler.domain import JobDefinition
 from task_scheduler.gui.controllers.diagnostics_controller import DiagnosticsController, TestOutcome
 from task_scheduler.gui.controllers.diagnostics_controller import RequestVerdict as TestVerdict
 from task_scheduler.gui.controllers.discovery_controller import (
@@ -95,25 +95,21 @@ from task_scheduler.gui.widgets.import_preview_dialog import ImportPreviewDialog
 from task_scheduler.gui.widgets.job_editor import JobEditor
 from task_scheduler.gui.widgets.lifecycle_result import LifecycleResultDialog
 from task_scheduler.gui.widgets.raw_plist_editor import RawPlistEditor
-from task_scheduler.platform.macos import CommandSpec, ProcessResult, parse_path
+from task_scheduler.platform.macos import CommandSpec, ProcessResult, parse_path, run_wrapper
+from task_scheduler.platform.macos.run_wrapper import stdout_log_path
 
 EXTERNAL_A_ID = UUID("11111111-1111-4111-8111-111111111111")
 EXTERNAL_B_ID = UUID("22222222-2222-4222-8222-222222222222")
 SECOND_JOB_ID = UUID("33333333-3333-4333-8333-333333333333")
 INVALID_LABEL = "com.example.invalid"
 
-
 def _value_label(inspector: AgentInspector, object_name: str) -> QLabel:
     label = inspector.findChild(QLabel, object_name)
     assert label is not None
     return label
 
-
 def _message_label(inspector: AgentInspector) -> QLabel:
-    """The top-level message QLabel.
-    Every value QLabel is re-parented into its group box by the layouts, so
-    the message is the only QLabel whose parent is the inspector itself.
-    """
+    """The top-level message QLabel: the only QLabel whose parent is the inspector itself."""
     direct = [
         label
         for label in inspector.findChildren(QLabel)
@@ -122,12 +118,10 @@ def _message_label(inspector: AgentInspector) -> QLabel:
     assert len(direct) == 1
     return direct[0]
 
-
 def _scroll_area(inspector: AgentInspector) -> QScrollArea:
     scroll = inspector.findChild(QScrollArea)
     assert scroll is not None
     return scroll
-
 
 def _window(
     qtbot: QtBot,
@@ -143,7 +137,6 @@ def _window(
     )
     _settle_discovery(qtbot, window)
     return window
-
 
 def _window_full(qtbot: QtBot, controller: DiscoveryController) -> MainWindow:
     """A window wired to real services plus the JSON transfer controller."""
@@ -161,19 +154,13 @@ def _window_full(qtbot: QtBot, controller: DiscoveryController) -> MainWindow:
     _settle_discovery(qtbot, window)
     return window
 
-
 def _settle_discovery(qtbot: QtBot, window: MainWindow) -> None:
-    """Show *window* and wait for its construction-time discovery scan to apply.
-
-    Also drains the construction worker thread: the in-flight flag clears
-    before the QThread is destroyed, and a live QThread left behind per
-    window aborts the session at teardown.
-    """
+    """Show *window*, wait for its construction-time discovery scan, and drain the worker QThread
+    (a live QThread left per window aborts the session at teardown)."""
     qtbot.addWidget(window)
     window.show()
     qtbot.waitUntil(lambda: not window._discovery_in_flight, timeout=5000)
     qtbot.waitUntil(lambda: window._worker_threads == set(), timeout=5000)
-
 
 def _row_by_path(model: AgentTableModel, path: Path) -> int:
     for row in range(model.rowCount()):
@@ -182,14 +169,12 @@ def _row_by_path(model: AgentTableModel, path: Path) -> int:
             return row
     raise AssertionError(f"no row for {path}")
 
-
 def _fill_valid_python(editor: JobEditor) -> None:
     editor.findChild(QLineEdit, "editor-name").setText("Nightly Sync")
     editor.findChild(QLineEdit, "editor-interpreter").setText("/tmp/venv/bin/python")
     editor.findChild(QLineEdit, "editor-script").setText("/tmp/nightly.py")
     editor.findChild(QLineEdit, "editor-time").setText("01:00")
     editor.findChild(QCheckBox, "editor-weekday-monday").setChecked(True)
-
 
 def _seed_three(
     tmp_path: Path,
@@ -204,7 +189,6 @@ def _seed_three(
     world.store.write(external_b)
     return world, managed, external_a, external_b
 
-
 class _BoomServices:
     """Duck-typed TaskCommandService: discovery fails, inspect is unused."""
 
@@ -214,7 +198,6 @@ class _BoomServices:
     def inspect_discovered(self, path: Path) -> None:
         raise NotImplementedError
 
-
 class TestDiscoveryFailure:
     def test_discovery_failure_is_surfaced(self, qtbot: QtBot) -> None:
         window = _window(qtbot, DiscoveryController(_BoomServices()))
@@ -222,7 +205,6 @@ class TestDiscoveryFailure:
         assert _message_label(window.inspector).text() == "boom"
         assert window.statusBar().currentMessage() == "boom"
         assert _scroll_area(window.inspector).isHidden()
-
 
 class TestSelectionOutOfRange:
     def test_out_of_range_selection_index_is_ignored(self, qtbot: QtBot, tmp_path: Path) -> None:
@@ -236,7 +218,6 @@ class TestSelectionOutOfRange:
         window._on_selection_changed(QItemSelection(index, index), QItemSelection())
         assert _value_label(window.inspector, "overview-name").text() == before
         assert _scroll_area(window.inspector).isVisible()
-
 
 class _InspectFailingServices:
     """Duck-typed TaskCommandService: discovery works, inspect always fails."""
@@ -258,7 +239,6 @@ class _InspectFailingServices:
     def inspect_discovered(self, path: Path) -> None:
         raise ValueError("plist is corrupted")
 
-
 class TestInspectFailure:
     def test_inspect_failure_is_surfaced_in_the_inspector(
         self, qtbot: QtBot, tmp_path: Path) -> None:
@@ -270,7 +250,6 @@ class TestInspectFailure:
         window.table.setCurrentIndex(model.index(0, 0))
         assert _message_label(window.inspector).text() == "plist is corrupted"
         assert _scroll_area(window.inspector).isHidden()
-
 
 class TestCatalogDiagnosticsStatus:
     def test_unreadable_catalog_files_show_status(self, qtbot: QtBot, tmp_path: Path) -> None:
@@ -288,8 +267,7 @@ class TestCatalogDiagnosticsStatus:
         window = _window(qtbot, DiscoveryController(_InspectFailingServices(world.services)))
         assert window.statusBar().currentMessage() == ""
 
-    def test_refresh_status_clears_stale_warning_only(
-        self, qtbot: QtBot, tmp_path: Path) -> None:
+    def test_refresh_status_clears_stale_warning_only( self, qtbot: QtBot, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
         window = _window(qtbot, DiscoveryController(world.services))
         window._show_refresh_status((CatalogDiagnostic(tmp_path / "b.plist", "unreadable"),))
@@ -299,7 +277,6 @@ class TestCatalogDiagnosticsStatus:
         window.statusBar().showMessage("Removed external LaunchAgent.")
         window._show_refresh_status(())
         assert window.statusBar().currentMessage() == "Removed external LaunchAgent."
-
 
 class TestTaskActions:
     def test_new_task_save_writes_catalog(self, qtbot: QtBot, tmp_path: Path) -> None:
@@ -344,7 +321,6 @@ class TestTaskActions:
         assert editor.saved_path is not None
         assert "Renamed Backup" in editor.saved_path.read_text()
 
-
 class TestEditEdgeCases:
     def test_edit_action_missing_catalog_entry(self, qtbot: QtBot, tmp_path: Path) -> None:
         """A parseable managed agent absent from the catalog shows a hint."""
@@ -359,7 +335,6 @@ class TestEditEdgeCases:
         window.edit_task_action.trigger()
         assert window.statusBar().currentMessage() == "This task is not in the task catalog."
         assert not window._editor.isVisible()
-
 
 def _capture_lifecycle(
     window: MainWindow, monkeypatch: pytest.MonkeyPatch
@@ -380,7 +355,6 @@ def _capture_lifecycle(
     monkeypatch.setattr(window, "_start_worker", _start)
     return outcomes
 
-
 def _panel_text(window: MainWindow, object_name: str) -> str:
     found = window.panel.findChild(object, object_name)
     assert found is not None
@@ -389,16 +363,13 @@ def _panel_text(window: MainWindow, object_name: str) -> str:
     assert isinstance(found, QLabel)
     return found.text()
 
-
 def _select_managed(world: FakeTaskWorld, window: MainWindow, job: JobDefinition) -> None:
     model = window.table.model()
     row = _row_by_path(model, world.store.destination_for(job.label))
     window.table.setCurrentIndex(model.index(row, 0))
 
-
 def _answer_question(monkeypatch: pytest.MonkeyPatch, answer: QMessageBox.StandardButton) -> None:
     monkeypatch.setattr(QMessageBox, "question", lambda *_: answer)
-
 
 class TestLifecycleTrigger:
     def test_reinstall_declined_confirmation_runs_nothing(
@@ -431,7 +402,6 @@ class TestLifecycleTrigger:
         qtbot.waitUntil(lambda: not window._lifecycle_busy and len(outcomes) == 1, timeout=5000)
         assert outcomes[0].action is LifecycleAction.RUN_NOW
         assert outcomes[0].is_success
-
 
 class TestLifecycleEdgeCases:
     def test_trigger_without_selection_shows_hint(self, qtbot: QtBot, tmp_path: Path) -> None:
@@ -477,7 +447,6 @@ class TestLifecycleEdgeCases:
         assert window.statusBar().currentMessage() == (
             "The operation failed unexpectedly; see the application log."
         )
-
 
 class TestDiagnosticsTrigger:
     def test_trigger_without_selection_shows_hint(self, qtbot: QtBot, tmp_path: Path) -> None:
@@ -533,12 +502,15 @@ class TestDiagnosticsTrigger:
             "The test failed unexpectedly; see the application log."
         )
 
-    def test_refresh_renders_logs_and_environment(self, qtbot: QtBot, tmp_path: Path) -> None:
+    def test_refresh_renders_logs_and_environment(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(run_wrapper, "default_job_logs_root", lambda: tmp_path / "job-logs")
         world = FakeTaskWorld(tmp_path)
-        out = tmp_path / "out.log"
-        out.write_text("persisted out\n")
-        job = make_job(logging=LoggingConfig(stdout_path=out, stderr_path=None))
+        job = make_job()
         world.manage(job)
+        stdout_log_path(job.label).parent.mkdir(parents=True, exist_ok=True)
+        stdout_log_path(job.label).write_text("persisted out\n", encoding="utf-8")
         window = _window(qtbot, DiscoveryController(world.services))
         _select_managed(world, window, job)
         window.panel.refresh_button.click()
@@ -552,7 +524,10 @@ class TestDiagnosticsTrigger:
         window._on_diagnostics_refresh()
         assert window.statusBar().currentMessage() == "Select a task to refresh its logs."
 
-    def test_production_thread_dispatch(self, qtbot: QtBot, tmp_path: Path) -> None:
+    def test_production_thread_dispatch(
+        self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(run_wrapper, "default_job_logs_root", lambda: tmp_path / "job-logs")
         world = FakeTaskWorld(tmp_path, test=ProcessResult(exit_code=0, stdout="direct out"))
         job = make_job()
         world.manage(job)
@@ -561,17 +536,14 @@ class TestDiagnosticsTrigger:
         window.test_action.trigger()
         assert window._diagnostics_busy is True
         qtbot.waitUntil(lambda: window._diagnostics_busy is False, timeout=5000)
-        assert _panel_text(window, "diagnostics-summary") == ("Passed (exit code 0) in 0.00s")
-
+        saved = stdout_log_path(job.label).parent / f"{job.name.strip()}.direct-test.log"
+        assert _panel_text(window, "diagnostics-summary") == (
+            f"Passed (exit code 0) in 0.00s\nResult saved to: {saved}"
+        )
 
 class TestInspectorReadability:
-    """Wrapped inspector text must never be vertically clipped.
-
-    A wide per-widget font forces wrapping the same way the user's Retina
-    display does, so the layout invariant is checked deterministically
-    offscreen instead of discovered in the field.
-    """
-
+    """Inspector text must never be vertically clipped; a wide font wraps like Retina, so the
+    invariant is checked deterministically offscreen."""
 
 class TestHistoryPanelWiring:
     def test_close_stops_tracked_worker_threads(
@@ -626,11 +598,8 @@ class TestHistoryPanelWiring:
 
     def test_worker_threads_are_parentless_and_shutdown_flush_is_safe(
         self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Regression for the 2026-09-18 shutdown SIGSEGV: a QThread parented
-        to the window is C++-owned by it and was freed while the worker's
-        queued ``deleteLater`` was still pending. Parentless threads die only
-        by their own ``deleteLater``, so close+flush below must be safe.
-        """
+        """Regression for the 2026-09-18 SIGSEGV. Window-parented QThreads are C++-owned (freed too
+        early); parentless threads die only via deleteLater, so close+flush is safe."""
         world, managed, *_ = _seed_three(tmp_path)
         window = _window_full(qtbot, DiscoveryController(world.services))
         real_qthread: type[QThread] = main_window_module.QThread
@@ -679,7 +648,6 @@ class TestHistoryPanelWiring:
         window.table.setCurrentIndex(QModelIndex())
         window._on_history_refresh()
         assert window.statusBar().currentMessage() == "Select a task to refresh its history."
-
 
 class TestClosePendingGates:
     """Close-drain bookkeeping the interaction tests never exercise."""
@@ -742,7 +710,6 @@ class TestClosePendingGates:
         assert window._close_finalizing is True
         window._close_finalizing = False
 
-
 EXTERNAL_PLIST = """\
 <?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict>
@@ -764,7 +731,6 @@ EXTERNAL_PARTIAL_PLIST = """\
 </dict></plist>
 """
 
-
 def _import_window(qtbot: QtBot, world: FakeTaskWorld) -> MainWindow:
     from task_scheduler.gui.controllers.import_controller import ImportController
 
@@ -779,7 +745,6 @@ def _import_window(qtbot: QtBot, world: FakeTaskWorld) -> MainWindow:
     _settle_discovery(qtbot, window)
     return window
 
-
 def _external_row(window: MainWindow) -> int | None:
     """Return the row index of the external plist, or None."""
     model = window.table.model()
@@ -788,7 +753,6 @@ def _external_row(window: MainWindow) -> int | None:
         if listing is not None and listing.path is not None:
             return row
     return None
-
 
 class TestImportTriggered:
     """Drives MainWindow._on_import_triggered end-to-end, faking the dialog modal."""
@@ -860,7 +824,6 @@ class TestImportTriggered:
         assert len(list(world.catalog_root.glob("*.json"))) == 1
         assert window.statusBar().currentMessage() == ""
 
-
 class TestWave3Composition:
     """3A: proxy mapping, empty-state sync, badges, and transfer/reveal/copy actions."""
 
@@ -891,11 +854,13 @@ class TestWave3Composition:
 
     def test_reveal_plist_and_logs(
         self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        out = tmp_path / "out.log"
-        out.write_text("log\n")
-        job = make_job(logging=LoggingConfig(stdout_path=out, stderr_path=out))
+        monkeypatch.setattr(run_wrapper, "default_job_logs_root", lambda: tmp_path / "job-logs")
+        job = make_job()
         world = FakeTaskWorld(tmp_path)
         world.manage(job)
+        stdout = stdout_log_path(job.label)
+        stdout.parent.mkdir(parents=True, exist_ok=True)
+        stdout.write_text("log\n", encoding="utf-8")
         window = _window_full(qtbot, DiscoveryController(world.services))
         _select_managed(world, window, job)
         revealed: list[Path] = []
@@ -903,7 +868,7 @@ class TestWave3Composition:
         window.reveal_plist_action.trigger()
         assert len(revealed) == 1
         window.reveal_stdout_action.trigger()
-        assert revealed[1] == out
+        assert revealed[1] == stdout
         # A reveal failure surfaces as a status message, not an exception.
         monkeypatch.setattr(window._services, "reveal_path", lambda _p: "cannot reveal")
         window._on_reveal_plist()
@@ -1019,17 +984,14 @@ class TestWave3Composition:
         window._on_copy_command()
         assert "No command available" in window.statusBar().currentMessage()
 
-
 EXTERNAL_EDIT_LABEL = "com.example.editable"
 QUARANTINE_LABEL = "com.example.quarantine"
 RAW_LABEL = "com.example.raw"
-
 
 def _seed_external(tmp_path: Path, *, launches: list[ProcessResult] | None = None) -> FakeTaskWorld:
     world = FakeTaskWorld(tmp_path, launches=launches)
     world.store.write(make_job(label=EXTERNAL_EDIT_LABEL, name="External Editable"))
     return world
-
 
 def _seed_all_kinds(tmp_path: Path) -> tuple[FakeTaskWorld, dict[str, Path]]:
     """One row per kind: managed installed, saved, external, unrepresentable."""
@@ -1057,7 +1019,6 @@ def _seed_all_kinds(tmp_path: Path) -> tuple[FakeTaskWorld, dict[str, Path]]:
         "unrepresentable": unrepresentable,
     }
 
-
 def _row_by_label(window: MainWindow, label: str) -> int:
     model = window.table.model()
     for row in range(model.rowCount()):
@@ -1066,35 +1027,28 @@ def _row_by_label(window: MainWindow, label: str) -> int:
             return row
     raise AssertionError(f"no row for {label}")
 
-
 def _write_plist(world: FakeTaskWorld, label: str, raw: dict[str, object]) -> Path:
     path = world.la_root / f"{label}.plist"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(plistlib.dumps(raw))
     return path
 
-
 def _external_row_path(world: FakeTaskWorld) -> Path:
     return world.la_root / f"{EXTERNAL_EDIT_LABEL}.plist"
-
 
 def _mutating(specs: list[CommandSpec]) -> list[str]:
     """The non-``print`` launchctl subcommands, in order (refresh noise dropped)."""
     return [spec.argv[1] for spec in specs if spec.argv[1] != "print"]
 
-
 def _select_row(window: MainWindow, row: int) -> None:
     model = window.table.model()
     window.table.setCurrentIndex(model.index(row, 0))
 
-
 def _select_external_row(window: MainWindow, world: FakeTaskWorld) -> None:
     _select_row(window, _row_by_path(window.table.model(), _external_row_path(world)))
 
-
 def _select_plist_row(window: MainWindow, world: FakeTaskWorld, label: str) -> None:
     _select_row(window, _row_by_path(window.table.model(), world.la_root / f"{label}.plist"))
-
 
 def _script_external_dialogs(
     monkeypatch: pytest.MonkeyPatch,
@@ -1123,7 +1077,6 @@ def _script_external_dialogs(
     monkeypatch.setattr(RemoveSavedJobConfirmDialog, "exec", _make(saved))
     return titles
 
-
 def _fake_editor_save(
     window: MainWindow,
     monkeypatch: pytest.MonkeyPatch,
@@ -1142,7 +1095,6 @@ def _fake_editor_save(
         return QDialog.DialogCode.Accepted
 
     monkeypatch.setattr(JobEditor, "exec", fake_exec)
-
 
 def _fake_raw_editor(
     monkeypatch: pytest.MonkeyPatch,
@@ -1174,14 +1126,12 @@ def _fake_raw_editor(
     monkeypatch.setattr(RawPlistEditor, "exec", fake_exec)
     return opened
 
-
 def _run_external_synchronously(window: MainWindow, monkeypatch: pytest.MonkeyPatch) -> None:
     def _start(worker: ExternalControlWorker) -> None:
         worker.finished.connect(window._on_external_finished)
         worker.run()
 
     monkeypatch.setattr(window, "_start_external_worker", _start)
-
 
 class TestUniversalExternalEdit:
     def test_no_change_save_shows_pinned_message(
@@ -1314,7 +1264,6 @@ class TestUniversalExternalEdit:
         assert window.statusBar().currentMessage() == EXTERNAL_EDIT_SUCCESS_UNLOADED
         assert _mutating(world.launch_runner.specs) == []
 
-
 class TestUniversalExternalLifecycle:
     @pytest.mark.parametrize("exit_code", [1, None])
     def test_disable_not_loaded_skips_bootout(
@@ -1404,7 +1353,6 @@ class TestUniversalExternalLifecycle:
         assert titles == []
         assert _mutating(world.launch_runner.specs) == ["kickstart"]
 
-
 class TestUniversalRemove:
     def test_remove_external_loaded_backs_up_and_unloads_first(
         self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1438,7 +1386,6 @@ class TestUniversalRemove:
         assert window.statusBar().currentMessage() == REMOVED_SAVED_RESULT.format(name="Saved Only")
         assert all(job.label != "com.example.saved-only" for job in world.jobs.list_jobs())
 
-
 def _seed_raw_plist(tmp_path: Path, *, binary: bool = True) -> tuple[FakeTaskWorld, Path]:
     """Seed RAW_LABEL as a LaunchAgent plist and return (world, path)."""
     world = FakeTaskWorld(tmp_path)
@@ -1447,7 +1394,6 @@ def _seed_raw_plist(tmp_path: Path, *, binary: bool = True) -> tuple[FakeTaskWor
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(plistlib.dumps(raw, fmt=plistlib.FMT_BINARY if binary else plistlib.FMT_XML))
     return world, path
-
 
 class TestUniversalRawEdit:
     def test_binary_source_shows_base64_and_normalizes(
@@ -1510,7 +1456,6 @@ class TestUniversalRawEdit:
         assert path.read_bytes() == source
         assert list(world.la_root.glob("*.backup.*")) == []
 
-
 def _ext_result(
     world: FakeTaskWorld,
     *,
@@ -1532,10 +1477,8 @@ def _ext_result(
         removed=removed,
     )
 
-
 def _unresolved_listing(kind: ListingKind, *, managed: bool) -> TaskListing:
     return TaskListing(kind=kind, path=None, parsed=None, job=None, managed=managed)
-
 
 class TestExternalControlCoverage:
     """White-box coverage of defensive branches the interaction tests skip."""
@@ -1769,7 +1712,6 @@ class TestExternalControlCoverage:
         window._on_lifecycle_triggered(LifecycleAction.UNINSTALL)
         assert window.statusBar().currentMessage() == "Select a task first."
 
-
 class TestAsyncDiscoveryRefresh:
     """Coalescing and generation staleness of the off-thread discovery refresh."""
 
@@ -1813,9 +1755,7 @@ class TestAsyncDiscoveryRefresh:
         self, qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         world, *_ = _seed_three(tmp_path)
         window = _window(qtbot, DiscoveryController(world.services))
-        monkeypatch.setattr(
-            window, "_start_discovery_worker", lambda worker, generation: None
-        )
+        monkeypatch.setattr( window, "_start_discovery_worker", lambda worker, generation: None )
         window.refresh()
         window.refresh()
         window._on_discovery_finished(2, RefreshOutcome(agents=None, error="boom"))
@@ -1845,7 +1785,6 @@ class TestAsyncDiscoveryRefresh:
         assert window.table.model().rowCount() == 3
         assert not window._discovery_in_flight
         assert not window._discovery_pending
-
 
 class TestAsyncRawRead:
     """Completion handling of the off-thread raw plist read."""

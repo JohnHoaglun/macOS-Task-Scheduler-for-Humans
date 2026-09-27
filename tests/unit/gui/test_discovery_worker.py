@@ -27,7 +27,6 @@ class _RaisingController:
     def refresh(self) -> NoReturn:
         raise RuntimeError("boom")
 
-
 def _run(worker: DiscoveryWorker) -> RefreshOutcome:
     emitted: list[object] = []
     worker.finished.connect(lambda value: emitted.append(value))
@@ -35,24 +34,18 @@ def _run(worker: DiscoveryWorker) -> RefreshOutcome:
     assert len(emitted) == 1
     return cast(RefreshOutcome, emitted[0])
 
-
 class TestDiscoveryWorker:
-    def test_success_emits_controller_outcome(
-        self, qtbot: QtBot, tmp_path: Path) -> None:
+    def test_success_emits_controller_outcome( self, qtbot: QtBot, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
         world.manage(make_job())
         outcome = _run(DiscoveryWorker(DiscoveryController(world.services)))
         assert outcome.error is None
         assert outcome.diagnostics == ()
-        assert [listing.job.label for listing in outcome.agents] == [
-            make_job().label
-        ]
+        assert [listing.job.label for listing in outcome.agents] == [ make_job().label ]
 
     def test_unexpected_failure_emits_typed_outcome(
         self, qtbot: QtBot, caplog: pytest.LogCaptureFixture) -> None:
-        worker = DiscoveryWorker(
-            cast(DiscoveryController, _RaisingController())
-        )
+        worker = DiscoveryWorker( cast(DiscoveryController, _RaisingController()) )
         with caplog.at_level(
             logging.ERROR, logger="task_scheduler.gui.controllers.discovery_worker"
         ):

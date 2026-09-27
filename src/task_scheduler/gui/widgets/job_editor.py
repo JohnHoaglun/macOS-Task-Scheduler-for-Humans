@@ -33,7 +33,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from task_scheduler.application.job_service import derive_log_paths
 from task_scheduler.domain import CalendarSchedule, IntervalSchedule, JobDefinition, Weekday
 from task_scheduler.gui.controllers.diagnostics_controller import DiagnosticsController
 from task_scheduler.gui.controllers.editor_controller import (
@@ -178,7 +177,6 @@ class JobEditor(QDialog):
         layout.addLayout(buttons)
         close_button.clicked.connect(self.reject)
         self._name.textEdited.connect(self._on_name_edited)
-        self._log_directory.textEdited.connect(self._on_log_directory_edited)
         self._times.rowsChanged.connect(self._on_draft_changed)
         self._script.textEdited.connect(self._on_draft_changed)
         self._script.textChanged.connect(self._on_script_changed)
@@ -429,21 +427,12 @@ class JobEditor(QDialog):
         self._refresh_derived_log_display()
         self._on_draft_changed()
 
-    def _on_log_directory_edited(self, _text: str) -> None:
-        """Update the draft's log directory and refresh both derived stream paths."""
-        if self._external_mode or self._draft is None:
-            return
-        self._controller.set_log_directory(self._draft, self._log_directory.text().strip())
-        self._refresh_derived_log_display()
-        self._on_draft_changed()
-
     def _refresh_derived_log_display(self) -> None:
-        """Show both stream paths derived from the visible name and log directory."""
+        """Show the canonical per-label log folder and stream paths (managed mode)."""
         if self._draft is None or self._external_mode:
             return
-        stdout, stderr = derive_log_paths(
-            self._name.text().strip(), self._log_directory.text().strip()
-        )
+        folder, stdout, stderr = self._controller.managed_log_display(self._draft)
+        self._log_directory.setText(folder)
         self._stdout_path.setText(stdout)
         self._stderr_path.setText(stderr)
 
@@ -557,16 +546,13 @@ class JobEditor(QDialog):
             "editor-working-directory", "editor-working-directory-browse", "directory"
         )
         form.addRow("Working directory", directory_row)
-        self._log_directory, log_directory_row = self._path_row(
-            "editor-log-directory", "editor-log-directory-browse", "directory"
-        )
-        form.addRow("Log directory", log_directory_row)
-        log_directory_label = form.labelForField(log_directory_row)
+        self._log_directory = QLineEdit(group)
+        self._log_directory.setObjectName("editor-log-directory")
+        self._log_directory.setReadOnly(True)
+        form.addRow("Log folder", self._log_directory)
+        log_directory_label = form.labelForField(self._log_directory)
         assert log_directory_label is not None
         self._log_directory_label = log_directory_label
-        log_directory_browse = log_directory_row.findChild(QPushButton)
-        assert log_directory_browse is not None
-        self._log_directory_browse = log_directory_browse
         self._stdout_path = QLineEdit(group)
         self._stdout_path.setObjectName("editor-stdout-path")
         self._stdout_path.setReadOnly(True)
@@ -579,8 +565,9 @@ class JobEditor(QDialog):
         self._logging_note.setObjectName("editor-logging-note")
         self._logging_note.setWordWrap(True)
         self._logging_note.setText(
-            "Filenames are derived from the task name in the log directory. "
-            "Clear the log directory to disable both streams."
+            "Managed tasks always write their logs to a shared folder derived "
+            "from the task label; the location is fixed and cannot be chosen "
+            "per task."
         )
         form.addRow(self._logging_note)
         return group
@@ -605,8 +592,6 @@ class JobEditor(QDialog):
             path, _ = QFileDialog.getOpenFileName(self, "Select a file", line_edit.text())
         if path:
             line_edit.setText(path)
-            if line_edit is self._log_directory:
-                self._on_log_directory_edited(path)
 
     def open_new(self) -> None:
         """Populate the dialog from a fresh draft and show it for a new job."""
@@ -644,7 +629,6 @@ class JobEditor(QDialog):
         self._stderr_path.setReadOnly(False)
         self._log_directory_label.hide()
         self._log_directory.hide()
-        self._log_directory_browse.hide()
         self._logging_note.hide()
         self._load_draft()
 
@@ -663,7 +647,6 @@ class JobEditor(QDialog):
         self._stderr_path.setReadOnly(True)
         self._log_directory_label.show()
         self._log_directory.show()
-        self._log_directory_browse.show()
         self._logging_note.show()
 
     def _load_draft(self) -> None:
@@ -733,12 +716,13 @@ class JobEditor(QDialog):
             self._run_at_load.setChecked(d.run_at_load)
             self._working_directory.setText(d.working_directory)
             self._environment.set_rows([[key, value] for key, value in d.environment])
-            self._log_directory.setText(d.log_directory)
             if self._external_mode:
+                self._log_directory.setText(d.log_directory)
                 self._stdout_path.setText(d.stdout_path)
                 self._stderr_path.setText(d.stderr_path)
             else:
-                stdout, stderr = derive_log_paths(d.name, d.log_directory)
+                folder, stdout, stderr = self._controller.managed_log_display(d)
+                self._log_directory.setText(folder)
                 self._stdout_path.setText(stdout)
                 self._stderr_path.setText(stderr)
             self._preview.clear()
@@ -788,8 +772,6 @@ class JobEditor(QDialog):
         if self._external_mode:
             c.set_stdout_path(d, self._stdout_path.text().strip())
             c.set_stderr_path(d, self._stderr_path.text().strip())
-        else:
-            c.set_log_directory(d, self._log_directory.text().strip())
 
     def _on_validate(self) -> None:
         """Validate the draft and show any field errors."""

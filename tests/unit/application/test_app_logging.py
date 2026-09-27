@@ -28,32 +28,26 @@ def _isolate_root_handlers():
             handler.close()
     root.setLevel(original_level)
 
-
 def _exc_and_tb() -> tuple[type[BaseException], BaseException, TracebackType | None]:
     try:
         raise ValueError("boom")
     except ValueError as exc:
         return type(exc), exc, exc.__traceback__
 
-
 def _read_jsonl(path: Path) -> list[dict[str, object]]:
     lines = path.read_text(encoding="utf-8").splitlines()
     return [json.loads(line) for line in lines if line.strip()]
-
 
 def _event(path: Path, name: str) -> dict[str, object]:
     matches = [record for record in _read_jsonl(path) if record.get("event") == name]
     assert len(matches) == 1
     return matches[0]
 
-
 def _record() -> logging.LogRecord:
     return logging.LogRecord("t", logging.INFO, __file__, 1, "m", (), None)
 
-
 def test_app_log_path_lives_under_default_logs_root() -> None:
     assert al.app_log_path() == default_job_logs_root() / al.APP_LOG_FILENAME
-
 
 def test_configure_logging_creates_and_is_idempotent(tmp_path: Path) -> None:
     path = tmp_path / "app.log"
@@ -63,12 +57,10 @@ def test_configure_logging_creates_and_is_idempotent(tmp_path: Path) -> None:
     assert len(logging.getLogger().handlers) == handlers
     assert path.exists()
 
-
 def test_ids_are_stable_and_unique() -> None:
     assert al.session_id() == al.session_id() and len(al.session_id()) == 32
     first, second = al.new_operation_id(), al.new_operation_id()
     assert first != second and len(first) == 12
-
 
 @pytest.mark.parametrize("with_callback", [True, False])
 def test_crash_hook_writes_structured_traceback(tmp_path, monkeypatch, with_callback):
@@ -84,7 +76,6 @@ def test_crash_hook_writes_structured_traceback(tmp_path, monkeypatch, with_call
     assert "Traceback (most recent call last)" in rec["error"]["traceback"]
     assert shown == (["dialog"] if with_callback else [])
 
-
 def test_crash_hook_callback_failure_does_not_mask_crash(tmp_path, monkeypatch):
     path = tmp_path / "crash.log"
     al.configure_logging(path)
@@ -97,7 +88,6 @@ def test_crash_hook_callback_failure_does_not_mask_crash(tmp_path, monkeypatch):
     sys.excepthook(*_exc_and_tb())
     assert _event(path, "crash.unhandled_exception")["error"]["type"] == "ValueError"
     assert "crash callback failed" in json.dumps(_read_jsonl(path))
-
 
 def test_unraisable_hook_writes_structured_log(tmp_path, monkeypatch):
     if not hasattr(sys, "unraisablehook"):
@@ -119,7 +109,6 @@ def test_unraisable_hook_writes_structured_log(tmp_path, monkeypatch):
     assert rec["error"]["type"] == "ValueError"
     assert rec["error"]["message"] == "background failure"
 
-
 def test_retention_prunes_old_archives_and_skips_unusable_entries(tmp_path: Path) -> None:
     old = (datetime.now(UTC) - timedelta(days=20)).strftime("%Y-%m-%d")
     old_archive = tmp_path / f"app.log.{old}"
@@ -136,7 +125,6 @@ def test_retention_prunes_old_archives_and_skips_unusable_entries(tmp_path: Path
     assert invalid.exists()
     assert short.exists()
 
-
 def test_retention_enforces_size_cap(tmp_path: Path) -> None:
     date = (datetime.now(UTC) - timedelta(days=1)).strftime("%Y-%m-%d")
     for i in range(15):
@@ -144,7 +132,6 @@ def test_retention_enforces_size_cap(tmp_path: Path) -> None:
     al._prune_archives(tmp_path)
     remaining = [p for p in tmp_path.iterdir() if p.name.startswith(f"{al.APP_LOG_FILENAME}.")]
     assert sum(p.stat().st_size for p in remaining) <= al._MAX_TOTAL_BYTES
-
 
 def test_rollover_on_new_day_uses_segment_and_collision_free_names(tmp_path: Path) -> None:
     path = tmp_path / "app.log"
@@ -160,7 +147,6 @@ def test_rollover_on_new_day_uses_segment_and_collision_free_names(tmp_path: Pat
     assert f"app.log.{old_date}-2-2" in archives
     assert path.exists()
 
-
 def test_rollover_archive_name_without_segment_count(tmp_path: Path) -> None:
     handler = al._BoundedJSONLHandler(tmp_path / "app.log")
     handler._current_date = "2026-01-02"
@@ -168,7 +154,6 @@ def test_rollover_archive_name_without_segment_count(tmp_path: Path) -> None:
         assert handler._archive_name() == tmp_path / "app.log.2026-01-02"
     finally:
         handler.close()
-
 
 def test_rollover_needed_when_log_file_is_missing(tmp_path: Path) -> None:
     handler = al._BoundedJSONLHandler(tmp_path / "app.log")
@@ -178,16 +163,13 @@ def test_rollover_needed_when_log_file_is_missing(tmp_path: Path) -> None:
     finally:
         handler.close()
 
-
 def _tagged_handlers() -> list[logging.Handler]:
     return [
         handler for handler in logging.getLogger().handlers if getattr(handler, al._TAG_ATTR, False)
     ]
 
-
 def _raise_permission_error(*_args: object, **_kwargs: object) -> None:
     raise PermissionError
-
 
 @pytest.mark.parametrize(
     ("fault", "expected"),
@@ -212,7 +194,6 @@ def test_startup_fault_installs_stderr_fallback(tmp_path, monkeypatch, capfd, fa
         for rec in lines
     )
 
-
 def test_failed_replacement_preserves_existing_handler(tmp_path, monkeypatch):
     first = tmp_path / "first.log"
     al.configure_logging(first)
@@ -227,7 +208,6 @@ def test_failed_replacement_preserves_existing_handler(tmp_path, monkeypatch):
     assert len(tagged) == 1 and getattr(tagged[0], al._PATH_ATTR) == first
     assert al.logging_degraded_reason() is None
 
-
 def test_reconfiguration_replaces_tagged_handler(tmp_path: Path) -> None:
     first = tmp_path / "first.log"
     second = tmp_path / "second.log"
@@ -237,14 +217,12 @@ def test_reconfiguration_replaces_tagged_handler(tmp_path: Path) -> None:
     assert len(tagged) == 1 and getattr(tagged[0], al._PATH_ATTR) == second
     assert first.exists() and second.exists() and al.logging_degraded_reason() is None
 
-
 def test_handler_init_reports_unavailable_log_directory(tmp_path: Path) -> None:
     blocker = tmp_path / "blocked"
     blocker.write_text("x", encoding="utf-8")
     with pytest.raises(al._LoggingFault) as exc:
         al._BoundedJSONLHandler(blocker / "app.log")
     assert exc.value.reason == "log-directory-unavailable"
-
 
 def test_handler_init_reports_unavailable_log_file(tmp_path: Path) -> None:
     log_path = tmp_path / "app.log"
@@ -253,13 +231,11 @@ def test_handler_init_reports_unavailable_log_file(tmp_path: Path) -> None:
         al._BoundedJSONLHandler(log_path)
     assert exc.value.reason == "log-file-unavailable"
 
-
 def test_handler_init_reports_permission_fault(tmp_path, monkeypatch):
     monkeypatch.setattr(al.os, "chmod", _raise_permission_error)
     with pytest.raises(al._LoggingFault) as exc:
         al._BoundedJSONLHandler(tmp_path / "app.log")
     assert exc.value.reason == "log-permissions-unavailable"
-
 
 def test_handler_init_reports_retention_fault(tmp_path, monkeypatch):
     (tmp_path / "app.log").write_text("x", encoding="utf-8")
@@ -267,7 +243,6 @@ def test_handler_init_reports_retention_fault(tmp_path, monkeypatch):
     with pytest.raises(al._LoggingFault) as exc:
         al._BoundedJSONLHandler(tmp_path / "app.log")
     assert exc.value.reason == "log-rollover-failed"
-
 
 def test_handler_init_reports_retention_oserror(tmp_path, monkeypatch):
     def broken_retention(_self):
@@ -277,7 +252,6 @@ def test_handler_init_reports_retention_oserror(tmp_path, monkeypatch):
     with pytest.raises(al._LoggingFault) as exc:
         al._BoundedJSONLHandler(tmp_path / "app.log")
     assert exc.value.reason == "log-rollover-failed"
-
 
 def test_emit_recovers_and_degrades_after_persistent_fault(tmp_path, monkeypatch):
     handler = al._BoundedJSONLHandler(tmp_path / "app.log")
@@ -290,7 +264,6 @@ def test_emit_recovers_and_degrades_after_persistent_fault(tmp_path, monkeypatch
     handler.emit(_record())
     assert al.logging_degraded_reason() == "log-rollover-failed"
     handler.emit(_record())
-
 
 def test_emit_degrades_when_stream_recovery_fails(tmp_path, monkeypatch):
     handler = al._BoundedJSONLHandler(tmp_path / "app.log")
@@ -307,7 +280,6 @@ def test_emit_degrades_when_stream_recovery_fails(tmp_path, monkeypatch):
     handler.emit(_record())
     assert al.logging_degraded_reason() == "log-write-failed"
 
-
 def test_stderr_handler_swallows_write_failure() -> None:
     handler = al._StderrJSONLHandler()
 
@@ -317,7 +289,6 @@ def test_stderr_handler_swallows_write_failure() -> None:
     handler.stream = SimpleNamespace(write=broken_write, flush=lambda: None)
     handler.emit(_record())
 
-
 def test_enforce_user_only_rejects_unverifiable_permissions(tmp_path, monkeypatch):
     path = tmp_path / "file"
     path.write_text("x", encoding="utf-8")
@@ -326,14 +297,12 @@ def test_enforce_user_only_rejects_unverifiable_permissions(tmp_path, monkeypatc
     with pytest.raises(OSError):
         al._enforce_user_only(path)
 
-
 def test_prune_reports_unreadable_directory(tmp_path: Path) -> None:
     file = tmp_path / "file"
     file.write_text("x", encoding="utf-8")
     with pytest.raises(al._LoggingFault) as exc:
         al._prune_archives(file)
     assert exc.value.reason == "log-directory-unavailable"
-
 
 @pytest.mark.parametrize("active_present", [True, False])
 def test_prune_reports_permission_fault(tmp_path, monkeypatch, active_present):
@@ -347,7 +316,6 @@ def test_prune_reports_permission_fault(tmp_path, monkeypatch, active_present):
         al._prune_archives(tmp_path)
     assert exc.value.reason == "log-permissions-unavailable"
 
-
 def test_retention_rolls_over_oversized_active_log(tmp_path: Path) -> None:
     path = tmp_path / "app.log"
     path.write_bytes(b"x" * (al._MAX_TOTAL_BYTES + 1))
@@ -359,7 +327,6 @@ def test_retention_rolls_over_oversized_active_log(tmp_path: Path) -> None:
     total = sum(p.stat().st_size for p in tmp_path.iterdir() if p.is_file())
     assert total <= al._MAX_TOTAL_BYTES
     assert path.exists()
-
 
 def test_crash_hooks_register_faulthandler(tmp_path: Path) -> None:
     log = tmp_path / "fault.log"
@@ -374,7 +341,6 @@ def test_crash_hooks_register_faulthandler(tmp_path: Path) -> None:
         if al._fault_file is not None:
             al._fault_file.close()
             al._fault_file = None
-
 
 def test_format_exception_without_value() -> None:
     assert al._format_exception(None, None, None) == "no exception value available"

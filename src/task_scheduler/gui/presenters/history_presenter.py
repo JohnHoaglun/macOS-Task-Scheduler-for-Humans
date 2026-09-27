@@ -43,6 +43,7 @@ def format_event_kind(kind: HistoryEventKind) -> str:
     return {
         HistoryEventKind.DIRECT_TEST: "Direct test",
         HistoryEventKind.MANUAL_RUN: "Manual run",
+        HistoryEventKind.LAUNCHD_TEST: "LaunchD test",
         HistoryEventKind.STATUS_OBSERVATION: "Status check",
         HistoryEventKind.DIAGNOSTIC_RESULT: "Diagnostics",
     }[kind]

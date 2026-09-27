@@ -26,6 +26,13 @@ from task_scheduler.domain import (
     PythonCommand,
     Schedule,
 )
+from task_scheduler.platform.macos.run_wrapper import (
+    default_job_logs_root as _run_wrapper_job_logs_root,
+)
+from task_scheduler.platform.macos.run_wrapper import (
+    stderr_log_path,
+    stdout_log_path,
+)
 from task_scheduler.storage.json_repository import JsonJobRepository
 
 __all__ = [
@@ -34,9 +41,9 @@ __all__ = [
     "JobConflictError",
     "JobNotFoundError",
     "JobService",
+    "canonical_logging_for",
     "default_job_catalog_root",
     "default_job_logs_root",
-    "derive_log_paths",
     "managed_label",
 ]
 
@@ -53,22 +60,20 @@ MANAGED_LABEL_PREFIX = "io.github.macos-task-scheduler.user."
 
 def default_job_logs_root() -> Path:
     """Return the default per-user directory for job stdout/stderr logs."""
-    return Path.home() / "Library" / "Logs" / "macOS Task Scheduler for Humans"
+    return _run_wrapper_job_logs_root()
 
 
-def derive_log_paths(name: str, log_directory: str) -> tuple[str, str]:
-    """Derive the ``(stdout_path, stderr_path)`` pair for *name* in *log_directory*.
+def canonical_logging_for(label: str) -> LoggingConfig:
+    """Return the canonical log config for a *managed* job, keyed by its label.
 
-    Filenames are ``<name>.stdout.log`` / ``<name>.stderr.log`` (a blank name
-    falls back to ``task``). A blank directory disables both streams and
-    returns two empty strings.
+    Managed jobs always write their streams to ``jobs/<label>/stdout.log`` and
+    ``jobs/<label>/stderr.log`` under the job-logs root. External (user-owned)
+    jobs are never canonicalized and keep the path they were parsed with.
     """
-    directory = log_directory.strip()
-    if not directory:
-        return ("", "")
-    task = name.strip() or "task"
-    base = Path(directory)
-    return (str(base / f"{task}.stdout.log"), str(base / f"{task}.stderr.log"))
+    return LoggingConfig(
+        stdout_path=stdout_log_path(label),
+        stderr_path=stderr_log_path(label),
+    )
 
 
 def managed_label(name: str, job_id: UUID) -> str:
@@ -150,7 +155,10 @@ class JobService:
             if not path.name.endswith(".json") or not path.is_file():
                 continue
             try:
-                jobs.append(self._repository.load(path))
+                loaded = self._repository.load(path)
+                jobs.append(
+                    loaded.model_copy(update={"logging": canonical_logging_for(loaded.label)})
+                )
             except (OSError, ValueError) as exc:
                 diagnostics.append(
                     CatalogDiagnostic(path=path, message=f"{type(exc).__name__}: {exc}")
@@ -202,21 +210,18 @@ class JobService:
         directories are created here.
         """
         id = job_id if job_id is not None else uuid4()
-        stdout_path, stderr_path = derive_log_paths(name, str(default_job_logs_root()))
+        label = managed_label(name, id)
         return JobDefinition(
             schema_version=SUPPORTED_SCHEMA_VERSION,
             id=id,
             name=name,
-            label=managed_label(name, id),
+            label=label,
             enabled=True,
             command=command,
             schedule=schedule,
             environment=EnvironmentConfig(),
             working_directory=command.script.parent if isinstance(command, PythonCommand) else None,
-            logging=LoggingConfig(
-                stdout_path=Path(stdout_path),
-                stderr_path=Path(stderr_path),
-            ),
+            logging=canonical_logging_for(label),
         )
 
     def import_job(self, job: JobDefinition) -> Path:
@@ -226,6 +231,7 @@ class JobService:
         (the destination file exists) or when a different managed job already
         claims ``job.label``.
         """
+        job = job.model_copy(update={"logging": canonical_logging_for(job.label)})
         with self._catalog_lock():
             owner = self.find(job.label)
             if owner is not None and owner.id != job.id:
@@ -244,6 +250,7 @@ class JobService:
         different managed job already claiming ``job.label`` raises
         :class:`JobConflictError`.
         """
+        job = job.model_copy(update={"logging": canonical_logging_for(job.label)})
         with self._catalog_lock():
             owner = self.find(job.label)
             if owner is not None and owner.id != job.id:

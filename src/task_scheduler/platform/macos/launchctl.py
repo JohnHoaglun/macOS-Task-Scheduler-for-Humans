@@ -28,6 +28,7 @@ from task_scheduler.platform.macos.process_runner import (
     ProcessResult,
     ProcessRunner,
 )
+from task_scheduler.platform.macos.run_wrapper import ensure_job_log_dir
 
 __all__ = [
     "LAUNCHCTL_PATH",
@@ -88,10 +89,12 @@ class LaunchAgentBackend:
         runner: ProcessRunner,
         *,
         uid: int | None = None,
+        job_logs_root: Path | None = None,
     ) -> None:
         self._store = store
         self._runner = runner
         self._uid = uid if uid is not None else os.getuid()
+        self._job_logs_root = job_logs_root
 
     @property
     def domain(self) -> str:
@@ -99,7 +102,13 @@ class LaunchAgentBackend:
         return f"gui/{self._uid}"
 
     def install(self, job: JobDefinition) -> LaunchctlResult:
-        """Write the job's plist (create-only) and bootstrap it into launchd."""
+        """Write the job's plist (create-only) and bootstrap it into launchd.
+
+        The per-job log directory is created before the plist is written so
+        launchd can open ``StandardOutPath``/``StandardErrorPath`` (which it
+        opens before executing the wrapper) on the first launch.
+        """
+        ensure_job_log_dir(job.label, self._job_logs_root)
         self._store.write(job)
         return self.bootstrap(job.label)
 

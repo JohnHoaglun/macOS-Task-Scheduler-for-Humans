@@ -19,29 +19,21 @@ from task_scheduler.platform.macos import ProcessResult
 
 DEFAULT_SUMMARY = "Run Test to check this task directly."
 
-
 def _summary(dialog: DirectTestDialog) -> str:
     label = dialog.panel.findChild(QLabel, "diagnostics-summary")
     assert label is not None
     return label.text()
-
 
 def _tab(dialog: DirectTestDialog, object_name: str) -> str:
     tab = dialog.panel.findChild(QPlainTextEdit, object_name)
     assert tab is not None
     return tab.toPlainText()
 
-
 def _wait_rendered(qtbot: QtBot, dialog: DirectTestDialog) -> None:
-    """Wait until the main thread has rendered the worker's outcome.
-    Rendering happens in the same queued-signal batch as the worker thread's
-    quit, so the thread is on its way out when the summary changes — safe
-    to tear the dialog down at test end. Waiting on ``controller.busy``
-    alone is not: it clears on the worker thread before the main loop
-    dispatches the thread's quit.
-    """
+    """Wait until the main thread rendered the worker's outcome. Rendering shares the worker-quit
+    signal batch, so the thread is leaving as the summary changes. controller.busy alone is not
+    safe: it clears on the worker thread before the main loop dispatches the thread's quit."""
     qtbot.waitUntil(lambda: _summary(dialog) != DEFAULT_SUMMARY, timeout=5000)
-
 
 class TestDirectTestDialog:
     def test_invalid_job_request_shows_notice(

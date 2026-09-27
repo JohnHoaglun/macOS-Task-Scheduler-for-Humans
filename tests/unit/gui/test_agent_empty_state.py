@@ -14,7 +14,6 @@ def _e(qtbot: QtBot) -> AgentEmptyState:
     w.show()
     return w
 
-
 class TestCases:
     def test_no_proxy(self, qtbot: QtBot) -> None:
         w = _e(qtbot)

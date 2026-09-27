@@ -39,7 +39,6 @@ class TestQuoteArgv:
     def test_accepts_any_iterable(self) -> None:
         assert quote_argv(iter(["a", "b"])) == "a b"
 
-
 class TestFormatCommandArgv:
     def test_python_command(self) -> None:
         command = PythonCommand(
@@ -58,7 +57,6 @@ class TestFormatCommandArgv:
             executable=Path("/usr/bin/sw_vers"), arguments=["-productVersion"]
         )
         assert format_command_argv(command) == "/usr/bin/sw_vers -productVersion"
-
 
 class TestFormatScheduleText:
     def test_interval(self) -> None:
@@ -92,7 +90,6 @@ class TestFormatScheduleText:
     def test_times_rendered_at_minute_precision_only(self) -> None:
         schedule = CalendarSchedule(times=["23:05"], weekdays={Weekday.SATURDAY})
         assert format_schedule_text(schedule) == "23:05 on saturday"
-
 
 class TestFormatTruncationMarker:
     def test_marker_shows_tail_and_total(self) -> None:

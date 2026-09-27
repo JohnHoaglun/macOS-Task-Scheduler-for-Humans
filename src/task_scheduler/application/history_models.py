@@ -19,6 +19,7 @@ class HistoryEventKind(StrEnum):
 
     DIRECT_TEST = "direct_test"
     MANUAL_RUN = "manual_run"
+    LAUNCHD_TEST = "launchd_test"
     STATUS_OBSERVATION = "status_observation"
     DIAGNOSTIC_RESULT = "diagnostic_result"
 

@@ -13,6 +13,7 @@ from pathlib import Path
 from task_scheduler.application.diagnostic_models import Diagnostic
 from task_scheduler.application.external_import import ExternalPlistImportPreview
 from task_scheduler.application.history_models import HistoryReadResult
+from task_scheduler.application.launchd_test_service import LaunchdTestResult
 from task_scheduler.application.log_service import JobLogs, LogStream
 from task_scheduler.application.managed_json_transfer import (
     ManagedJsonImportPreview,
@@ -153,6 +154,20 @@ def format_test(result: DirectTestResult) -> str:
     lines.extend(_block(process.stderr))
     lines.append("diagnostics:")
     lines.extend(_block(format_diagnostics(result.diagnostics)))
+    return "\n".join(lines)
+
+
+def format_launchd_test(result: LaunchdTestResult) -> str:
+    """Render a LaunchD (Mode B) test: verdict, reason, run detail, kickstart note."""
+    lines = [f"launchd test {'passed' if result.passed else 'FAILED'} for {result.label}"]
+    lines.append(f"reason: {result.reason}")
+    if result.run is not None:
+        run = result.run
+        lines.append(
+            f"run {run.run_id}: exit {run.exit_code} in {run.duration_seconds:.1f}s ({run.status})"
+        )
+    if result.kickstart.process.exit_code != 0 and result.kickstart.process.stderr:
+        lines.append(f"kickstart stderr: {result.kickstart.process.stderr.rstrip()}")
     return "\n".join(lines)
 
 

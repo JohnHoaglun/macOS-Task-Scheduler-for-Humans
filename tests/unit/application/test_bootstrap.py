@@ -14,7 +14,6 @@ class _FakeRepository:
     def __init__(self, *args: object, **kwargs: object) -> None:
         self.calls = 0
 
-
 class _RecordingCodec:
     """Wraps the real codec and records the wrapper path it was given."""
 
@@ -25,7 +24,6 @@ class _RecordingCodec:
         self.wrapper_path = wrapper_path
         return PlistCodec(wrapper_path=wrapper_path)
 
-
 def _build_without_side_effects(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep the real wiring, but fake every constructor with side effects."""
     monkeypatch.setattr(bootstrap, "LaunchAgentStore", _FakeRepository)
@@ -35,7 +33,6 @@ def _build_without_side_effects(monkeypatch: pytest.MonkeyPatch) -> None:
     codec = _RecordingCodec()
     monkeypatch.setattr(bootstrap, "PlistCodec", codec)
     return codec
-
 
 class TestBuildServices:
     def test_deploys_wrapper_and_wires_codec(

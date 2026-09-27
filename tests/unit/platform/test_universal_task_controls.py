@@ -26,7 +26,6 @@ from task_scheduler.platform.macos.filesystem import SourceChangedError, SourceS
 
 FIXED_JOB_ID = UUID("12345678-1234-5678-1234-567812345678")
 
-
 def _make_job(
     label: str = "com.example.test",
     schedule=None,
@@ -51,10 +50,8 @@ def _make_job(
         logging=LoggingConfig(stdout_path=stdout_path, stderr_path=stderr_path),
     )
 
-
 def _SNAP() -> SourceSnapshot:
     return SourceSnapshot(payload=b"x", sha256="x", st_dev=1, st_ino=1, st_size=1)
-
 
 class TestMergeExternalEditEachField:
     def test_env_applied(self) -> None:
@@ -133,7 +130,6 @@ class TestMergeExternalEditEachField:
         )
         assert key not in merged
 
-
 class TestRemoveVerifiedLocal:
     def test_absent_raises_source_changed(self, tmp_path: Path) -> None:
         with pytest.raises(SourceChangedError):
@@ -147,7 +143,6 @@ class TestRemoveVerifiedLocal:
         f.write_bytes(b"mutated")
         with pytest.raises(SourceChangedError):
             fs.remove_verified(f, snap)
-
 
 class TestBackupExternalFromSnapshot:
     def test_rejects_outside_root(self, tmp_path: Path) -> None:
@@ -164,7 +159,6 @@ class TestBackupExternalFromSnapshot:
             LaunchAgentStore(tmp_path / "agents", filesystem=fs).backup_external_from_snapshot(
                 tmp_path / "agents" / "io.example.job.plist", _SNAP()
             )
-
 
 class TestQuarantineExternal:
     def test_rejects_outside_root(self, tmp_path: Path) -> None:
@@ -195,7 +189,6 @@ class TestQuarantineExternal:
         quarantined = tmp_path / "agents" / ".task-scheduler-disabled" / "io.example.job-1.plist"
         with pytest.raises(FileNotFoundError):
             fs.read_plist_bytes(quarantined)
-
 
 class TestRemoveExternalVerified:
     def test_rejects_outside_root(self, tmp_path: Path) -> None:

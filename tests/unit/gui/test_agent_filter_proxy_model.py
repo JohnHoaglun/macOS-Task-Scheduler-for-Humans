@@ -17,12 +17,10 @@ from task_scheduler.platform.macos import ParsedLaunchAgent, ParseSupport
 TEST_PATH = Path("/Users/example/Library/LaunchAgents/com.example.plist")
 _EMPTY = frozenset()
 
-
 def _parsed(**overrides: object) -> ParsedLaunchAgent:
     kwargs: dict[str, object] = {"status": ParseSupport.SUPPORTED}
     kwargs.update(overrides)
     return ParsedLaunchAgent(**kwargs)  # type: ignore[arg-type]
-
 
 def _managed_listing(enabled: bool = True, loaded: bool | None = None) -> TaskListing:
     job = make_job(enabled=enabled)
@@ -35,7 +33,6 @@ def _managed_listing(enabled: bool = True, loaded: bool | None = None) -> TaskLi
         loaded=loaded,
     )
 
-
 def _external_listing(enabled: bool = True, loaded: bool | None = None) -> TaskListing:
     job = make_job(enabled=enabled)
     return TaskListing(
@@ -47,7 +44,6 @@ def _external_listing(enabled: bool = True, loaded: bool | None = None) -> TaskL
         loaded=loaded,
     )
 
-
 def _invalid_listing() -> TaskListing:
     return TaskListing(
         kind=ListingKind.DISCOVERED,
@@ -57,13 +53,11 @@ def _invalid_listing() -> TaskListing:
         managed=False,
     )
 
-
 def _saved_listing() -> TaskListing:
     job = make_job(label="io.github.macos-task-scheduler.user.saved", name="Saved Job")
     return TaskListing(
         kind=ListingKind.SAVED, path=None, parsed=None, job=job, managed=True, loaded=None
     )
-
 
 def _no_job_discovered() -> TaskListing:
     return TaskListing(
@@ -77,7 +71,6 @@ def _no_job_discovered() -> TaskListing:
         managed=False,
     )
 
-
 def _agents() -> list[TaskListing]:
     return [
         _managed_listing(enabled=True, loaded=True),
@@ -87,7 +80,6 @@ def _agents() -> list[TaskListing]:
         _saved_listing(),
         _no_job_discovered(),
     ]
-
 
 class TestFilterProxyIntegration:
     def _proxy(self, qtbot: QtBot, agents: list[TaskListing]) -> AgentFilterProxyModel:

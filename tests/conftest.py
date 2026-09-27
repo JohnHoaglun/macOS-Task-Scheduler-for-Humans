@@ -17,7 +17,6 @@ from task_scheduler.domain import (
 
 FIXED_JOB_ID = UUID("12345678-1234-5678-1234-567812345678")
 
-
 def make_job(**overrides: object) -> JobDefinition:
     kwargs: dict[str, object] = {
         "schema_version": 2,

@@ -23,12 +23,10 @@ EXTERNAL_PATH = Path("/Users/example/Library/LaunchAgents/com.example.external.p
 INVALID_PATH = Path("/Users/example/Library/LaunchAgents/com.example.invalid.plist")
 SAVED_JOB_ID = UUID("44444444-4444-4444-8444-444444444444")
 
-
 def _parsed(**overrides: object) -> ParsedLaunchAgent:
     kwargs: dict[str, object] = {"status": ParseSupport.SUPPORTED}
     kwargs.update(overrides)
     return ParsedLaunchAgent(**kwargs)  # type: ignore[arg-type]
-
 
 def _agents() -> list[TaskListing]:
     return [
@@ -58,21 +56,13 @@ def _agents() -> list[TaskListing]:
         ),
     ]
 
-
 _DEFAULT_INDEX: QModelIndex = QModelIndex()
-
 
 class _UnboundedIndexModel(AgentTableModel):
     """Model that issues valid indices for rows/columns beyond its bounds."""
 
-    def index(
-        self,
-        row: int,
-        column: int,
-        parent: QModelIndex = _DEFAULT_INDEX,
-    ) -> QModelIndex:
+    def index( self, row: int, column: int, parent: QModelIndex = _DEFAULT_INDEX, ) -> QModelIndex:
         return self.createIndex(row, column)
-
 
 @pytest.fixture
 def agent_model(qtbot: QtBot) -> AgentTableModel:
@@ -80,18 +70,15 @@ def agent_model(qtbot: QtBot) -> AgentTableModel:
     model.set_agents(_agents())
     return model
 
-
 class TestSetAgents:
     def test_empty(self, agent_model: AgentTableModel) -> None:
         agent_model.set_agents([])
         assert agent_model.agents() == []
         assert agent_model.rowCount() == 0
 
-
 class TestHeader:
     def test_horizontal_out_of_range(self, agent_model: AgentTableModel) -> None:
         assert agent_model.headerData(5, Qt.Orientation.Horizontal) is None
-
 
 class TestData:
     def test_valid_index_out_of_range_column_returns_none(self) -> None:
@@ -116,7 +103,6 @@ class TestData:
         assert model.data(bad_idx, Qt.ItemDataRole.DisplayRole) is None
         assert model.data(bad_idx, ROLE_STATE) is None
         assert model.data(bad_idx, ROLE_SEARCH_TEXT) is None
-
 
 class TestListingAt:
     def test_out_of_range_returns_none(self, agent_model: AgentTableModel) -> None:

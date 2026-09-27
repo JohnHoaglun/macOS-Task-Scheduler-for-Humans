@@ -1,9 +1,6 @@
-"""Tests for the launchd run wrapper.
-
-``main`` runs in-process against a scripted fake ``os`` so both the fork
-parent and child paths execute without a real fork/exec; file operations
-still touch the real filesystem so run-log files are genuinely written.
-"""
+"""Tests for the launchd run wrapper. ``main`` runs in-process on a scripted fake ``os`` so the fork
+parent and child paths execute, and the per-job run.log is genuinely written. The wrapper writes
+``jobs/<label>/run.log``; launchd writes the job's stdout/stderr (no wrapper redirection)."""
 
 from __future__ import annotations
 
@@ -23,24 +20,26 @@ from task_scheduler.platform.macos.run_wrapper import (
     _sanitize,
     _timestamp,
     _write_line,
+    default_job_logs_root,
+    ensure_job_log_dir,
+    job_log_dir,
     run_log_path,
-    spool_err_path,
-    spool_out_path,
+    stderr_log_path,
+    stdout_log_path,
 )
 
+BASE_NAME = "job-logs"
 
 class _FakeExit(BaseException):
     def __init__(self, code: object = None) -> None:
         super().__init__(code)
         self.code = code
 
-
 class _ExecCompleted(_FakeExit):
     pass
 
-
 class FakeOs:
-    """Scripts fork/execv/waitpid/kill/dup2/_exit; file ops pass through."""
+    """Scripts fork/execv/waitpid/kill/_exit; file ops pass through."""
 
     def __init__(
         self,
@@ -111,14 +110,13 @@ class FakeOs:
     def __getattr__(self, name: str) -> object:
         return getattr(real_os, name)
 
-
 class World:
     """Monkeypatched run_wrapper module over a tmp root; run() scripts os."""
 
     def __init__(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         self.tmp = tmp_path
         self.mp = monkeypatch
-        monkeypatch.setattr(run_wrapper, "default_run_logs_root", lambda: tmp_path / "run-logs")
+        monkeypatch.setattr(run_wrapper, "default_job_logs_root", lambda: tmp_path / BASE_NAME)
         self.fake: FakeOs | None = None
 
     def run(
@@ -136,24 +134,24 @@ class World:
         self.mp.setattr(run_wrapper, "os", self.fake)
         return run_wrapper.main(argv)
 
+    @property
+    def base(self) -> Path:
+        return self.tmp / BASE_NAME
 
 @pytest.fixture
 def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> World:
     return World(tmp_path, monkeypatch)
 
-
-def _run_log(tmp: Path, label: str) -> str:
-    return run_log_path(label, tmp / "run-logs").read_text()
-
+def _run_log(world: World, label: str) -> str:
+    return run_log_path(label, world.base).read_text()
 
 def _stop(log: str) -> str:
     return log.split("=== STOP ")[1]
 
-
 class TestHelpers:
-    def test_default_run_logs_root_is_local(self) -> None:
-        assert run_wrapper.default_run_logs_root() == (
-            Path.home() / "Library" / "Logs" / "macOS Task Scheduler for Humans" / "run-logs"
+    def test_default_job_logs_root_is_local(self) -> None:
+        assert run_wrapper.default_job_logs_root() == (
+            Path.home() / "Library" / "Logs" / "macOS Task Scheduler for Humans"
         )
 
     @pytest.mark.parametrize(
@@ -164,10 +162,19 @@ class TestHelpers:
 
     def test_log_paths(self) -> None:
         root = Path("/tmp/r")
-        assert run_log_path("a b", root) == root / "a-b.run.log"
-        assert spool_out_path("a b", root) == root / "a-b.stdout.log"
-        assert spool_err_path("a b", root) == root / "a-b.stderr.log"
-        assert run_log_path("x").parent == run_wrapper.default_run_logs_root()
+        assert job_log_dir("a b", root) == root / "jobs" / "a-b"
+        assert run_log_path("a b", root) == root / "jobs" / "a-b" / "run.log"
+        assert stdout_log_path("a b", root) == root / "jobs" / "a-b" / "stdout.log"
+        assert stderr_log_path("a b", root) == root / "jobs" / "a-b" / "stderr.log"
+        # the default-root branch resolves under the real log base
+        assert run_log_path("x") == default_job_logs_root() / "jobs" / "x" / "run.log"
+
+    def test_ensure_job_log_dir_creates_and_is_idempotent(self, tmp_path: Path) -> None:
+        base = tmp_path / "job-logs"
+        first = ensure_job_log_dir("a b", base)
+        assert first == base / "jobs" / "a-b"
+        assert first.is_dir()
+        assert ensure_job_log_dir("a b", base) == first
 
     def test_timestamp_is_isoformat(self) -> None:
         assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$", _timestamp())
@@ -188,7 +195,6 @@ class TestHelpers:
         _write_line(None, "ignored")
         _close(None)
 
-
 class TestParentPath:
     @pytest.mark.parametrize(
         ("status", "rc", "note"),
@@ -201,7 +207,7 @@ class TestParentPath:
     )
     def test_wait_statuses(self, world: World, status: int, rc: int, note: str) -> None:
         assert world.run(["--label", "demo", "--", "/bin/x"], status=status) == rc
-        stop = _stop(_run_log(world.tmp, "demo"))
+        stop = _stop(_run_log(world, "demo"))
         assert f"exit={rc}" in stop and note in stop
 
     def test_macos_signal_wait_status_encoding(self) -> None:
@@ -213,7 +219,7 @@ class TestParentPath:
         previous = signal_mod.getsignal(signal_mod.SIGTERM)
         world.run(["--label", "demo job", "--", "/bin/echo", "hi"])
         assert world.fake.fork_calls == 1
-        log = _run_log(world.tmp, "demo job")
+        log = _run_log(world, "demo job")
         assert log.startswith("=== START ")
         assert "label=demo-job" in log and "cmd=/bin/echo hi" in log
         assert " notes=" not in log and "exit=0" in _stop(log)
@@ -221,26 +227,16 @@ class TestParentPath:
 
     def test_run_ids(self, world: World) -> None:
         world.run(["--label", "demo", "--", "/bin/x"])
-        assert re.search(r"run=[0-9a-f]{32} ", _run_log(world.tmp, "demo"))
+        assert re.search(r"run=[0-9a-f]{32} ", _run_log(world, "demo"))
         world.run(["--label", "demo2", "--run-id", "abc", "--", "/bin/x"])
-        assert "run=abc " in _run_log(world.tmp, "demo2")
+        assert "run=abc " in _run_log(world, "demo2")
 
-    @pytest.mark.parametrize(
-        ("flag", "spool", "note"),
-        [
-            ("--out", "demo.stdout.log", "stdout_fallback"),
-            ("--err", "demo.stderr.log", "stderr_fallback"),
-        ],
-    )
-    def test_unopenable_falls_back_to_spool(
-        self, world: World, flag: str, spool: str, note: str
-    ) -> None:
-        bad = world.tmp / "nope.log"
-        world.run(["--label", "demo", flag, str(bad), "--", "/bin/x"], unopenable={str(bad)})
-        # the configured path was tried, then retried after mkdir
+    def test_run_log_unopenable_still_runs(self, world: World) -> None:
+        bad = run_log_path("demo", world.base)
+        assert world.run(["--label", "demo", "--", "/bin/x"], unopenable={str(bad)}) == 0
+        # the run path was tried, then retried after mkdir; the run still happened
         assert world.fake.unopenable_hits == [str(bad)] * 2
-        spool_text = (world.tmp / "run-logs" / spool).read_text()
-        assert f"notes={note}" in spool_text and "=== STOP " in spool_text
+        assert not bad.exists()
 
     def test_sigterm_forwarded(self, world: World) -> None:
         def waitpid(pid: int, flags: int) -> tuple[int, int]:
@@ -250,37 +246,16 @@ class TestParentPath:
         assert world.run(["--label", "demo", "--", "/bin/x"], waitpid=waitpid) == 0
         assert (777, signal_mod.SIGTERM) in world.fake.kills
 
-    def test_configured_log_markers(self, world: World) -> None:
-        out, err = world.tmp / "out.log", world.tmp / "err.log"
-        world.run(["--label", "demo", "--out", str(out), "--err", str(err), "--", "/bin/x"])
-        runlog = _run_log(world.tmp, "demo")
-        assert "=== START " in runlog and "=== STOP " in runlog
-        for configured in (out.read_text(), err.read_text()):
-            assert "=== START " in configured and "=== STOP " in configured
-
-
 class TestChildPath:
-    def test_child_dup2_then_execs(self, world: World) -> None:
-        out, err = world.tmp / "out.log", world.tmp / "err.log"
-        argv = [
-            "--label", "demo", "--out", str(out), "--err", str(err),
-            "--", "/bin/echo", "hi",
-        ]
+    def test_child_closes_runlog_then_execs(self, world: World) -> None:
         with pytest.raises(_ExecCompleted):
-            world.run(argv, fork=[0])
+            world.run(["--label", "demo", "--", "/bin/echo", "hi"], fork=[0])
         assert world.fake.exec_path == "/bin/echo"
         assert world.fake.exec_args == ["/bin/echo", "hi"]
-        runlog_fd = world.fake.fds[str(run_log_path("demo", world.tmp / "run-logs"))]
-        out_fd = world.fake.fds[str(out)]
-        err_fd = world.fake.fds[str(err)]
-        assert world.fake.dup2s == [(out_fd, 1), (err_fd, 2)]
-        assert world.fake.closed == [out_fd, err_fd, runlog_fd]
-
-    def test_child_no_logs_execs(self, world: World) -> None:
-        with pytest.raises(_ExecCompleted):
-            world.run(["--label", "demo", "--", "/bin/true"], fork=[0])
-        assert world.fake.exec_path == "/bin/true"
+        # no stream redirection: the child only drops the run-record handle
+        runlog_fd = world.fake.fds[str(run_log_path("demo", world.base))]
         assert world.fake.dup2s == []
+        assert world.fake.closed == [runlog_fd]
 
     def test_child_exec_failure_127(self, world: World) -> None:
         with pytest.raises(_FakeExit) as excinfo:
@@ -288,7 +263,6 @@ class TestChildPath:
                       exec_error=OSError("no such file"))
         assert excinfo.value.code == 127
         assert world.fake.exit_codes == [127]
-
 
 class TestCli:
     def test_help_exits_zero(self, world: World) -> None:

@@ -81,12 +81,14 @@ the detected-candidate list remains available when you want a different one.
 The editor's **Validate** button checks the current form without saving it and
 shows either field errors or **No issues found.**
 
-For logging, choose one **log directory** with **Browse** (new tasks default
-to the app log root). The editor derives both stream paths from the task
-name in that directory, for example `nightly sync.stdout.log` and
-`nightly sync.stderr.log`; renaming a task updates both derived paths, and
-the derived paths are shown read-only. Clearing the log directory disables
-both streams.
+For logging, the editor shows a fixed **Log folder** (read-only) under the
+shared logs root — `~/Library/Logs/macOS Task Scheduler for Humans/jobs/<label>/`
+— with the derived `run.log`, `stdout.log`, and `stderr.log` paths shown
+read-only. A managed job's log location is not configurable; a visible
+`~/macOS Task Scheduler for Humans` symlink points at the logs root, and the
+per-job logs are bounded on startup (30-day age, 10 MiB per live log with 3
+rotated generations, 500 MiB total cap). External (user-owned) jobs keep the
+log paths they were parsed with.
 
 **Test Draft** runs the validated, unsaved draft directly. Closing its window
 while a test is running closes the dialog immediately; the test completes
@@ -414,6 +416,7 @@ mactask disable <job>
 mactask status <job>
 mactask run <job>
 mactask test <job>
+mactask test-launchd <job>
 mactask logs <job>
 ```
 
@@ -422,6 +425,14 @@ application's JSON job catalog. `install` is create-only: it fails if a
 managed job with the same label already exists. `validate` and `generate`
 take a job definition JSON file; `generate` prints the LaunchAgent plist
 XML without writing anything.
+
+Two ways to test a job: `test <job>` (Mode A) runs the job's command directly
+in a child process and reports its exit code — fast, but it does not prove
+launchd can run it. `test-launchd <job>` (Mode B) requires the job to be
+installed in launchd; it kicks the job through launchd itself (`kickstart -k`)
+and confirms the run actually happened by watching the job's run log for a
+fresh completion record, passing only when a new run is observed and it exited
+0. It accepts `--timeout SECONDS` (default 180) to bound how long it waits.
 
 Exit codes:
 
@@ -508,9 +519,9 @@ Key guarantees:
 
 ## Execution History
 
-Records what the application itself observed — direct tests, manual runs
-(Run Now), explicit status checks, and the diagnostic outcome of each
-direct test. Metadata only: never raw output, environment values, or free
+Records what the application itself observed — direct tests, LaunchD tests
+(Mode B), manual runs (Run Now), explicit status checks, and the diagnostic
+outcome of each direct test. Metadata only: never raw output, environment values, or free
 text. Scheduled (launchd-driven) executions are **not** recorded; the history
 cannot — and does not — prove launchd ran the task on schedule.
 
@@ -541,6 +552,13 @@ behaviour can be diagnosed after the fact (previously an unhandled GUI error
 printed a traceback to stderr, which a macOS GUI app discards).
 
 * **Location:** `~/Library/Logs/macOS Task Scheduler for Humans/app.log`
+* **Job logs:** each managed job's logs live in
+  `~/Library/Logs/macOS Task Scheduler for Humans/jobs/<label>/` — `run.log`
+  (the run wrapper's start/stop record) plus `stdout.log` and `stderr.log`
+  (written by launchd). The location is fixed per job (not configurable), a
+  visible `~/macOS Task Scheduler for Humans` symlink points at the logs root,
+  and the per-job tree is bounded on startup (30-day age, 10 MiB per live log
+  with 3 rotated generations, 500 MiB total cap).
 * **Level:** `DEBUG`, written as JSON Lines. The active file rolls over daily or
   after ~1 MB; the active file plus dated archives is bounded by 10 MiB and
   14 days.

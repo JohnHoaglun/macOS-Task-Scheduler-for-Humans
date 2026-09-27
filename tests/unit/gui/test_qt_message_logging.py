@@ -19,14 +19,12 @@ class _FakeContext:
         self.function = function
         self.line = 0
 
-
 def test_qt_message_level_maps_known_types() -> None:
     assert qt_message_level(QtMsgType.QtDebugMsg) == logging.DEBUG
     assert qt_message_level(QtMsgType.QtInfoMsg) == logging.INFO
     assert qt_message_level(QtMsgType.QtWarningMsg) == logging.WARNING
     assert qt_message_level(QtMsgType.QtCriticalMsg) == logging.ERROR
     assert qt_message_level(QtMsgType.QtFatalMsg) == logging.CRITICAL
-
 
 def test_install_qt_message_handler_routes_to_app_log(caplog: pytest.LogCaptureFixture) -> None:
     handler = install_qt_message_handler()
@@ -36,13 +34,11 @@ def test_install_qt_message_handler_routes_to_app_log(caplog: pytest.LogCaptureF
     assert "Qt [foo.cpp]: dbg message" in caplog.text
     assert "Qt [doWork]: warn message" in caplog.text
 
-
 def test_install_qt_message_handler_falls_back_to_qt_tag(caplog: pytest.LogCaptureFixture) -> None:
     handler = install_qt_message_handler()
     with caplog.at_level(logging.DEBUG, logger="task_scheduler.qt"):
         handler(QtMsgType.QtInfoMsg, _FakeContext(), "no location")
     assert "Qt [qt]: no location" in caplog.text
-
 
 def test_fatal_message_is_logged_flushed_then_aborted(
     caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch) -> None:

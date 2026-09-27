@@ -1,11 +1,12 @@
 """LaunchAgent plist encoder: JobDefinition to launchd plist representation.
 
 When the codec is configured with a *run wrapper* path, ``ProgramArguments``
-executes the wrapper around the job command and ``StandardOutPath`` /
-``StandardErrorPath`` always point at the local run-logs spool: launchd
-cannot open log paths on network (SMB/NFS) volumes (the run aborts with
-exit 78), while the wrapper — an ordinary user process — can. The job's
-configured log paths are handed to the wrapper as ``--out``/``--err``.
+executes the wrapper around the job command. ``StandardOutPath`` /
+``StandardErrorPath`` point at the job's own local log files
+(``<job-logs>/jobs/<label>/stdout.log`` / ``stderr.log``); the wrapper writes
+the START/STOP run record to the sibling ``run.log``. All job logs live under
+one per-job folder on local disk, so launchd never has to open a network
+(SMB/NFS) volume path, which it cannot do (the run would abort with exit 78).
 """
 
 from __future__ import annotations
@@ -19,20 +20,17 @@ from task_scheduler.platform.macos.plist_models import (
     WEEKDAY_TO_LAUNCHD,
     ExternalEditField,
 )
-from task_scheduler.platform.macos.run_wrapper import spool_err_path, spool_out_path
+from task_scheduler.platform.macos.run_wrapper import stderr_log_path, stdout_log_path
 
 
 def _program_arguments(job: JobDefinition, wrapper_path: str | None = None) -> list[str]:
     argv = command_argv(job.command)
     if wrapper_path is None:
         return argv
-    wrapped: list[str] = [wrapper_path, "--label", job.label]
-    if job.logging.stdout_path is not None:
-        wrapped += ["--out", str(job.logging.stdout_path)]
-    if job.logging.stderr_path is not None:
-        wrapped += ["--err", str(job.logging.stderr_path)]
-    wrapped += ["--", *argv]
-    return wrapped
+    # The wrapper only needs the label: it writes the run record itself, and
+    # launchd (via StandardOutPath/StandardErrorPath, set below) carries the
+    # command's stdout/stderr to the job's own stdout.log/stderr.log.
+    return [wrapper_path, "--label", job.label, "--", *argv]
 
 
 def _encode_schedule(job: JobDefinition) -> dict[str, object]:
@@ -71,9 +69,11 @@ class PlistCodec:
 
     With a *wrapper_path* (the deployed run wrapper), the plist runs the
     wrapper around the job command and points ``StandardOutPath`` /
-    ``StandardErrorPath`` at the local spool so launchd never has to open a
-    network-volume log file. Without a wrapper the legacy behavior holds:
-    the raw command and the job's configured log paths go into the plist.
+    ``StandardErrorPath`` at the job's local ``stdout.log`` / ``stderr.log``
+    (the wrapper records runs in the sibling ``run.log``), so launchd never
+    has to open a network-volume log file. Without a wrapper the legacy
+    behavior holds: the raw command and the job's configured log paths go
+    into the plist.
     """
 
     def __init__(self, wrapper_path: str | Path | None = None) -> None:
@@ -96,8 +96,10 @@ class PlistCodec:
         if job.environment.variables:
             result["EnvironmentVariables"] = dict(job.environment.variables)
         if self._wrapper is not None:
-            result["StandardOutPath"] = str(spool_out_path(job.label))
-            result["StandardErrorPath"] = str(spool_err_path(job.label))
+            # launchd pipes the command's streams to the job's own local log
+            # files; the wrapper records START/STOP in the sibling run.log.
+            result["StandardOutPath"] = str(stdout_log_path(job.label))
+            result["StandardErrorPath"] = str(stderr_log_path(job.label))
         else:
             if job.logging.stdout_path is not None:
                 result["StandardOutPath"] = str(job.logging.stdout_path)

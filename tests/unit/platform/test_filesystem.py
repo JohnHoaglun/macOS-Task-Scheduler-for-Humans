@@ -32,7 +32,6 @@ class TestLocalFilesystemReplaceVerified:
         with pytest.raises(SourceChangedError):
             fs.replace_verified(source, missing, snap)
 
-
 class TestCreateExclusiveSecure:
     def test_0600_and_no_leftover_temp(self, tmp_path: Path) -> None:
         dest = tmp_path / "dest.plist"
@@ -53,7 +52,6 @@ class TestCreateExclusiveSecure:
                 fs.create_exclusive(victim, b"new")
         assert target.read_bytes() == b"victim" and pre.read_bytes() == b"existing"
 
-
 class TestReadSnapshotDescriptorCoherent:
     def test_rejects_symlink_and_directory(self, tmp_path: Path) -> None:
         real = tmp_path / "real.plist"
@@ -71,7 +69,6 @@ class TestReadSnapshotDescriptorCoherent:
         snap = LocalFilesystem().read_snapshot(dest)
         assert snap.payload == b"0123456789" and snap.st_size == 10
         assert snap.st_ino == dest.stat().st_ino
-
 
 class TestDiscoveryReadSymlinkContainment:
     def test_list_plist_files_skips_symlinked_entries(self, tmp_path: Path) -> None:
@@ -104,10 +101,8 @@ class TestDiscoveryReadSymlinkContainment:
         regular.write_bytes(b"payload")
         assert LocalFilesystem().read_plist_bytes(regular) == b"payload"
 
-
 def _raise_oserror(*_args: object, **_kwargs: object) -> None:
     raise OSError("injected failure")
-
 
 class TestFilesystemFailureCleanup:
     def test_replace_cleans_temp_when_os_replace_fails(self, tmp_path: Path, monkeypatch) -> None:

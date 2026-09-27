@@ -15,6 +15,7 @@ import typer
 from pydantic import ValidationError
 
 from task_scheduler.application import (
+    DEFAULT_LAUNCHD_TEST_TIMEOUT,
     JobConflictError,
     JobNotFoundError,
     StrictJsonDecodeError,
@@ -261,6 +262,26 @@ def create_app(services: TaskCommandService) -> typer.Typer:
         if result.process.exit_code != EXIT_SUCCESS:
             raise typer.Exit(EXIT_FAILURE)
 
+    @app.command("test-launchd")
+    def test_launchd_command(
+        label: str = typer.Argument(..., help="Managed job label (installed in launchd)."),
+        timeout: float = typer.Option(
+            DEFAULT_LAUNCHD_TEST_TIMEOUT,
+            "--timeout",
+            help="Seconds to wait for the run to complete in the run log.",
+        ),
+    ) -> None:
+        """Run a saved job through launchd (Mode B) and verify the real run."""
+        try:
+            result = services.test_via_launchd(label, timeout=timeout)
+        except JobNotFoundError as exc:
+            _fail(str(exc), EXIT_USAGE)
+        except ValueError as exc:
+            _fail(str(exc), EXIT_USAGE)
+        typer.echo(render.format_launchd_test(result))
+        if not result.passed:
+            raise typer.Exit(EXIT_FAILURE)
+
     @app.command("logs")
     def logs_command(
         label: str = typer.Argument(..., help="Managed job label."),
@@ -274,8 +295,6 @@ def create_app(services: TaskCommandService) -> typer.Typer:
         typer.echo(render.format_logs(logs))
         if any(stream.error is not None for stream in streams):
             raise typer.Exit(EXIT_FAILURE)
-        if all(stream.path is None for stream in streams):
-            raise typer.Exit(EXIT_USAGE)
 
     @app.command("history")
     def history_command(

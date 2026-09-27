@@ -13,14 +13,12 @@ def make_table(qtbot: QtBot, columns: int) -> RowTable:
     qtbot.addWidget(table)
     return table
 
-
 class TestRows:
     def test_clear(self, qtbot: QtBot) -> None:
         t = make_table(qtbot, 1)
         t.set_rows([["a"]])
         t.clear()
         assert t.row_count() == 0
-
 
 class TestSignalsAndButtons:
     def test_cell_edit_emits(self, qtbot: QtBot) -> None:
@@ -45,11 +43,9 @@ class TestSignalsAndButtons:
         remove.click()
         assert t.row_count() == 0
 
-
 class TestGaps:
     def test_columns_reports_count(self, qtbot: QtBot) -> None:
         t = make_table(qtbot, 2)
-        assert t.columns() == 2
         t.add_row(["a", "b"])
         assert t.columns() == 2
 

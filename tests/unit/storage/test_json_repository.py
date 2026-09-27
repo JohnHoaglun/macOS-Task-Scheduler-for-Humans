@@ -17,14 +17,12 @@ def test_save_new_creates_parent(tmp_path: Path) -> None:
     repository.save_new(make_job(), path, create_parent=True)
     assert repository.load(path).id == make_job().id
 
-
 def test_save_new_refuses_existing(tmp_path: Path) -> None:
     repository = JsonJobRepository()
     path = tmp_path / "job.json"
     repository.save(make_job(), path)
     with pytest.raises(FileExistsError):
         repository.save_new(make_job(), path)
-
 
 def test_save_failure_preserves_original_and_removes_temp(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

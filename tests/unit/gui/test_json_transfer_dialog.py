@@ -10,14 +10,7 @@ from task_scheduler.gui.controllers.json_transfer_controller import JsonImportOu
 from task_scheduler.gui.widgets.json_transfer_dialog import JsonTransferDialog
 
 
-def _dlg(
-    qtbot,
-    *,
-    candidate=None,
-    error=None,
-    id_conflict=None,
-    label_conflict=None,
-):
+def _dlg( qtbot, *, candidate=None, error=None, id_conflict=None, label_conflict=None, ):
     if candidate is None and error is None:
         candidate = make_job(label="com.example.test")
     outcome = JsonImportOutcome(
@@ -37,7 +30,6 @@ def _dlg(
         qtbot.addWidget(dlg)
         dlg.show()
     return dlg
-
 
 class TestPreview:
     def test_conflict_messages(self, qtbot: QtBot) -> None:

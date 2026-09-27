@@ -19,11 +19,9 @@ class FakeService:
             return HistoryReadResult(events=(), error=self.error)
         return HistoryReadResult(events=self.events)
 
-
 class FakeOSErrorService:
     def history(self, label: str, *, limit: int = 50):
         raise OSError("storage unavailable")
-
 
 class TestHistoryController:
     def test_service_error_passthrough(self):

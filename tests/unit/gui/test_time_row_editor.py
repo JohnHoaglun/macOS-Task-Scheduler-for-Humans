@@ -13,10 +13,8 @@ def make_editor(qtbot: QtBot) -> TimeRowEditor:
     qtbot.addWidget(editor)
     return editor
 
-
 def row_edits(editor: TimeRowEditor) -> list[QLineEdit]:
     return sorted(editor.findChildren(QLineEdit), key=lambda edit: edit.objectName())
-
 
 def spy(editor: TimeRowEditor) -> list[int]:
     emissions: list[int] = []
@@ -26,7 +24,6 @@ def spy(editor: TimeRowEditor) -> list[int]:
 
     editor.rowsChanged.connect(count)
     return emissions
-
 
 class TestSetTimes:
     def test_set_times_empty_keeps_one_blank_row(self, qtbot: QtBot) -> None:
@@ -40,7 +37,6 @@ class TestSetTimes:
         assert rows[0].objectName() == "editor-time"
         assert len(emissions) == 1
 
-
 class TestAddButton:
     def test_add_appends_blank_row_with_new_name(self, qtbot: QtBot) -> None:
         editor = make_editor(qtbot)
@@ -53,7 +49,6 @@ class TestAddButton:
         assert [edit.text() for edit in rows] == ["07:30", ""]
         assert [edit.objectName() for edit in rows] == ["editor-time", "editor-time-1"]
         assert len(emissions) == 1
-
 
 class TestRemoveButton:
     def test_remove_with_single_row_clears_it(self, qtbot: QtBot) -> None:

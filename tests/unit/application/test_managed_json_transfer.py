@@ -1,9 +1,6 @@
-"""Unit tests for managed-JSON transfer (Increment 22, Stage 0).
-
-Covers the strict closed-schema decoder (v1→v2, unknown-field rejection,
-unsupported versions), the identity-preserving export/import façades,
-conflict preview, create-only commit re-check, and the GUI Finder reveal.
-"""
+"""Unit tests for managed-JSON transfer (Increment 22, Stage 0): the strict closed-schema decoder
+(v1->v2, unknown-field rejection, unsupported versions), the identity-preserving export/import
+façades, conflict preview, the create-only commit re-check, and the GUI Finder reveal."""
 
 from __future__ import annotations
 
@@ -20,7 +17,6 @@ from task_scheduler.application.managed_json_transfer import strict_decode_job_j
 _ID = "12345678-1234-5678-1234-567812345678"
 _OTHER_ID = "ffffffff-ffff-ffff-ffff-ffffffffffff"
 _LABEL = "io.github.macos-task-scheduler.user.daily-backup"
-
 
 def v2_payload() -> dict[str, object]:
     return {
@@ -46,13 +42,11 @@ def v2_payload() -> dict[str, object]:
         "logging": {"stdout_path": None, "stderr_path": None},
     }
 
-
 def v1_payload() -> dict[str, object]:
     payload = v2_payload()
     payload["schema_version"] = 1
     payload["schedule"] = {"time": "07:30", "weekdays": ["monday", "friday"]}
     return payload
-
 
 def write_json(path: Path, payload: object) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -63,7 +57,6 @@ def write_json(path: Path, payload: object) -> Path:
     path.write_text(data, "utf-8")
     return path
 
-
 def test_decode_valid_v1_migrates_to_calendar() -> None:
     job = strict_decode_job_json(json.dumps(v1_payload()))
     assert job.schema_version == 2
@@ -71,13 +64,9 @@ def test_decode_valid_v1_migrates_to_calendar() -> None:
     assert job.schedule.times[0].hour == 7
     assert job.schedule.run_at_load is False
 
-
 @pytest.mark.parametrize(
     "mutate",
-    [
-        lambda p: p.update(schema_version=3),
-        lambda p: p.__delitem__("schema_version"),
-    ],
+    [ lambda p: p.update(schema_version=3), lambda p: p.__delitem__("schema_version"), ],
 )
 def test_decode_unsupported_version_raises(mutate) -> None:
     payload = v2_payload()
@@ -85,13 +74,11 @@ def test_decode_unsupported_version_raises(mutate) -> None:
     with pytest.raises(StrictJsonDecodeError, match="unsupported schema version"):
         strict_decode_job_json(json.dumps(payload))
 
-
 def test_decode_semantic_validation_error_raises() -> None:
     payload = v2_payload()
     payload["schedule"]["times"] = ["25:99"]  # type: ignore[index]
     with pytest.raises(StrictJsonDecodeError, match="invalid job definition"):
         strict_decode_job_json(json.dumps(payload))
-
 
 @pytest.mark.parametrize(
     ("base", "patch"),
@@ -108,7 +95,6 @@ def test_decode_skips_key_check_when_shape_unknown(base, patch) -> None:
     with pytest.raises(StrictJsonDecodeError, match="invalid job definition"):
         strict_decode_job_json(json.dumps(payload))
 
-
 def test_export_refuses_existing_destination(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
     world.jobs.import_job(make_job())
@@ -116,7 +102,6 @@ def test_export_refuses_existing_destination(tmp_path: Path) -> None:
     dest.write_text("{}", "utf-8")
     with pytest.raises(FileExistsError):
         world.services.export_managed_json(_LABEL, dest)
-
 
 def test_import_rechecks_conflict_at_commit(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
@@ -126,13 +111,11 @@ def test_import_rechecks_conflict_at_commit(tmp_path: Path) -> None:
     with pytest.raises(JobConflictError):
         world.services.import_managed_json(preview)
 
-
 def test_reveal_missing_path_returns_message(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
     message = world.services.reveal_path(tmp_path / "nope.txt")
     assert message == f"path does not exist: {tmp_path / 'nope.txt'}"
     assert world.finder_revealer.revealed == []
-
 
 def test_reveal_failure_message_passthrough(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
@@ -141,14 +124,12 @@ def test_reveal_failure_message_passthrough(tmp_path: Path) -> None:
     target.write_text("x", "utf-8")
     assert world.services.reveal_path(target) == "open failed"
 
-
 def test_reveal_without_finder_reports_unavailable(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
     world.services._finder = None  # a service wired without a revealer
     target = tmp_path / "target.txt"
     target.write_text("x", "utf-8")
     assert world.services.reveal_path(target) == "reveal in Finder is not available"
-
 
 def test_loaded_status(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)  # sticky exit 0 -> loaded True

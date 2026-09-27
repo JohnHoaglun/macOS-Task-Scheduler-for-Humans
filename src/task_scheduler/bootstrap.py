@@ -12,6 +12,8 @@ import os
 
 from task_scheduler.application import TaskCommandService
 from task_scheduler.application.job_service import JobService
+from task_scheduler.application.launchd_test_service import LaunchdTestService
+from task_scheduler.application.log_retention import prepare_job_logs
 from task_scheduler.application.log_service import LogService
 from task_scheduler.application.run_wrapper_deploy import ensure_run_wrapper
 from task_scheduler.application.test_service import DirectTestService
@@ -20,6 +22,7 @@ from task_scheduler.platform.macos import (
     LaunchAgentStore,
     LocalFinderRevealer,
     PlistCodec,
+    RunLogWatcher,
     SubprocessRunner,
 )
 from task_scheduler.storage import (
@@ -37,21 +40,26 @@ def build_services() -> TaskCommandService:
     The run wrapper is deployed to its stable local path first: every
     managed plist the codec emits runs the job command through it, giving
     every launchd run a guaranteed local start/stop record and letting the
-    user's configured log paths live on network volumes.
+    user's configured log paths live on network volumes. The per-job logs
+    tree is then bounded (age, per-file rotation, total cap) and the
+    visible home-directory log symlink is ensured; both are best-effort.
     """
     store = LaunchAgentStore()
+    backend = LaunchAgentBackend(store, SubprocessRunner())
     try:
         wrapper_path = ensure_run_wrapper()
     except OSError:
         wrapper_path = None
+    prepare_job_logs()
     return TaskCommandService(
         repository=JsonJobRepository(),
         jobs=JobService(),
         store=store,
-        backend=LaunchAgentBackend(store, SubprocessRunner()),
+        backend=backend,
         codec=PlistCodec(wrapper_path=wrapper_path),
         test=DirectTestService(SubprocessRunner()),
         logs=LogService(),
+        launchd_test=LaunchdTestService(backend, RunLogWatcher()),
         history=ExecutionHistoryRepository(default_history_path()),
         finder=LocalFinderRevealer(SubprocessRunner()),
     )

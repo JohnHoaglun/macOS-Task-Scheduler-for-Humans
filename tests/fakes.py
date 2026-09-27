@@ -6,6 +6,7 @@ import hashlib
 from pathlib import Path
 
 from task_scheduler.application import JobService, LogService, TaskCommandService
+from task_scheduler.application.launchd_test_service import LaunchdTestService
 from task_scheduler.application.test_service import DirectTestService
 from task_scheduler.domain import JobDefinition
 from task_scheduler.platform.macos import (
@@ -13,9 +14,12 @@ from task_scheduler.platform.macos import (
     DetectionContext,
     LaunchAgentBackend,
     LaunchAgentStore,
+    LaunchctlAction,
+    LaunchctlResult,
     PlistCodec,
     ProcessResult,
     PythonDetectionRoots,
+    RunLogWatcher,
 )
 from task_scheduler.platform.macos.diagnostic_probes import DiagnosticProbes
 from task_scheduler.platform.macos.filesystem import SourceChangedError, SourceSnapshot
@@ -23,11 +27,7 @@ from task_scheduler.storage import ExecutionHistoryRepository, JsonJobRepository
 
 
 class FakeClock:
-    """Deterministic monotonic clock.
-
-    Each call returns the current time and then advances by ``step``, so a
-    two-sample measurement (start/stop) spans exactly one step.
-    """
+    """Deterministic monotonic clock; each call advances by ``step``."""
 
     def __init__(self, start: float = 1000.0, step: float = 0.0) -> None:
         self._now = start
@@ -43,14 +43,8 @@ class FakeClock:
     def advance(self, seconds: float) -> None:
         self._now += seconds
 
-
 class FakeProcessRunner:
-    """Scripted ProcessRunner: records every spec, returns scripted results.
-
-    Pass a single ``result`` to get the legacy sticky behavior, or an ordered
-    ``results`` queue that is popped one result per call and then repeats its
-    last entry (so multi-command lifecycles stay scripted but never run dry).
-    """
+    """Scripted ProcessRunner: returns a sticky ``result`` or pops an ordered ``results`` queue."""
 
     def __init__(
         self,
@@ -72,14 +66,8 @@ class FakeProcessRunner:
             return self._queue.pop(0)
         return self._sticky
 
-
 class FakeFilesystem:
-    """In-memory LaunchAgentFilesystem for store tests.
-
-    ``files`` maps a destination filename to its existing bytes; ``create_error``,
-    when set, is raised by :meth:`create_exclusive` instead of creating. All
-    calls are recorded so tests can assert exactly what the store did.
-    """
+    """In-memory LaunchAgentFilesystem; records every store call for assertions."""
 
     def __init__(
         self,
@@ -187,16 +175,48 @@ class FakeFilesystem:
         del self._files[path.name]
         self.removed.append(path.name)
 
-
 OK_PROCESS = ProcessResult(exit_code=0)
 
+class RunLogLaunchdBackend:
+    """``LaunchAgentBackend`` fake: ``trigger`` appends a START/STOP pair to the watcher run log.
+
+    ``exit_code``/``write_run_log``/``kickstart_exit`` set the run and kickstart exit codes."""
+
+    def __init__(
+        self,
+        watcher: RunLogWatcher,
+        *,
+        exit_code: int = 0,
+        write_run_log: bool = True,
+        kickstart_exit: int = 0,
+    ) -> None:
+        self._watcher = watcher
+        self._exit_code = exit_code
+        self._write_run_log = write_run_log
+        self._kickstart_exit = kickstart_exit
+        self._run_counter = 0
+
+    def trigger(self, label: str) -> LaunchctlResult:
+        if self._write_run_log:
+            self._run_counter += 1
+            run_id = f"run-{self._run_counter}"
+            path = self._watcher.run_log_path(label)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            ts = "2026-01-01T00:00:00+00:00"
+            status = "ok" if self._exit_code == 0 else "failed"
+            path.write_text(
+                f"=== START {ts} run={run_id} label={label} cmd=echo hi ===\n"
+                f"=== STOP  {ts} run={run_id} exit={self._exit_code} duration=1.0s "
+                f"status={status} ===\n",
+                encoding="utf-8",
+            )
+        return LaunchctlResult(
+            action=LaunchctlAction.TRIGGER,
+            process=ProcessResult(exit_code=self._kickstart_exit),
+        )
 
 class FakeFinderRevealer:
-    """Recording FinderRevealer: records revealed paths, returns a canned result.
-
-    ``result`` is ``None`` (success) by default; set a string to simulate a
-    Finder reveal failure.
-    """
+    """Recording FinderRevealer: records revealed paths; returns a canned result (None = ok)."""
 
     def __init__(self, result: str | None = None) -> None:
         self.result = result
@@ -206,14 +226,8 @@ class FakeFinderRevealer:
         self.revealed.append(path)
         return self.result
 
-
 class FakeTaskWorld:
-    """A fully faked TaskCommandService environment rooted at temp paths.
-
-    The catalog and LaunchAgents store live under *tmp_path* and every
-    launchctl / direct-test invocation is scripted, so no test touches the
-    real home directory or invokes the real launchctl.
-    """
+    """A fully faked TaskCommandService env rooted at temp paths (no real home or launchctl)."""
 
     def __init__(
         self,
@@ -223,11 +237,15 @@ class FakeTaskWorld:
         launches: list[ProcessResult] | None = None,
         test: ProcessResult | None = None,
         probes: DiagnosticProbes | None = None,
+        launchd_exit_code: int | None = None,
+        launchd_write_run_log: bool = True,
+        launchd_kickstart_exit: int = 0,
     ) -> None:
         self.catalog_root = tmp_path / "catalog"
         self.la_root = tmp_path / "launchagents"
         self.history_root = tmp_path / "history"
         self.history_root.mkdir(parents=True, exist_ok=True)
+        self.job_logs_root = tmp_path / "job-logs"
         self.store = LaunchAgentStore(self.la_root)
         self.jobs = JobService(self.catalog_root)
         if launches is not None:
@@ -235,9 +253,25 @@ class FakeTaskWorld:
         else:
             self.launch_runner = FakeProcessRunner(result=launch or OK_PROCESS)
         self.test_runner = FakeProcessRunner(result=test or OK_PROCESS)
-        self.backend = LaunchAgentBackend(self.store, self.launch_runner, uid=1000)
+        self.backend = LaunchAgentBackend(
+            self.store,
+            self.launch_runner,
+            uid=1000,
+            job_logs_root=self.job_logs_root,
+        )
         self.history_repo = ExecutionHistoryRepository(self.history_root / "history.sqlite3")
         self.finder_revealer = FakeFinderRevealer()
+        launchd_test: LaunchdTestService | None = None
+        if launchd_exit_code is not None:
+            watcher = RunLogWatcher(job_logs_root=self.job_logs_root)
+            self.launchd_watcher = watcher
+            self.launchd_backend = RunLogLaunchdBackend(
+                watcher,
+                exit_code=launchd_exit_code,
+                write_run_log=launchd_write_run_log,
+                kickstart_exit=launchd_kickstart_exit,
+            )
+            launchd_test = LaunchdTestService(self.launchd_backend, watcher)
         self.services = TaskCommandService(
             repository=JsonJobRepository(),
             jobs=self.jobs,
@@ -246,6 +280,7 @@ class FakeTaskWorld:
             codec=PlistCodec(),
             test=DirectTestService(self.test_runner),
             logs=LogService(),
+            launchd_test=launchd_test,
             probes=probes,
             history=self.history_repo,
             finder=self.finder_revealer,
@@ -255,7 +290,6 @@ class FakeTaskWorld:
         """Seed both the catalog record and the managed plist for *job*."""
         self.jobs.import_job(job)
         self.store.write(job)
-
 
 class FakePythonDetectorFilesystem:
     """Dict-backed ``PythonDetectorFilesystem`` for deterministic detector tests."""
@@ -289,9 +323,7 @@ class FakePythonDetectorFilesystem:
             return None
         return self.files.get(path)
 
-
 EMPTY_DETECTION_ROOTS = PythonDetectionRoots(pyenv=(), conda=(), homebrew=())
-
 
 def detect_context(
     script: Path,

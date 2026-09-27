@@ -47,7 +47,6 @@ class FakeSvc:
             return self.import_result
         return preview.candidate
 
-
 def _ctrl(
     preview: ManagedJsonImportPreview | None = None,
     error: Exception | None = None,
@@ -62,7 +61,6 @@ def _ctrl(
             import_error=commit_error,
         )
     )
-
 
 class TestPreview:
     @pytest.mark.parametrize(
@@ -81,7 +79,6 @@ class TestPreview:
     def test_unexpected_error_propagates(self) -> None:
         with pytest.raises(RuntimeError, match="internal"):
             _ctrl(error=RuntimeError("internal")).preview_import(Path("/tmp/bad.json"))
-
 
 class TestCommit:
     def test_success(self) -> None:

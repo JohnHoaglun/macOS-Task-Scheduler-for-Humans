@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from tests.conftest import make_job
 from tests.fakes import FakeTaskWorld
 
+from task_scheduler.application.job_service import managed_label
 from task_scheduler.domain import (
     ExecutableCommand,
     IntervalSchedule,
@@ -23,12 +24,12 @@ from task_scheduler.gui.controllers.editor_controller import (
     copy_draft,
     external_dirty_fields,
 )
+from task_scheduler.platform.macos.run_wrapper import job_log_dir, stderr_log_path, stdout_log_path
 
 
 def make_controller(tmp_path: Path) -> tuple[FakeTaskWorld, EditorController]:
     world = FakeTaskWorld(tmp_path)
     return world, EditorController(world.services)
-
 
 class TestArguments:
     def test_arguments_per_kind(self, tmp_path: Path) -> None:
@@ -56,7 +57,6 @@ class TestArguments:
         controller.remove_argument(d, "python", 0)
         assert d.python_arguments == ["", "x"]
 
-
 class TestOtherMutators:
     def test_environment_rows(self, tmp_path: Path) -> None:
         world, controller = make_controller(tmp_path)
@@ -70,27 +70,24 @@ class TestOtherMutators:
         controller.remove_environment_row(d, 0)
         assert d.environment == [("HOME", "/opt/bin")]
 
-
-class TestLogPaths:
-    def test_set_log_directory_derives_from_current_name(self, tmp_path: Path) -> None:
+class TestManagedLogDisplay:
+    def test_managed_log_display_uses_canonical_paths(self, tmp_path: Path) -> None:
         world, controller = make_controller(tmp_path)
         d = controller.open_new()
         controller.set_name(d, "Nightly Sync")
-        controller.set_log_directory(d, "/tmp/logs")
-        assert d.log_directory == "/tmp/logs"
-        assert d.stdout_path == "/tmp/logs/Nightly Sync.stdout.log"
-        assert d.stderr_path == "/tmp/logs/Nightly Sync.stderr.log"
+        folder, stdout, stderr = controller.managed_log_display(d)
+        assert folder == str(job_log_dir(d.label))
+        assert stdout == str(stdout_log_path(d.label))
+        assert stderr == str(stderr_log_path(d.label))
 
-    def test_set_log_directory_blank_disables_both_streams(self, tmp_path: Path) -> None:
+    def test_managed_log_display_falls_back_to_prospective_label(self, tmp_path: Path) -> None:
         world, controller = make_controller(tmp_path)
         d = controller.open_new()
-        controller.set_name(d, "Nightly Sync")
-        controller.set_log_directory(d, "/tmp/logs")
-        controller.set_log_directory(d, "   ")
-        assert d.log_directory == "   "
-        assert d.stdout_path == ""
-        assert d.stderr_path == ""
-
+        folder, stdout, stderr = controller.managed_log_display(d)
+        prospective = managed_label(d.name, d.job_id)
+        assert folder == str(job_log_dir(prospective))
+        assert stdout == str(stdout_log_path(prospective))
+        assert stderr == str(stderr_log_path(prospective))
 
 class TestOpenExisting:
     def test_shell_job(self, tmp_path: Path) -> None:
@@ -171,7 +168,6 @@ class TestOpenExisting:
         d = controller.open_existing(make_job())
         assert d.log_directory == ""
 
-
 def valid_draft(controller: EditorController, tmp_path: Path) -> JobDraft:
     draft = controller.open_new()
     controller.set_name(draft, "Editor Job")
@@ -180,7 +176,6 @@ def valid_draft(controller: EditorController, tmp_path: Path) -> JobDraft:
     controller.set_times(draft, ["07:30"])
     controller.set_weekdays(draft, {"monday"})
     return draft
-
 
 class TestValidate:
     def test_missing_interpreter(self, tmp_path: Path) -> None:
@@ -239,12 +234,13 @@ class TestValidate:
         o = controller.validate(d)
         assert o.fields == {"weekdays": "at least one weekday is required"}
 
-    def test_relative_stdout(self, tmp_path: Path) -> None:
+    def test_managed_logging_is_canonical(self, tmp_path: Path) -> None:
+        """Managed jobs always build with the canonical per-label log paths."""
         world, controller = make_controller(tmp_path)
         d = valid_draft(controller, tmp_path)
-        controller.set_stdout_path(d, "rel/out.log")
-        o = controller.validate(d)
-        assert "stdout_path" in o.fields and o.fields["stdout_path"]
+        job = controller.build_job(d)
+        assert job.logging.stdout_path == stdout_log_path(d.label)
+        assert job.logging.stderr_path == stderr_log_path(d.label)
 
     def test_invalid_weekday_value(self, tmp_path: Path) -> None:
         """An unknown weekday value fails as a whole-job error."""
@@ -253,7 +249,6 @@ class TestValidate:
         d.weekdays = {"notaday"}
         o = controller.validate(d)
         assert list(o.fields) == ["job"] and "notaday" in o.fields["job"]
-
 
 class TestIntervalSchedule:
     def interval_draft(
@@ -297,7 +292,6 @@ class TestIntervalSchedule:
         assert o.fields == {
             "interval": "the interval unit must be one of seconds, minutes, hours, or days"
         }
-
 
 class TestSave:
     def test_save_conflict(self, tmp_path: Path) -> None:
@@ -395,7 +389,6 @@ class TestSave:
         assert o.ok is False
         assert o.fields == {"environment": "duplicate environment variable: PATH"}
 
-
 class TestFieldErrors:
     @pytest.mark.parametrize(
         ("base", "mutate", "expected"),
@@ -418,6 +411,7 @@ class TestFieldErrors:
                 lambda d: d["logging"].update(stdout_path="relative/out.log"),
                 ["stdout_path"],
             ),
+            (lambda: make_job(), lambda d: d.update(name="   "), ["name"]),
         ],
     )
     def test_field_errors_loc(self, tmp_path: Path, base, mutate, expected) -> None:
@@ -427,7 +421,6 @@ class TestFieldErrors:
         with pytest.raises(ValidationError) as excinfo:
             JobDefinition.model_validate(data)
         assert list(controller._field_errors(excinfo.value)) == expected
-
 
 class TestBulkMutators:
     def test_set_arguments_shell_and_executable(self, tmp_path: Path) -> None:
@@ -439,7 +432,6 @@ class TestBulkMutators:
         controller.set_arguments(d, "executable", ["--verbose"])
         assert d.executable_arguments == ["--verbose"]
         assert d.shell_arguments == ["-c", "true"]
-
 
 class TestExternalDirtyFields:
     """external_dirty_fields maps each differing draft field to one dirty field."""

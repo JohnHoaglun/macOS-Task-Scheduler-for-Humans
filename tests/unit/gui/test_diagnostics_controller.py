@@ -19,17 +19,14 @@ from task_scheduler.platform.macos import ProcessResult
 
 JOB_LABEL = "io.github.macos-task-scheduler.user.daily-backup"
 
-
 def _shell_job() -> JobDefinition:
     return make_job(command=ShellCommand(executable=Path("/bin/zsh"), arguments=["-c", "true"]))
-
 
 def _broken(job: JobDefinition) -> JobDefinition:
     """A job whose label fails validation, bypassing the model's checks."""
     data = job.model_dump()
     data["label"] = "bad label"
     return JobDefinition.model_construct(**data)
-
 
 class TestExecute:
     def test_nonzero_exit_code_is_not_success(self, tmp_path: Path) -> None:
@@ -59,7 +56,6 @@ class TestExecute:
         controller.finish()
         assert not controller.busy
 
-
 class TestReadLogs:
     def test_read_logs_invalid_job_is_error(self, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
@@ -68,7 +64,6 @@ class TestReadLogs:
         assert outcome.logs is None
         assert outcome.error is not None
         assert outcome.diagnostics == ()
-
 
 class TestCompareEnvironment:
     def test_snapshot_is_copied(self, tmp_path: Path) -> None:
@@ -85,14 +80,12 @@ class TestCompareEnvironment:
         assert outcome.difference is None
         assert outcome.error is not None
 
-
 def _logged_job(log_dir: Path, stdout_name: str = "daily-backup.stdout.log") -> JobDefinition:
     return make_job(
         name="daily-backup",
         command=ShellCommand(executable=Path("/bin/zsh"), arguments=["-c", "true"]),
         logging=LoggingConfig(stdout_path=log_dir / stdout_name, stderr_path=None),
     )
-
 
 class TestSaveReport:
     def test_report_saved_beside_job_logs(self, tmp_path: Path) -> None:

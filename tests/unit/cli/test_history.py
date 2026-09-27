@@ -30,14 +30,11 @@ from task_scheduler.storage import JsonJobRepository
 RUNNER = CliRunner()
 OK_PROCESS = ProcessResult(exit_code=0)
 
-
 def invoke(world: FakeTaskWorld, *args: str) -> object:
     return RUNNER.invoke(cli_app.create_app(world.services), list(args))
 
-
 def invoke_from(services: TaskCommandService, *args: str) -> object:
     return RUNNER.invoke(cli_app.create_app(services), list(args))
-
 
 class FakeProcessRunner:
     """Minimal process runner stub for unavailable-service test."""
@@ -50,11 +47,9 @@ class FakeProcessRunner:
         self.specs.append(spec)
         return self._result
 
-
 def test_format_history_empty_events() -> None:
     result = HistoryReadResult(events=())
     assert render.format_history(result, "com.example.job") == ""
-
 
 def test_format_history_codes_comma_join_no_spaces() -> None:
     ts = datetime(2025, 6, 15, 10, 30, 0, tzinfo=UTC)
@@ -74,7 +69,6 @@ def test_format_history_codes_comma_join_no_spaces() -> None:
     assert "codes=a,b,c" in out
     assert "codes=a, b, c" not in out
 
-
 def test_format_history_status_observation_loaded_unknown() -> None:
     ts = datetime(2025, 6, 15, 10, 30, 0, tzinfo=UTC)
     result = HistoryReadResult(
@@ -92,20 +86,17 @@ def test_format_history_status_observation_loaded_unknown() -> None:
     out = render.format_history(result, "com.example.job")
     assert "loaded=unknown" in out
 
-
 def test_history_unknown_label_exits_usage(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
     result = invoke(world, "history", "missing.label")
     assert result.exit_code == 2
     assert "no managed job with label" in result.stderr
 
-
 def test_history_limit_negative_exits_usage(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
     result = invoke(world, "history", "com.example.job", "--limit", "-1")
     assert result.exit_code == 2
     assert "limit must be between 1 and 100 inclusive" in result.stderr
-
 
 def test_history_unavailable_service_exits_failure(tmp_path: Path) -> None:
     catalog_root = tmp_path / "catalog"
@@ -133,7 +124,6 @@ def test_history_unavailable_service_exits_failure(tmp_path: Path) -> None:
     assert "execution history unavailable" in result.stderr
     assert result.stdout == ""
 
-
 def test_history_zero_events(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)
     job = make_job()
@@ -141,7 +131,6 @@ def test_history_zero_events(tmp_path: Path) -> None:
     result = invoke(world, "history", job.label)
     assert result.exit_code == 0
     assert result.stdout.strip() == "No history found."
-
 
 def test_history_limit_option(tmp_path: Path) -> None:
     world = FakeTaskWorld(tmp_path)

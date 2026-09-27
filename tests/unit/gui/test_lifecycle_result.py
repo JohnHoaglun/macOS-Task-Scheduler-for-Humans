@@ -25,18 +25,15 @@ from task_scheduler.platform.macos import (
 LABEL = "io.github.macos-task-scheduler.user.daily-backup"
 PLIST_PATH = Path("/Users/example/Library/LaunchAgents/com.example.backup.plist")
 
-
 def _process(**overrides: object) -> ProcessResult:
     kwargs: dict[str, object] = {"exit_code": 0}
     kwargs.update(overrides)
     return ProcessResult(**kwargs)  # type: ignore[arg-type]
 
-
 def _install_result(**overrides: object) -> InstallResult:
     kwargs: dict[str, object] = {"job": make_job(), "plist_path": PLIST_PATH, "process": _process()}
     kwargs.update(overrides)
     return InstallResult(**kwargs)  # type: ignore[arg-type]
-
 
 def _dialog(qtbot: QtBot, outcome: LifecycleOutcome) -> LifecycleResultDialog:
     dialog = LifecycleResultDialog(outcome)
@@ -44,12 +41,10 @@ def _dialog(qtbot: QtBot, outcome: LifecycleOutcome) -> LifecycleResultDialog:
     dialog.show()
     return dialog
 
-
 def _exit_label(dialog: LifecycleResultDialog) -> QLabel:
     label = dialog.findChild(QLabel, "lifecycle-result-exit")
     assert label is not None
     return label
-
 
 class TestExitCode:
     def test_exit_code_none_without_failure(self, qtbot: QtBot) -> None:
@@ -64,7 +59,6 @@ class TestExitCode:
         dialog = _dialog(qtbot, outcome)
         exit_label = _exit_label(dialog)
         assert exit_label.text() == "Exit code: unavailable (launchd did not start)"
-
 
 class TestOutputPanes:
     def test_both_shown_when_present(self, qtbot: QtBot) -> None:
@@ -84,7 +78,6 @@ class TestOutputPanes:
         assert stdout is not None and stderr is not None
         assert stdout.isVisible() and stdout.toPlainText() == "out"
         assert stderr.isVisible() and stderr.toPlainText() == "err"
-
 
 class TestTechnicalDetails:
     def _technical(self, dialog: LifecycleResultDialog) -> QPlainTextEdit:
@@ -124,7 +117,6 @@ class TestTechnicalDetails:
         )
         dialog = _dialog(qtbot, outcome)
         assert self._technical(dialog).toPlainText() == "(no launchd process ran)"
-
 
 class TestDiagnosticsGroup:
     def _box(self, dialog: LifecycleResultDialog) -> QGroupBox:

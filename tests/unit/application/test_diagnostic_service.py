@@ -1,9 +1,6 @@
-"""Tests for the diagnostic rule engine and the structured report builder.
-
-Per-rule positive/negative coverage, the pinned emission order, and the
-grouped report semantics (any-order input, pinned group order, empty-group
-omission, runtime-permission suppression).
-"""
+"""Tests for the diagnostic rule engine and structured report builder: positive/negative coverage
+per rule, the pinned emission order, and grouped report semantics (any-order input, pinned group
+order, empty-group omission, and runtime-permission suppression)."""
 
 from __future__ import annotations
 
@@ -34,9 +31,7 @@ from task_scheduler.platform.macos.plist_models import ParsedLaunchAgent, ParseS
 def _tcc_stderr(path: str) -> str:
     return f"PermissionError: [Errno 1] Operation not permitted: '{path}'"
 
-
 REAL_PYTHON = "/Applications/Xcode.app/Contents/Developer/usr/bin/python3"
-
 
 def _healthy_job(tmp_path: Path) -> tuple[JobDefinition, Path, Path]:
     interpreter = tmp_path / ".venv" / "bin" / "python"
@@ -51,16 +46,13 @@ def _healthy_job(tmp_path: Path) -> tuple[JobDefinition, Path, Path]:
     )
     return job, interpreter, script
 
-
 def _codes(result: list[object]) -> list[str]:
     return [diagnostic.code for diagnostic in result]
-
 
 def _launch_failure(kind: LaunchFailureKind, message: str = "boom") -> ProcessResult:
     return ProcessResult(
         exit_code=None, launch_failure=ProcessLaunchFailure(kind=kind, message=message)
     )
-
 
 class TestRuleCoverage:
     def test_permission_denied_static_positive(self, tmp_path: Path) -> None:
@@ -70,7 +62,6 @@ class TestRuleCoverage:
 
     def test_relative_executable_negative(self) -> None:
         assert "relative_executable" not in _codes(evaluate_diagnostics(spec_argv0="/usr/bin/tool"))
-
 
 class TestLifecycleRules:
     def test_other_phases_ignored(self) -> None:
@@ -86,7 +77,6 @@ class TestLifecycleRules:
         )
         report = evaluate_diagnostic_report(LifecycleContext(job.label, "reinstall", result))
         assert report.groups == ()
-
 
 class TestPlistRules:
     @pytest.mark.parametrize(
@@ -104,7 +94,6 @@ class TestPlistRules:
         report = evaluate_diagnostic_report(InspectionContext(Path("/tmp/a.plist"), parsed))
         (label,) = [d for d in report.all if d.code == "invalid_plist_label"]
         assert label.title == title
-
 
 class TestRuleOrder:
     def test_rules_emit_in_documented_order(self, tmp_path: Path) -> None:
@@ -135,7 +124,6 @@ class TestRuleOrder:
         process = _launch_failure(LaunchFailureKind.NOT_FOUND, "gone")
         codes = _codes(evaluate_diagnostics(job, process=process, spec_argv0="relative-tool"))
         assert codes == ["executable_not_found_runtime", "relative_executable"]
-
 
 class TestTccDeniedRule:
     def _job(self, tmp_path: Path) -> JobDefinition:

@@ -40,7 +40,6 @@ class TestLifecycleWorkerExceptionSafety:
         assert emitted[0] == "ok"
         assert not controller.busy
 
-
 class TestDiagnosticsWorkerExceptionSafety:
     def test_emits_finished_when_execute_raises(
         self, qtbot: QtBot, caplog: pytest.LogCaptureFixture) -> None:
@@ -67,7 +66,6 @@ class TestDiagnosticsWorkerExceptionSafety:
         assert emitted[0] == "ok"
         assert not controller.busy
 
-
 class _FakeController:
     def __init__(self, execute_result: object | None, execute_exc: Exception | None) -> None:
         self._execute_result = execute_result
@@ -82,10 +80,8 @@ class _FakeController:
     def finish(self) -> None:
         self.busy = False
 
-
 def _raise_on_execute() -> _FakeController:
     return _FakeController(None, RuntimeError("boom"))
-
 
 def _return_outcome(value: object) -> _FakeController:
     return _FakeController(value, None)

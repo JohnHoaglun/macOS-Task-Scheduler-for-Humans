@@ -21,7 +21,6 @@ def _source_bytes() -> bytes:
     )
     return source.read_bytes()
 
-
 class TestDefaultWrapperPath:
     def test_is_the_local_app_bin(self) -> None:
         path = default_wrapper_path()
@@ -29,7 +28,6 @@ class TestDefaultWrapperPath:
         assert path.parent.name == "bin"
         assert "Application Support" in str(path)
         assert str(path).startswith(str(Path.home()))
-
 
 class TestEnsureRunWrapper:
     def test_deploys_executable_copy(self, tmp_path: Path) -> None:

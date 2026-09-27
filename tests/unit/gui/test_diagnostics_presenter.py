@@ -44,7 +44,6 @@ def _result(
     )
     return DirectTestResult(process=process, diagnostics=[])
 
-
 class TestFormatTestSummary:
     def test_launch_failure_reports_message_instead_of_exit_code(self) -> None:
         failure = ProcessLaunchFailure(
@@ -54,18 +53,15 @@ class TestFormatTestSummary:
         assert format_test_summary(outcome) == (
             "Failed to launch in 0.25s: executable not found: /missing/python")
 
-
 class TestFormatDuration:
     def test_minute_and_up_uses_minutes_and_seconds(self) -> None:
         assert format_duration(timedelta(seconds=125)) == "2m 05.00s"
-
 
 class TestFormatEvidence:
     def test_each_state_has_its_suffix(self) -> None:
         assert format_evidence(EvidenceState.CONFIRMED) == "(evidence: confirmed)"
         assert format_evidence(EvidenceState.NOT_PROVABLE) == "(evidence: not provable)"
         assert format_evidence(EvidenceState.UNAVAILABLE) == "(evidence: unavailable)"
-
 
 class TestFormatLogStream:
     def test_read_error(self) -> None:
@@ -81,7 +77,6 @@ class TestFormatLogStream:
         assert format_log_stream(stream) == (
             f"(truncated: showing the last 256 KiB of {LOG_TAIL_BYTES * 3} bytes)\nline"
         )
-
 
 class TestFormatPythonDetection:
     def test_mismatching_project_interpreter_recommends(self) -> None:
@@ -118,7 +113,6 @@ class TestFormatPythonDetection:
             "No candidate interpreters detected.\n\n"
             "a uv project was detected, but no usable .venv interpreter is available"
         )
-
 
 class TestRenderDirectTest:
     def test_launch_failure_replaces_exit_code(self) -> None:

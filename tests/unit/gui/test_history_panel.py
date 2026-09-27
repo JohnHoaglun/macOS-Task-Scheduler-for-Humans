@@ -29,7 +29,6 @@ def _event(**overrides) -> HistoryEvent:
     kwargs.update(overrides)
     return HistoryEvent(**kwargs)
 
-
 class TestShowHistoryEvents:
     def test_panel_events_accessor(self, qtbot: QtBot):
         panel = HistoryPanel()
@@ -38,7 +37,6 @@ class TestShowHistoryEvents:
         events = [_event()]
         panel.show_history(HistoryOutcome(label="test", events=tuple(events)))
         assert panel.events() == events
-
 
 class TestCollapsedByDefault:
     def test_show_history_never_expands(self, qtbot: QtBot) -> None:

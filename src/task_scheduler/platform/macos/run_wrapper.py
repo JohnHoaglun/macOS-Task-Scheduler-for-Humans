@@ -2,35 +2,31 @@
 """launchd run wrapper: guaranteed START/STOP logging for managed job runs.
 
 This file is deployed as a standalone, stdlib-only script (a byte copy is
-written to the app's local ``bin`` directory and referenced from the
-managed plist's ``ProgramArguments``). launchd execs it instead of the job
-command; it forks the real command, waits for its exit, and writes
-``START``/``STOP`` markers around every run.
+written to the app's local ``bin`` directory and referenced from the managed
+plist's ``ProgramArguments``). launchd execs it instead of the job command; it
+forks the real command, waits for its exit, and writes a ``START``/``STOP``
+pair around every run.
 
-Why it exists: launchd cannot open ``StandardOutPath``/``StandardErrorPath``
-on network (SMB/NFS) volumes and aborts the whole run with exit 78 before
-the job command ever starts. The wrapper runs as an ordinary user process,
-so it can open the user's configured log paths on any mounted volume, and
-it guarantees a start/stop record on local disk for every run.
+Log layout (one folder per job, all append-only):
 
-Log layout (all append-only):
+* ``<job-logs>/jobs/<label>/run.log`` — the canonical run record. Always
+  receives a START/STOP pair with the run's exit code and duration. This is
+  the file the LaunchD test (Mode B) watches for a fresh STOP.
+* ``<job-logs>/jobs/<label>/stdout.log`` and ``stderr.log`` — the command's
+  own output, written by launchd via ``StandardOutPath``/``StandardErrorPath``
+  (both point here). Because the per-job folder lives on local disk and is
+  created when the job is installed, launchd never has to open a network
+  (SMB/NFS) volume path, which it cannot do (the run would abort with exit 78).
 
-* the canonical run log, ``<run-logs>/<label>.run.log``, always receives a
-  START/STOP pair (local disk, always writable);
-* the job's configured stdout/stderr paths (when openable) receive the
-  command's output plus the same START/STOP markers;
-* when a configured path cannot be opened (for example its volume is not
-  mounted), that stream falls back to the local spool
-  ``<run-logs>/<label>.stdout.log`` / ``.stderr.log``;
-* the plist's own ``StandardOutPath``/``StandardErrorPath`` point at the
-  same spool files, so wrapper-level failures are captured locally too.
+The wrapper only ever writes the run record, so it never contends with the
+file handles launchd holds for the job's stdout/stderr streams.
 
 Usage (as invoked from the managed plist)::
 
-  run_wrapper.py [--label LABEL] [--run-id ID] [--out PATH] [--err PATH] -- COMMAND [ARGS...]
+  run_wrapper.py [--label LABEL] [--run-id ID] -- COMMAND [ARGS...]
 
-The wrapper exits with the command's exit code, so launchd's last exit
-status always reflects the job itself.
+The wrapper exits with the command's exit code, so launchd's last exit status
+always reflects the job itself.
 """
 
 from __future__ import annotations
@@ -49,31 +45,50 @@ from pathlib import Path
 WRAPPER_BASENAME = "run_wrapper.py"
 
 
-def default_run_logs_root() -> Path:
-    """Return the local per-user run-log/spool directory."""
-    return Path.home() / "Library" / "Logs" / "macOS Task Scheduler for Humans" / "run-logs"
+def default_job_logs_root() -> Path:
+    """Return the per-user directory that holds every application log.
+
+    This is the single on-disk home for the app's logs: the app's own debug
+    log (``app.log``) and each managed job's per-run logs (``jobs/<label>/``)
+    both live here.
+    """
+    return Path.home() / "Library" / "Logs" / "macOS Task Scheduler for Humans"
 
 
 def _sanitize(label: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]", "-", label) or "job"
 
 
+def job_log_dir(label: str, root: Path | None = None) -> Path:
+    """Return the per-job log directory (one folder per job, always local)."""
+    base = root if root is not None else default_job_logs_root()
+    return base / "jobs" / _sanitize(label)
+
+
 def run_log_path(label: str, root: Path | None = None) -> Path:
-    """Return the canonical per-label run-log file (always local)."""
-    base = root if root is not None else default_run_logs_root()
-    return base / f"{_sanitize(label)}.run.log"
+    """Return the canonical per-job run record (``jobs/<label>/run.log``)."""
+    return job_log_dir(label, root) / "run.log"
 
 
-def spool_out_path(label: str, root: Path | None = None) -> Path:
-    """Return the local stdout spool file for *label*."""
-    base = root if root is not None else default_run_logs_root()
-    return base / f"{_sanitize(label)}.stdout.log"
+def stdout_log_path(label: str, root: Path | None = None) -> Path:
+    """Return the job's stdout log (``jobs/<label>/stdout.log``)."""
+    return job_log_dir(label, root) / "stdout.log"
 
 
-def spool_err_path(label: str, root: Path | None = None) -> Path:
-    """Return the local stderr spool file for *label*."""
-    base = root if root is not None else default_run_logs_root()
-    return base / f"{_sanitize(label)}.stderr.log"
+def stderr_log_path(label: str, root: Path | None = None) -> Path:
+    """Return the job's stderr log (``jobs/<label>/stderr.log``)."""
+    return job_log_dir(label, root) / "stderr.log"
+
+
+def ensure_job_log_dir(label: str, root: Path | None = None) -> Path:
+    """Create (idempotently) the job's log directory and return it.
+
+    launchd opens ``StandardOutPath``/``StandardErrorPath`` before it execs
+    the wrapper, so the folder must exist by install time.
+    """
+    directory = job_log_dir(label, root)
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
 
 
 def _timestamp() -> str:
@@ -118,8 +133,6 @@ def main(argv: list[str]) -> int:
     parser.add_argument(
         "--run-id", default=None, help="unique id for this run (generated when absent)"
     )
-    parser.add_argument("--out", type=Path, default=None, help="configured stdout log path")
-    parser.add_argument("--err", type=Path, default=None, help="configured stderr log path")
     parser.add_argument("command", nargs="+", metavar="COMMAND", help="command to run")
     args = parser.parse_args(argv)
 
@@ -129,33 +142,19 @@ def main(argv: list[str]) -> int:
     started_monotonic = time.monotonic()
 
     runlog_fd = _open_for_append(run_log_path(label))
-    out_fd = _open_for_append(args.out) if args.out is not None else None
-    err_fd = _open_for_append(args.err) if args.err is not None else None
-    notes: list[str] = []
-    if args.out is not None and out_fd is None:
-        out_fd = _open_for_append(spool_out_path(label))
-        notes.append("stdout_fallback")
-    if args.err is not None and err_fd is None:
-        err_fd = _open_for_append(spool_err_path(label))
-        notes.append("stderr_fallback")
-
-    note_text = f" notes={','.join(notes)}" if notes else ""
     start_line = (
         f"=== START {_timestamp()} run={run_id} label={label} "
-        f"cmd={' '.join(command)}{note_text} ===\n"
+        f"cmd={' '.join(command)} ===\n"
     )
-    for fd in (runlog_fd, out_fd, err_fd):
-        _write_line(fd, start_line)
+    _write_line(runlog_fd, start_line)
 
     pid = os.fork()
     if pid == 0:
         # -- child: become the job command ---------------------------------
-        if out_fd is not None:
-            os.dup2(out_fd, 1)
-        if err_fd is not None:
-            os.dup2(err_fd, 2)
-        for fd in (out_fd, err_fd, runlog_fd):
-            _close(fd)
+        # launchd already points the child's stdout/stderr at the job's
+        # stdout.log/stderr.log (StandardOutPath/StandardErrorPath); we only
+        # drop our own run-record handle so it is not inherited by the job.
+        _close(runlog_fd)
         try:
             os.execv(command[0], command)
         except OSError as exc:
@@ -197,10 +196,8 @@ def main(argv: list[str]) -> int:
             f"=== STOP  {_timestamp()} run={run_id} exit={exit_code} "
             f"duration={duration:.1f}s status={status_text} ===\n"
         )
-        for fd in (runlog_fd, out_fd, err_fd):
-            _write_line(fd, stop_line)
-        for fd in (runlog_fd, out_fd, err_fd):
-            _close(fd)
+        _write_line(runlog_fd, stop_line)
+        _close(runlog_fd)
     return exit_code
 
 

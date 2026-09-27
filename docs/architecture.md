@@ -195,7 +195,82 @@ services, so crashes are diagnosable after the fact.
   stdout/stderr or environment values (those live in each job's own log paths).
   Full task configuration, including environment values, is intentionally
   logged without redaction; the stderr fallback can expose those values in
-  terminal output while file logging is degraded.
+   terminal output while file logging is degraded.
+
+## LaunchD Run Records and Test (Mode B) (v0.0.55)
+
+Every managed job's logs live in one folder under a single logs root —
+`<default_job_logs_root()>/jobs/<label>/{run,stdout,stderr}.log` (the same root
+that holds the `app.log` debug log above). The layout was made canonical in
+v0.0.55: the run wrapper (`platform/macos/run_wrapper.py`) writes only the
+canonical run record, `run.log` (a `START`/`STOP` pair carrying run id, exit
+code, and duration), while launchd writes the command's output to
+`stdout.log`/`stderr.log` via `StandardOutPath`/`StandardErrorPath`, which now
+point at the per-job folder. `ensure_job_log_dir()` creates that folder when a
+job is installed (it must exist before launchd execs the wrapper), so launchd
+never opens a network (SMB/NFS) path. `job_service.canonical_logging_for(label)`
+returns the fixed per-label log config and is applied to every managed job on
+load, create, and import; a managed job's log location is therefore not
+user-configurable (the editor shows it read-only), while external jobs keep the
+paths they were parsed with.
+
+The `START`/`STOP` records make a run observable. `RunLogWatcher`
+(`platform/macos/run_log_watcher.py`) is pure file/regex work with no launchctl
+or subprocess: `known_run_ids(label)` harvests the run ids already recorded so a
+caller can take a baseline, and `wait_for_new_stop(...)` polls until a `STOP`
+record with a *new* id appears (a clock and a sleeper are injected so the wait
+is unit-testable), reporting that run's exit code, duration, and status as a
+`RunObservation`.
+
+`LaunchdTestService` (`application/launchd_test_service.py`) composes the kick
+and the observation: `run(label, timeout=180.0, now, sleep)` takes a run-id
+baseline, kicks the installed job via `launchctl kickstart -k` (an injected
+`LaunchAgentBackend`), and waits for a fresh `STOP`. It passes only when a new
+run is observed **and** it exited 0; kickstart rejection, no new run within the
+timeout, and a non-zero exit are each a failure with a stable reason. Nothing is
+persisted.
+
+* `TaskCommandService.test_via_launchd(label, timeout=...) -> LaunchdTestResult`
+  requires a managed job installed in launchd (it raises `ValueError` if the
+  launchd-test service is not configured) and records a `launchd_test` history
+  event (shown as "LaunchD test" in the history panel) with the run's exit code
+  and duration.
+* CLI: `test-launchd LABEL [--timeout SECONDS]` (default 180 s) runs this and
+  exits non-zero when the test does not pass. This is the "Mode B" complement to
+  the direct test (`test`, "Mode A"), which runs the command in a child process
+  instead of through launchd.
+
+## Job-Log Retention and Visible Symlink (v0.0.55)
+
+The per-job logs tree documented above is bounded on app startup by
+`application/log_retention.py` so it never grows without limit. This is
+separate from the `app.log` debug log.
+
+* `RetentionPolicy` (frozen dataclass) — `max_age` (30 days), `max_file_bytes`
+  (10 MiB), `rotations` (3), `total_bytes` (500 MiB); defaults come from
+  `RetentionPolicy()`.
+* `prune_job_logs(root=None, policy=None) -> RetentionReport` — applies the
+  policy to the `jobs/` tree under `root` (default `default_job_logs_root()`):
+  removes files not modified within `max_age` (an unknown/zero mtime is left
+  alone), rotates an over-size **live** log to `name.1`/`name.2`/`name.3`
+  (shifting the older generations and dropping the oldest beyond `rotations`),
+  and deletes oldest-first until the total cap holds. Rotation only acts on a
+  live log (`stdout.log`/`stderr.log`/`run.log`) and shifts its existing `.N`
+  generations; a generation file is never re-rotated, so the `.1`/`.2`/`.3`
+  chain stays intact. A `RetentionReport` (`files_removed`, `files_rotated`,
+  `empty_dirs_removed`, `bytes_freed`) summarises the changes; empty per-job
+  directories are removed last.
+* `visible_log_symlink(home=None) -> Path` and `ensure_log_symlink(link, target)`
+  — the user-visible `~/macOS Task Scheduler for Humans` symlink points at the
+  real logs root. `ensure_log_symlink` creates it (making the target if it is
+  missing), leaves a correct one, repoints a stale or wrong one, replaces a
+  plain file in the way, and raises `FileExistsError` if a real directory
+  occupies the link path.
+* `prepare_job_logs(root=None, home=None, policy=None) -> RetentionReport` —
+  best-effort startup prep (never raises): creates the logs root, prunes it, and
+  ensures the symlink. `bootstrap.build_services()` calls it right after
+  deploying the run wrapper, so retention and the symlink are kept current every
+  time the app or CLI starts.
 
 ## Editor Contracts (Increment 10)
 

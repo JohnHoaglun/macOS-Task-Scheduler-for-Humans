@@ -48,6 +48,11 @@ from task_scheduler.application.history_models import (
     HistoryRepository,
 )
 from task_scheduler.application.job_service import CatalogDiagnostic, JobService
+from task_scheduler.application.launchd_test_service import (
+    DEFAULT_LAUNCHD_TEST_TIMEOUT,
+    LaunchdTestResult,
+    LaunchdTestService,
+)
 from task_scheduler.application.log_service import JobLogs, LogService
 from task_scheduler.application.managed_json_transfer import (
     ManagedJsonImportPreview,
@@ -188,6 +193,7 @@ class TaskCommandService:
         codec: PlistCodec,
         test: DirectTestService,
         logs: LogService,
+        launchd_test: LaunchdTestService | None = None,
         probes: DiagnosticProbes | None = None,
         history: HistoryRepository | None = None,
         finder: FinderRevealer | None = None,
@@ -199,6 +205,7 @@ class TaskCommandService:
         self._codec = codec
         self._test = test
         self._logs = logs
+        self._launchd_test = launchd_test
         self._probes = probes or LocalDiagnosticProbes()
         self._history = history
         self._finder = finder
@@ -727,6 +734,34 @@ class TaskCommandService:
                 loaded=None,
                 codes=tuple(d.code for d in result.report.all),
             )
+        return result
+
+    def test_via_launchd(
+        self,
+        label: str,
+        *,
+        timeout: float = DEFAULT_LAUNCHD_TEST_TIMEOUT,
+    ) -> LaunchdTestResult:
+        """Run a saved job through launchd (Mode B) and verify the real run.
+
+        Requires a managed job installed in launchd. Kicks the job via
+        ``kickstart -k`` and confirms the run completed by watching the wrapper's
+        run log; records a LaunchD-test history event for managed jobs.
+        """
+        if self._launchd_test is None:
+            raise ValueError("launchd test service is not configured")
+        job = self._require_managed(label)
+        result = self._launchd_test.run(label, timeout=timeout)
+        self._record_event(
+            job_id=job.id,
+            label=label,
+            kind=HistoryEventKind.LAUNCHD_TEST,
+            outcome=HistoryOutcome.SUCCESS if result.passed else HistoryOutcome.FAILURE,
+            exit_code=result.run.exit_code if result.run is not None else None,
+            duration_seconds=result.run.duration_seconds if result.run is not None else None,
+            loaded=None,
+            codes=(),
+        )
         return result
 
     def compare_environment(

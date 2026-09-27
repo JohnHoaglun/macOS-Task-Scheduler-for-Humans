@@ -1,9 +1,5 @@
-"""Tests for the pure diagnostic probes: protected paths and Mach-O headers.
-
-Mach-O fixtures are struct-packed byte buffers written to temp files, so the
-parsing logic is tested in isolation — including the fat-header endianness
-regression (a little-endian fat header must be parsed as little-endian).
-"""
+"""Tests for the pure diagnostic probes: protected paths and Mach-O headers. Mach-O fixtures are
+struct-packed byte buffers, so parsing is tested in isolation, incl. the fat-header endianness."""
 
 from __future__ import annotations
 
@@ -28,19 +24,13 @@ THIN_BE_MAGIC = 0xCEFAEDFE
 FAT_BE_MAGIC = 0xCAFEBABE
 FAT_LE_MAGIC = 0xBEBAFECA
 
-
 def _thin(cputype: int, magic: int = THIN_64_MAGIC, little_endian: bool = True) -> bytes:
     """Header bytes: magic read big-endian, cputype in *little_endian* order."""
     return struct.pack(">I", magic) + struct.pack("<I" if little_endian else ">I", cputype)
 
-
 def _fat(cputypes: list[int], little_endian: bool) -> bytes:
-    """Fat header bytes.
-    The four magic bytes are always read big-endian by parsers: a
-    big-endian fat holds 0xCAFEBABE (bytes CA FE BA BE), a little-endian
-    fat holds 0xBEBAFECA (bytes BE BA FE CA). The nfat count and entry
-    fields follow the file's own endianness.
-    """
+    """Fat header bytes. Magic is read big-endian: BE fat = 0xCAFEBABE, LE fat = 0xBEBAFECA;
+    nfat/entry fields follow the file's own endianness."""
     fmt = "<I" if little_endian else ">I"
     parts = [
         struct.pack(">I", FAT_LE_MAGIC if little_endian else FAT_BE_MAGIC),
@@ -50,12 +40,10 @@ def _fat(cputypes: list[int], little_endian: bool) -> bytes:
         parts.append(struct.pack(fmt, cputype) + b"\x00" * 16)
     return b"".join(parts)
 
-
 def _write(tmp_path: Path, data: bytes, name: str = "tool") -> Path:
     path = tmp_path / name
     path.write_bytes(data)
     return path
-
 
 class TestProbeProtectedPaths:
     def test_duplicate_inputs_deduplicated_preserving_order(self) -> None:
@@ -64,7 +52,6 @@ class TestProbeProtectedPaths:
         b = home / "Music" / "b.py"
         findings = probe_protected_paths([a, a, b, a], home=home)
         assert [finding.path for finding in findings] == [a, b]
-
 
 class TestProbeExecutableArchitecture:
     def test_thin_be_magic(self, tmp_path: Path) -> None:
@@ -98,7 +85,6 @@ class TestProbeExecutableArchitecture:
     def test_non_macho_silent(self, tmp_path: Path) -> None:
         executable = _write(tmp_path, b"\x7fELF\x02\x01\x01\x00")
         assert probe_executable_architecture(executable, machine="arm64") is None
-
 
 class TestProbeInterpreterForwarding:
     def test_default_args_non_shim_returns_none(self) -> None:

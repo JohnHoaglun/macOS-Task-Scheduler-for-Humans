@@ -20,7 +20,6 @@ from task_scheduler.gui.controllers.raw_read_worker import (
 
 SOURCE = {"Label": "com.example.raw", "ProgramArguments": ["/bin/true"]}
 
-
 def _run(path: Path) -> RawPlistRead:
     worker = RawReadWorker(path)
     emitted: list[object] = []
@@ -28,7 +27,6 @@ def _run(path: Path) -> RawPlistRead:
     worker.run()
     assert len(emitted) == 1
     return cast(RawPlistRead, emitted[0])
-
 
 class TestRawReadWorker:
     def test_utf8_source_emits_text_read(self, qtbot: QtBot, tmp_path: Path) -> None:

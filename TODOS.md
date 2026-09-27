@@ -1,4 +1,12 @@
-# TODOS.md (v0.0.52)
+# TODOS.md (v0.0.55)
+
+## Job-Log Retention + Visible Home-Directory Symlink (DONE — v0.0.55)
+
+- [x] `application/log_retention.py` — `prune_job_logs()` bounds the per-job logs tree: 30-day age (unknown/zero mtime left alone), 10 MiB per live log with 3 rotated generations (`.1`/`.2`/`.3`, oldest dropped beyond `rotations`), 500 MiB total cap (oldest-first); rotation never re-rotates a generation file; empty per-job dirs removed; `RetentionReport` summarises the changes
+- [x] `ensure_log_symlink()` / `visible_log_symlink()` — user-visible `~/macOS Task Scheduler for Humans` → real logs root: create (making the target), keep a correct one, repoint a stale/wrong one, replace a plain file in the way, refuse a real directory
+- [x] `prepare_job_logs()` (best-effort, never fails startup) creates the root + prunes + ensures the symlink; wired into `bootstrap.build_services()` right after `ensure_run_wrapper()`
+- [x] Added `tests/unit/application/test_log_retention.py` (24 tests, 100% module coverage)
+- [x] Full gate + v0.0.55 closeout: `make check` green (ruff, mypy strict, 839 tests, 100% coverage); test/source ratio 72.4% (11,584 : 16,000, ≤75%); version 0.0.54 → 0.0.55 (all 4 registry locations)
 
 ## Main-List Name Fix — Installed Tasks Keep Showing Their Name (DONE — v0.0.52)
 
