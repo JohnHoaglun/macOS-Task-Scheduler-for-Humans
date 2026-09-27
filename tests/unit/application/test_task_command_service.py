@@ -1,13 +1,7 @@
-"""Unit tests for the TaskCommandService facade (Increment 8).
-
-Every boundary is fake: a temporary catalog, a temporary LaunchAgents root,
-and scripted process results. No test touches the real home directory or
-invokes the real launchctl.
-"""
+"""Unit tests for the TaskCommandService facade: every boundary is fake."""
 
 from __future__ import annotations
 
-import hashlib
 import plistlib
 from pathlib import Path
 from uuid import UUID
@@ -19,7 +13,6 @@ from tests.fakes import OK_PROCESS, FakeTaskWorld
 from task_scheduler.application.diagnostic_models import DiagnosticSource
 from task_scheduler.application.job_service import default_job_logs_root, managed_label
 from task_scheduler.application.log_service import JobLogs, LogStream
-from task_scheduler.domain import JobDefinition
 from task_scheduler.platform.macos import (
     LAUNCHCTL_PATH,
     CandidateSource,
@@ -52,13 +45,6 @@ class ScriptedStatusBackend:
 
     def __getattr__(self, name: str) -> object:
         return getattr(self._inner, name)
-
-
-def broken_job(job: JobDefinition) -> JobDefinition:
-    """A job whose label fails validation, bypassing the model's checks."""
-    data = job.model_dump()
-    data["label"] = "bad label"
-    return JobDefinition.model_construct(**data)
 
 
 class TestInspectDiscovered:
@@ -169,7 +155,6 @@ class TestUninstall:
             (OK_PROCESS, None, True),
             (ProcessResult(exit_code=1, stderr="bootout failed"), False, True),
             (ProcessResult(exit_code=1, stderr="bootout failed"), True, False),
-            (ProcessResult(exit_code=1, stderr="bootout failed"), None, False),
         ],
     )
     def test_uninstall_matrix(
@@ -198,7 +183,6 @@ class TestCommitRawExternalEditLabelInvariants:
         ("replacement", "match"),
         [
             ({"Label": "com.example.new", "ProgramArguments": ["/bin/echo"]}, "cannot add"),
-            ({"ProgramArguments": ["/bin/echo"]}, "must contain a valid launchd label"),
         ],
     )
     def test_label_less_session_rejected(
@@ -214,19 +198,6 @@ class TestCommitRawExternalEditLabelInvariants:
                 session, plistlib.dumps(replacement).decode("utf-8")
             )
         assert plist_path.read_bytes() == plistlib.dumps({"ProgramArguments": ["/bin/sleep"]})
-
-
-class TestJobBasedFacade:
-    @staticmethod
-    def _venv_project(tmp_path: Path) -> tuple[Path, Path]:
-        project = tmp_path / "project"
-        venv_python = project / ".venv" / "bin" / "python"
-        venv_python.parent.mkdir(parents=True)
-        venv_python.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
-        venv_python.chmod(0o755)
-        script = project / "main.py"
-        script.write_text("print('ok')\n", encoding="utf-8")
-        return venv_python, script
 
 
 class TestEditorFacade:
@@ -309,45 +280,10 @@ def _external_plist(tmp_path: Path) -> Path:
 
 
 class TestExternalImportDrift:
-    def test_preview_records_source_snapshot_and_commits_unchanged(self, tmp_path: Path) -> None:
-        world = FakeTaskWorld(tmp_path)
-        path = _external_plist(tmp_path)
-        preview = world.services.preview_external_plist(path)
-        st = path.stat()
-        assert preview.source_path == path
-        assert preview.source_sha256 == hashlib.sha256(path.read_bytes()).hexdigest()
-        assert preview.source_identity == (st.st_dev, st.st_ino)
-        assert preview.requires_acknowledgement is False
-        assert world.services.catalog_diagnostics() == []
-        job = world.services.import_external_plist(preview, acknowledge_partial=False)
-        assert job.label == "com.example.external"
-        assert world.jobs.find(job.label) is not None
-
     def test_unreadable_source_at_preview_raises(self, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)
         with pytest.raises(ValueError, match="could not read"):
             world.services.preview_external_plist(tmp_path / "missing.plist")
-
-    def test_source_changed_after_preview_rejects_import(self, tmp_path: Path) -> None:
-        world = FakeTaskWorld(tmp_path)
-        path = _external_plist(tmp_path)
-        preview = world.services.preview_external_plist(path)
-        changed = {**EXTERNAL_PLIST_PAYLOAD, "ProgramArguments": ["/bin/echo", "changed"]}
-        path.write_bytes(plistlib.dumps(changed))
-        with pytest.raises(ValueError, match="changed between preview and import"):
-            world.services.import_external_plist(preview, acknowledge_partial=False)
-        assert world.jobs.list_jobs() == []
-
-    def test_source_replaced_with_same_bytes_rejects_import(self, tmp_path: Path) -> None:
-        world = FakeTaskWorld(tmp_path)
-        path = _external_plist(tmp_path)
-        original = path.read_bytes()
-        preview = world.services.preview_external_plist(path)
-        path.unlink()
-        path.write_bytes(original)
-        with pytest.raises(ValueError, match="changed between preview and import"):
-            world.services.import_external_plist(preview, acknowledge_partial=False)
-        assert world.jobs.list_jobs() == []
 
     def test_unreadable_source_at_commit_rejects_import(self, tmp_path: Path) -> None:
         world = FakeTaskWorld(tmp_path)

@@ -37,6 +37,7 @@ from task_scheduler.platform.macos.plist_models import (
     ParsedLaunchAgent,
     ParseSupport,
 )
+from task_scheduler.platform.macos.run_wrapper import WRAPPER_BASENAME
 
 _PYTHON_VERSION_RE = re.compile(r"^python3\.\d+$")
 _SHELL_EXECUTABLES = frozenset({"/bin/sh", "/bin/bash", "/bin/zsh"})
@@ -87,8 +88,12 @@ def _interpret(raw: dict[str, object]) -> ParsedLaunchAgent:
     if isinstance(checked, str):
         return _invalid(raw, unsupported_keys, [checked])
     label, args = checked
+    wrapped = _unwrap_program_arguments(args)
+    wrapped_logs: tuple[Path | None, Path | None] | None = None
+    if wrapped is not None:
+        args, wrapped_logs = wrapped
     try:
-        job, warnings, partial = _build_job(raw, label, args, unsupported_keys)
+        job, warnings, partial = _build_job(raw, label, args, unsupported_keys, wrapped_logs)
     except _FatalParse as exc:
         return _invalid(raw, unsupported_keys, [exc.message])
     status = ParseSupport.PARTIALLY_SUPPORTED if partial else ParseSupport.SUPPORTED
@@ -127,11 +132,52 @@ def _fatal_check(raw: dict[str, object]) -> str | tuple[str, list[str]]:
     return label, args
 
 
+def _unwrap_program_arguments(
+    args: list[str],
+) -> tuple[list[str], tuple[Path | None, Path | None]] | None:
+    """Recognize the run-wrapper argv form; return ``(inner, (out, err))``.
+
+    A managed plist runs the job through the app's run wrapper:
+    ``run_wrapper.py --label L [--out P] [--err Q] -- COMMAND...``. The
+    wrapper file name plus the ``--`` separator is the protocol marker, so
+    recognition holds at any deployment location. The wrapper's ``--out`` /
+    ``--err`` carry the user-configured log paths; the plist's own
+    ``StandardOutPath`` / ``StandardErrorPath`` only hold the local spool.
+    """
+    head = args[0]
+    if not Path(head).is_absolute() or Path(head).name != WRAPPER_BASENAME:
+        return None
+    if "--" not in args:
+        return None
+    separator = args.index("--")
+    options = args[1 : separator]
+    inner = args[separator + 1 :]
+    if not inner:
+        return None
+    out: Path | None = None
+    err: Path | None = None
+    index = 0
+    while index < len(options):
+        option = options[index]
+        if option in ("--out", "--err") and index + 1 < len(options):
+            value = options[index + 1]
+            if Path(value).is_absolute():
+                if option == "--out":
+                    out = Path(value)
+                else:
+                    err = Path(value)
+            index += 2
+        else:
+            index += 1
+    return inner, (out, err)
+
+
 def _build_job(
     raw: dict[str, object],
     label: str,
     args: list[str],
     unsupported_keys: list[str],
+    wrapped_logs: tuple[Path | None, Path | None] | None = None,
 ) -> tuple[JobDefinition | None, list[str], bool]:
     """Build a JobDefinition from *raw* where possible.
 
@@ -151,12 +197,19 @@ def _build_job(
     environment = _parse_environment(raw)
     stdout_path = _parse_log_path(raw, "StandardOutPath", warnings)
     stderr_path = _parse_log_path(raw, "StandardErrorPath", warnings)
+    wrapped = wrapped_logs is not None
+    if wrapped_logs is not None:
+        # In wrapper form the user's log paths are the wrapper's own
+        # --out/--err options; the plist's Standard* keys only hold the
+        # local infrastructure spool and are not user configuration.
+        stdout_path = wrapped_logs[0]
+        stderr_path = wrapped_logs[1]
     enabled = _parse_disabled(raw)
 
     unrepresentable_value = (
         ("WorkingDirectory" in raw and working_directory is None)
-        or ("StandardOutPath" in raw and stdout_path is None)
-        or ("StandardErrorPath" in raw and stderr_path is None)
+        or ("StandardOutPath" in raw and stdout_path is None and not wrapped)
+        or ("StandardErrorPath" in raw and stderr_path is None and not wrapped)
     )
     if unrepresentable_value:
         return None, warnings, True

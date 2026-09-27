@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Sequence
 from pathlib import Path
 
 from task_scheduler.application import JobService, LogService, TaskCommandService
@@ -18,11 +17,7 @@ from task_scheduler.platform.macos import (
     ProcessResult,
     PythonDetectionRoots,
 )
-from task_scheduler.platform.macos.diagnostic_probes import (
-    ArchitectureFinding,
-    DiagnosticProbes,
-    ProtectedPathFinding,
-)
+from task_scheduler.platform.macos.diagnostic_probes import DiagnosticProbes
 from task_scheduler.platform.macos.filesystem import SourceChangedError, SourceSnapshot
 from task_scheduler.storage import ExecutionHistoryRepository, JsonJobRepository
 
@@ -260,41 +255,6 @@ class FakeTaskWorld:
         """Seed both the catalog record and the managed plist for *job*."""
         self.jobs.import_job(job)
         self.store.write(job)
-
-
-class FakeDiagnosticProbes(DiagnosticProbes):
-    """Injectable probe stub that returns canned findings.
-
-    Records every call (inputs and kwargs) so tests can assert what was probed.
-    """
-
-    def __init__(
-        self,
-        protected_findings: tuple[ProtectedPathFinding, ...] = (),
-        architecture_finding: ArchitectureFinding | None = None,
-    ) -> None:
-        self.protected_findings = protected_findings
-        self.architecture_finding = architecture_finding
-        self.protected_calls: list[tuple[Sequence[Path], dict[str, object]]] = []
-        self.architecture_calls: list[tuple[Path, dict[str, object]]] = []
-
-    def probe_protected_paths(
-        self,
-        paths: Sequence[Path],
-        *,
-        home: Path | None = None,
-    ) -> tuple[ProtectedPathFinding, ...]:
-        self.protected_calls.append((paths, {"home": home}))
-        return self.protected_findings
-
-    def probe_executable_architecture(
-        self,
-        executable: Path,
-        *,
-        machine: str | None = None,
-    ) -> ArchitectureFinding | None:
-        self.architecture_calls.append((executable, {"machine": machine}))
-        return self.architecture_finding
 
 
 class FakePythonDetectorFilesystem:

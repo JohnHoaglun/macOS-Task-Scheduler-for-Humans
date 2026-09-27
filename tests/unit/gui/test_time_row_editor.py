@@ -28,16 +28,6 @@ def spy(editor: TimeRowEditor) -> list[int]:
     return emissions
 
 
-class _EmissionCounter:
-    """Stand-in for rowsChanged that records emissions made during init."""
-
-    def __init__(self) -> None:
-        self.count = 0
-
-    def emit(self, *args: object) -> None:
-        self.count += 1
-
-
 class TestSetTimes:
     def test_set_times_empty_keeps_one_blank_row(self, qtbot: QtBot) -> None:
         editor = make_editor(qtbot)

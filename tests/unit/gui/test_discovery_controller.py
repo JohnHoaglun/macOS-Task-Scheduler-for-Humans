@@ -21,11 +21,6 @@ class _BoomServices:
         raise RuntimeError("boom")
 
 
-class _OutsideRootServices:
-    def inspect_discovered(self, path: Path) -> NoReturn:
-        raise ValueError("outside root")
-
-
 class _DiagnosticServices:
     def __init__(
         self,

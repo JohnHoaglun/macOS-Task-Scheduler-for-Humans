@@ -1,4 +1,7 @@
 PYTHON ?= .venv/bin/python
+# mypy's sqlite cache must live on a local volume; the project itself may
+# sit on a network share where sqlite cannot open its database file.
+MYPY_CACHE ?= $(HOME)/.cache/mactask-mypy
 
 .PHONY: test integration lint format typecheck check coverage ratio run-gui package
 
@@ -16,7 +19,7 @@ format:
 	$(PYTHON) -m ruff format src/task_scheduler/ tests/
 
 typecheck:
-	$(PYTHON) -m mypy src/task_scheduler/
+	$(PYTHON) -m mypy --cache-dir=$(MYPY_CACHE) src/task_scheduler/
 
 coverage:
 	$(PYTHON) -m pytest --cov=task_scheduler --cov-report=term tests/

@@ -892,7 +892,7 @@ class TaskCommandService:
         if original is None:
             raise ValueError("the edit produced no changes")
 
-        merged = merge_external_edit(original, job, dirty=dirty)
+        merged = merge_external_edit(original, job, dirty=dirty, wrapper_path=self._codec.wrapper)
         if merged == original:
             raise ValueError("the edit produced no changes")
 

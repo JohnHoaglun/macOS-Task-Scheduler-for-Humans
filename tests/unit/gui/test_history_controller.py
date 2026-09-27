@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from task_scheduler.application.job_service import JobNotFoundError
 from task_scheduler.gui.controllers.history_controller import HistoryController
 
 
@@ -19,11 +18,6 @@ class FakeService:
         if self.error is not None:
             return HistoryReadResult(events=(), error=self.error)
         return HistoryReadResult(events=self.events)
-
-
-class FakeFailingService:
-    def history(self, label: str, *, limit: int = 50):
-        raise JobNotFoundError("com.example.missing")
 
 
 class FakeOSErrorService:

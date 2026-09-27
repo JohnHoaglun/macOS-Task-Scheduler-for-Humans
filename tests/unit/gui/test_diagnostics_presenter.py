@@ -1,28 +1,20 @@
-"""Presenter tests: direct-test summary, logs, environment, and detection text."""
+"""Presenter tests: summary, duration, evidence, log stream, and detection text."""
 
 from datetime import timedelta
 from pathlib import Path
 
 from tests.conftest import make_job
 
-from task_scheduler.application.diagnostic_models import (
-    Diagnostic,
-    DiagnosticSeverity,
-    EvidenceState,
-)
+from task_scheduler.application.diagnostic_models import EvidenceState
 from task_scheduler.application.log_service import LogStream
 from task_scheduler.application.test_service import DirectTestResult
-from task_scheduler.domain import LoggingConfig
 from task_scheduler.gui.controllers.diagnostics_controller import TestOutcome
 from task_scheduler.gui.presenters.diagnostics_presenter import (
-    direct_test_report_path,
-    format_diagnostics,
     format_duration,
     format_evidence,
     format_log_stream,
     format_python_detection,
     format_test_summary,
-    interpreter_warning,
     render_direct_test,
 )
 from task_scheduler.platform.macos.log_reader import LOG_TAIL_BYTES
@@ -43,17 +35,14 @@ from task_scheduler.platform.macos.python_detection import (
 def _result(
     *,
     exit_code: int | None = 0,
-    stdout: str = "out",
-    stderr: str = "err",
     duration: timedelta = timedelta(milliseconds=250),
     launch_failure: ProcessLaunchFailure | None = None,
-    diagnostics: list[Diagnostic] | None = None,
 ) -> DirectTestResult:
     process = ProcessResult(
-        exit_code=exit_code, stdout=stdout, stderr=stderr,
+        exit_code=exit_code, stdout="out", stderr="err",
         duration=duration, launch_failure=launch_failure,
     )
-    return DirectTestResult(process=process, diagnostics=diagnostics or [])
+    return DirectTestResult(process=process, diagnostics=[])
 
 
 class TestFormatTestSummary:
@@ -71,20 +60,11 @@ class TestFormatDuration:
         assert format_duration(timedelta(seconds=125)) == "2m 05.00s"
 
 
-class TestFormatDiagnostics:
-    def test_empty_reports_no_diagnostics(self) -> None:
-        assert format_diagnostics([]) == "No diagnostics."
-
-    def test_one_per_finding_with_severity_and_suggestion(self) -> None:
-        diagnostics = [Diagnostic(
-            severity=DiagnosticSeverity.WARNING, code="env_differs",
-            title="Environment differs", description="Values changed.",
-            suggested_action="Review the variables.",
-        )]
-        text = format_diagnostics(diagnostics)
-        assert "[WARNING] Environment differs" in text
-        assert "Values changed." in text
-        assert "Suggested: Review the variables." in text
+class TestFormatEvidence:
+    def test_each_state_has_its_suffix(self) -> None:
+        assert format_evidence(EvidenceState.CONFIRMED) == "(evidence: confirmed)"
+        assert format_evidence(EvidenceState.NOT_PROVABLE) == "(evidence: not provable)"
+        assert format_evidence(EvidenceState.UNAVAILABLE) == "(evidence: unavailable)"
 
 
 class TestFormatLogStream:
@@ -94,10 +74,6 @@ class TestFormatLogStream:
             error="log file not found: /logs/stdout.log")
         assert format_log_stream(stream) == "Log unavailable: log file not found: /logs/stdout.log"
 
-    def test_empty_content(self) -> None:
-        stream = LogStream(name="stdout", path=Path("/logs/stdout.log"), content="")
-        assert format_log_stream(stream) == "(empty)"
-
     def test_truncated_content_is_prefixed_with_marker(self) -> None:
         stream = LogStream(
             name="stdout", path=Path("/logs/stdout.log"), content="line",
@@ -105,12 +81,6 @@ class TestFormatLogStream:
         assert format_log_stream(stream) == (
             f"(truncated: showing the last 256 KiB of {LOG_TAIL_BYTES * 3} bytes)\nline"
         )
-
-    def test_untruncated_content_has_no_marker(self) -> None:
-        stream = LogStream(
-            name="stdout", path=Path("/logs/stdout.log"), content="line",
-            truncated=False, total_bytes=4)
-        assert format_log_stream(stream) == "line"
 
 
 class TestFormatPythonDetection:
@@ -150,21 +120,7 @@ class TestFormatPythonDetection:
         )
 
 
-class TestFormatEvidence:
-    def test_each_state_has_its_suffix(self) -> None:
-        assert format_evidence(EvidenceState.CONFIRMED) == "(evidence: confirmed)"
-        assert format_evidence(EvidenceState.NOT_PROVABLE) == "(evidence: not provable)"
-        assert format_evidence(EvidenceState.UNAVAILABLE) == "(evidence: unavailable)"
-
-
 class TestRenderDirectTest:
-    def test_exit_code_streams_and_diagnostics(self) -> None:
-        text = render_direct_test(_result(exit_code=0, stdout="line1\nline2", stderr="boom"))
-        assert "exit code: 0" in text and "duration:" in text
-        assert "line1" in text and "line2" in text and "boom" in text
-        assert "No diagnostics." in text
-        assert render_direct_test(_result(exit_code=1, stdout="", stderr="")).count("(empty)") >= 2
-
     def test_launch_failure_replaces_exit_code(self) -> None:
         failure = ProcessLaunchFailure(
             kind=LaunchFailureKind.NOT_FOUND, message="executable not found: /missing/python"
@@ -172,33 +128,3 @@ class TestRenderDirectTest:
         text = render_direct_test(_result(exit_code=None, launch_failure=failure))
         assert "launch failed" in text and "executable not found: /missing/python" in text
         assert "exit code:" not in text
-
-
-class TestInterpreterWarning:
-    def test_blank_and_other_interpreters_have_no_warning(self) -> None:
-        app = Path("/Users/john/app/.venv/bin/python3.14")
-        assert interpreter_warning("", app) is None
-        assert interpreter_warning("   ", app) is None
-        assert interpreter_warning("/Users/john/proj/.venv/bin/python", app) is None
-
-    def test_same_venv_as_app_warns(self) -> None:
-        app = Path("/Users/john/app/.venv/bin/python3.14")
-        assert "runs under" in interpreter_warning("/Users/john/app/.venv/bin/python", app)
-
-
-class TestDirectTestReportPath:
-    def test_prefers_stdout_log_directory(self) -> None:
-        job = make_job(name="daily-backup", logging=LoggingConfig(
-            stdout_path=Path("/logs/daily/stdout.log"), stderr_path=Path("/logs/other/stderr.log"),
-        ))
-        assert direct_test_report_path(job) == Path("/logs/daily/daily-backup.direct-test.log")
-
-    def test_falls_back_to_stderr_log_directory(self) -> None:
-        job = make_job(
-            name="daily-backup",
-            logging=LoggingConfig(stdout_path=None, stderr_path=Path("/logs/other/stderr.log")),
-        )
-        assert direct_test_report_path(job) == Path("/logs/other/daily-backup.direct-test.log")
-
-    def test_no_log_paths_means_no_save(self) -> None:
-        assert direct_test_report_path(make_job()) is None

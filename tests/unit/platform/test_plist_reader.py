@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from task_scheduler.platform.macos import ParsedLaunchAgent, ParseSupport, parse_bytes, parse_path
+from task_scheduler.platform.macos.plist_reader import _unwrap_program_arguments
 
 FIXTURES = Path(__file__).resolve().parents[2] / "fixtures" / "plists"
 
@@ -160,3 +161,42 @@ class TestScheduleBranches:
         parsed = parse_bytes(plistlib.dumps(payload))
         assert parsed.status is ParseSupport.INVALID
         assert parsed.job is None
+
+
+class TestUnwrapProgramArguments:
+    """Recognition of the run-wrapper argv form (private helper)."""
+
+    @pytest.mark.parametrize(
+        "args",
+        [
+            ["run_wrapper.py", "--", "/bin/x"],  # relative head
+            ["/bin/other_wrapper.py", "--", "/bin/x"],  # wrong name
+            ["/abs/run_wrapper.py", "--label", "x"],  # no -- separator
+            ["/abs/run_wrapper.py", "--"],  # no command after --
+            ["/bin/zsh", "/Users/example/scripts/x.sh"],  # plain command
+        ],
+    )
+    def test_unrecognized_forms_return_none(self, args: list[str]) -> None:
+        assert _unwrap_program_arguments(args) is None
+
+    def test_recognizes_wrapper_and_extracts_log_paths(self) -> None:
+        args = [
+            "/abs/run_wrapper.py", "--label", "x",
+            "--out", "/logs/out.log", "--err", "/logs/err.log",
+            "--", "/bin/echo", "hi",
+        ]
+        inner, (out, err) = _unwrap_program_arguments(args)
+        assert inner == ["/bin/echo", "hi"]
+        assert out == Path("/logs/out.log")
+        assert err == Path("/logs/err.log")
+
+    def test_relative_and_dangling_log_options_are_ignored(self) -> None:
+        inner, (out, err) = _unwrap_program_arguments(
+            ["/abs/run_wrapper.py", "--out", "relative.log", "--err", "also.log", "--", "/bin/x"]
+        )
+        assert inner == ["/bin/x"]
+        assert (out, err) == (None, None)
+        args = ["/abs/run_wrapper.py", "--out", "--", "/bin/x"]
+        inner, (out, err) = _unwrap_program_arguments(args)
+        assert inner == ["/bin/x"]
+        assert out is None and err is None

@@ -1,8 +1,17 @@
-"""LaunchAgent plist encoder: JobDefinition to launchd plist representation."""
+"""LaunchAgent plist encoder: JobDefinition to launchd plist representation.
+
+When the codec is configured with a *run wrapper* path, ``ProgramArguments``
+executes the wrapper around the job command and ``StandardOutPath`` /
+``StandardErrorPath`` always point at the local run-logs spool: launchd
+cannot open log paths on network (SMB/NFS) volumes (the run aborts with
+exit 78), while the wrapper — an ordinary user process — can. The job's
+configured log paths are handed to the wrapper as ``--out``/``--err``.
+"""
 
 from __future__ import annotations
 
 import plistlib
+from pathlib import Path
 
 from task_scheduler.domain import CalendarSchedule, IntervalSchedule, JobDefinition
 from task_scheduler.domain.command import command_argv
@@ -10,10 +19,20 @@ from task_scheduler.platform.macos.plist_models import (
     WEEKDAY_TO_LAUNCHD,
     ExternalEditField,
 )
+from task_scheduler.platform.macos.run_wrapper import spool_err_path, spool_out_path
 
 
-def _program_arguments(job: JobDefinition) -> list[str]:
-    return command_argv(job.command)
+def _program_arguments(job: JobDefinition, wrapper_path: str | None = None) -> list[str]:
+    argv = command_argv(job.command)
+    if wrapper_path is None:
+        return argv
+    wrapped: list[str] = [wrapper_path, "--label", job.label]
+    if job.logging.stdout_path is not None:
+        wrapped += ["--out", str(job.logging.stdout_path)]
+    if job.logging.stderr_path is not None:
+        wrapped += ["--err", str(job.logging.stderr_path)]
+    wrapped += ["--", *argv]
+    return wrapped
 
 
 def _encode_schedule(job: JobDefinition) -> dict[str, object]:
@@ -48,23 +67,42 @@ def _schedule_keys(job: JobDefinition) -> dict[str, object]:
 
 
 class PlistCodec:
-    """Encode a validated JobDefinition into launchd LaunchAgent plists."""
+    """Encode a validated JobDefinition into launchd LaunchAgent plists.
+
+    With a *wrapper_path* (the deployed run wrapper), the plist runs the
+    wrapper around the job command and points ``StandardOutPath`` /
+    ``StandardErrorPath`` at the local spool so launchd never has to open a
+    network-volume log file. Without a wrapper the legacy behavior holds:
+    the raw command and the job's configured log paths go into the plist.
+    """
+
+    def __init__(self, wrapper_path: str | Path | None = None) -> None:
+        self._wrapper = str(wrapper_path) if wrapper_path is not None else None
+
+    @property
+    def wrapper(self) -> str | None:
+        """The configured run wrapper path, or ``None`` for raw encoding."""
+        return self._wrapper
 
     def encode_dict(self, job: JobDefinition) -> dict[str, object]:
         """Return the launchd plist dictionary for *job*."""
         result: dict[str, object] = {
             "Label": job.label,
-            "ProgramArguments": _program_arguments(job),
+            "ProgramArguments": _program_arguments(job, self._wrapper),
         }
         result.update(_schedule_keys(job))
         if job.working_directory is not None:
             result["WorkingDirectory"] = str(job.working_directory)
         if job.environment.variables:
             result["EnvironmentVariables"] = dict(job.environment.variables)
-        if job.logging.stdout_path is not None:
-            result["StandardOutPath"] = str(job.logging.stdout_path)
-        if job.logging.stderr_path is not None:
-            result["StandardErrorPath"] = str(job.logging.stderr_path)
+        if self._wrapper is not None:
+            result["StandardOutPath"] = str(spool_out_path(job.label))
+            result["StandardErrorPath"] = str(spool_err_path(job.label))
+        else:
+            if job.logging.stdout_path is not None:
+                result["StandardOutPath"] = str(job.logging.stdout_path)
+            if job.logging.stderr_path is not None:
+                result["StandardErrorPath"] = str(job.logging.stderr_path)
         if not job.enabled:
             result["Disabled"] = True
         return result
@@ -79,19 +117,22 @@ def merge_external_edit(
     job: JobDefinition,
     *,
     dirty: frozenset[ExternalEditField],
+    wrapper_path: str | None = None,
 ) -> dict[str, object]:
     """Merge *dirty* fields from *job* into a copy of *original*.
 
     Starts from a shallow copy of *original*. For each field in *dirty*,
     applies the job-encoded value (removes the key when the job value is
-    absent/empty). Non-dirty keys and ``Label`` are never touched.
+    absent/empty). Non-dirty keys and ``Label`` are never touched. When
+    *wrapper_path* is given, a dirty ``ProgramArguments`` is re-encoded in
+    the wrapper form.
 
     Returns a new dict; *original* is never mutated.
     """
     merged = dict(original)
     for field in dirty:
         if field is ExternalEditField.PROGRAM_ARGUMENTS:
-            argv = _program_arguments(job)
+            argv = _program_arguments(job, wrapper_path)
             if argv:
                 merged["ProgramArguments"] = argv
             else:
