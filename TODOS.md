@@ -1,4 +1,22 @@
-# TODOS.md (v0.0.55)
+# TODOS.md (v0.0.56)
+
+## Stale-Plist Migration Gap — Wrapper Interface Change Breaks Existing Jobs (DONE — v0.0.56)
+
+Discovered 2026-09-27 running the user's real DailyNewsBrief jobs (prod `io.github.macos-task-scheduler.user.daily-brief-prod-04aaa100`, dev `io.github.macos-task-scheduler.user.daily-brief-dev-9e53793f`). v0.0.55 changed the managed-run wrapper contract: `PlistCodec._program_arguments` now emits `[wrapper, "--label", LABEL, "--", *command]` and `run_wrapper.py` accepts only `--label`/`--run-id` (no `--out`/`--err`; job streams go to the canonical local `jobs/<label>/{stdout,stderr}.log`). A plist deployed by any earlier version still passes the legacy `--out … --err … --` args, so `argparse` rejects them and the job dies instantly with **exit 2** before the child command ever runs.
+
+Resolution: option (a) **startup migration** — a fresh GUI launch now self-heals every drifted managed plist. (b) was rejected because it would keep a deprecated `--out`/`--err` no-op surface alive in the wrapper, and (c) is unnecessary once (a) self-heals on every launch.
+
+- [x] `TaskCommandService.migrate_managed_plists()` — for each managed job in the catalog, byte-compares the deployed plist against `PlistCodec.encode_bytes(job)`: drift → re-encode through the existing `reinstall(label)` transaction (staged replace + `launchctl bootout`/`bootstrap`); currently-`running` (via `_is_running(label)`, a `state = running` regex on `launchctl print`) → skipped so a live run is never interrupted; missing plist → counted; unreadable plist / reinstall failure / incomplete reinstall → collected, never raised
+- [x] `MigrationResult` DTO (`checked`, `up_to_date`, `migrated`, `skipped_running`, `missing`, `errors`) returned for logging/reporting
+- [x] GUI hook — `gui/app.py:_run_startup_migration(services)` runs the migration best-effort in `main()` after `build_services()` and before window creation: logs the summary via the app logger and swallows any exception so the GUI always opens (next launch retries)
+- [x] Regression tests — `tests/unit/application/test_task_command_service.py` `TestMigrateManagedPlists` (8: empty catalog, up-to-date no-op, stale reinstalled via `bootout`+`bootstrap`, stale-but-running skipped, missing counted without reinstall, unreadable recorded, reinstall failure recorded, incomplete reinstall recorded) + `TestIsRunning` (running / idle); `tests/unit/gui/test_app.py` (helper runs the migration and never raises, swallows service errors, `main()` runs it before window construction)
+- [x] Closeout: `make check` green (ruff, mypy strict, 852 tests, 100% coverage), ratio 72.9906% (≤75%), version bump 0.0.55 → 0.0.56 (all 4 registry locations), TODOS + docs updated, commit, push
+
+Manual mitigation (done 2026-09-27, runtime-only, **not** a code change) — historical: regenerated both plists from the catalog source-of-truth via `PlistCodec` + `stage_plist`/`activate_staged`, then `bootout`+`bootstrap`; both jobs then ran clean (prod exit 0, 80.8 s, 59 stories → `/Volumes/obsidian/…/DailyBrief/Prod/news/DailyBrief-2026-09-28_v01.md`; dev exit 0, 55.7 s, 77 stories → `…/Dev/news/…`). Catalog JSONs left untouched. This is now automated by the startup migration above.
+
+Notes:
+- The catalog `logging.stdout_path`/`stderr_path` (e.g. the user's `z_logs` paths) are retained in the catalog JSON but **no longer used** by wrapper-mode jobs — canonical local `jobs/<label>/{stdout,stderr}.log` win. After migration, job streams live there.
+- Repro is repeatable on any machine that has pre-v0.0.55 managed plists: the app launches fine (it only redeploys the wrapper), but every managed job fires to exit 2 until its plist is regenerated — launching the v0.0.56 GUI now self-heals that state on first startup.
 
 ## Job-Log Retention + Visible Home-Directory Symlink (DONE — v0.0.55)
 

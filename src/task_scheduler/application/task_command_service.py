@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import plistlib
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -94,10 +95,15 @@ __all__ = [
     "InstallPhase",
     "InstallResult",
     "ListingKind",
+    "MigrationResult",
     "TaskCommandService",
     "TaskListing",
     "UninstallResult",
 ]
+
+# A live launchd job reports a line exactly ``state = running`` in
+# ``launchctl print`` output (``state = not running`` is the idle form).
+_RUNNING_STATE_RE = re.compile(r"^\s*state\s*=\s*running\s*$", re.MULTILINE)
 
 
 class ListingKind(StrEnum):
@@ -178,6 +184,25 @@ class UninstallResult:
     label: str
     process: ProcessResult
     catalog_removed: bool
+
+
+@dataclass(frozen=True, slots=True)
+class MigrationResult:
+    """Outcome of a startup sweep that re-applies stale managed plists.
+
+    ``checked`` counts the managed jobs inspected. ``up_to_date`` are
+    byte-identical to the current codec output; ``migrated`` were re-applied
+    (bootout then bootstrap); ``skipped_running`` are live in launchd and were
+    left untouched; ``missing`` have no deployed plist; ``errors`` pairs each
+    failed label with a human-readable reason.
+    """
+
+    checked: int
+    up_to_date: int
+    migrated: int
+    skipped_running: int
+    missing: int
+    errors: tuple[tuple[str, str], ...] = ()
 
 
 class TaskCommandService:
@@ -440,6 +465,67 @@ class TaskCommandService:
             completed_phases=tuple(completed),
             retained_artifacts=tuple(retained),
         )
+
+    # -- maintenance ---------------------------------------------------------
+
+    def migrate_managed_plists(self) -> MigrationResult:
+        """Re-apply stale managed plists to the current codec form.
+
+        Each managed job's deployed plist is byte-compared against the plist
+        the current codec would emit. A drifted plist is re-applied with
+        :meth:`reinstall` (bootout then bootstrap) unless the job is currently
+        running in launchd, in which case it is left untouched and counted in
+        ``skipped_running`` for a later pass. Missing deployed plists and any
+        per-job failure are recorded in the result rather than raised, so a
+        single job can never block startup.
+        """
+        checked = 0
+        up_to_date = 0
+        migrated = 0
+        skipped_running = 0
+        missing = 0
+        errors: list[tuple[str, str]] = []
+        for job in self._jobs.list_jobs():
+            checked += 1
+            expected = self._codec.encode_bytes(job)
+            destination = self._store.destination_for(job.label)
+            try:
+                deployed = destination.read_bytes()
+            except FileNotFoundError:
+                missing += 1
+                continue
+            except OSError as exc:
+                errors.append((job.label, f"could not read plist: {exc}"))
+                continue
+            if deployed == expected:
+                up_to_date += 1
+                continue
+            if self._is_running(job.label):
+                skipped_running += 1
+                continue
+            try:
+                outcome = self.reinstall(job.label)
+            except Exception as exc:
+                errors.append((job.label, f"reinstall raised: {exc}"))
+                continue
+            if outcome.process.exit_code == 0 and "bootstrap" in outcome.completed_phases:
+                migrated += 1
+            else:
+                errors.append(
+                    (job.label, f"reinstall incomplete (phases={outcome.completed_phases})")
+                )
+        return MigrationResult(
+            checked=checked,
+            up_to_date=up_to_date,
+            migrated=migrated,
+            skipped_running=skipped_running,
+            missing=missing,
+            errors=tuple(errors),
+        )
+
+    def _is_running(self, label: str) -> bool:
+        """Whether *label* is live in launchd (a ``state = running`` line)."""
+        return _RUNNING_STATE_RE.search(self._backend.status(label).process.stdout) is not None
 
     # -- external plist import ------------------------------------------------
 

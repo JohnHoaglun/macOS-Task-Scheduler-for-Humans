@@ -18,6 +18,7 @@ from task_scheduler.application.job_service import (
     managed_label,
 )
 from task_scheduler.application.log_service import JobLogs, LogStream
+from task_scheduler.application.task_command_service import InstallResult
 from task_scheduler.domain import JobDefinition
 from task_scheduler.platform.macos import (
     LAUNCHCTL_PATH,
@@ -326,3 +327,135 @@ class TestExternalImportDrift:
         with pytest.raises(ValueError, match="could not read"):
             world.services.import_external_plist(preview, acknowledge_partial=False)
         assert world.jobs.list_jobs() == []
+
+
+class TestMigrateManagedPlists:
+    def test_no_jobs_returns_empty_summary(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        result = world.services.migrate_managed_plists()
+        assert result == (
+            result.__class__(checked=0, up_to_date=0, migrated=0, skipped_running=0, missing=0)
+        )
+        assert world.launch_runner.specs == []
+
+    def test_up_to_date_plist_is_left_alone(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        job = make_job()
+        world.manage(job)
+        (world.la_root / f"{job.label}.plist").write_bytes(
+            PlistCodec().encode_bytes(_canonical(job))
+        )
+        result = world.services.migrate_managed_plists()
+        assert result.checked == 1
+        assert result.up_to_date == 1
+        assert result.migrated == 0
+        assert result.errors == ()
+        assert world.launch_runner.specs == []
+
+    def test_stale_plist_is_reinstalled(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        job = make_job()
+        world.manage(job)
+        result = world.services.migrate_managed_plists()
+        assert result.checked == 1
+        assert result.migrated == 1
+        assert result.up_to_date == 0
+        assert result.errors == ()
+        assert (world.la_root / f"{job.label}.plist").read_bytes() == PlistCodec().encode_bytes(
+            _canonical(job)
+        )
+        assert [spec.argv[1] for spec in world.launch_runner.specs] == [
+            "print",
+            "bootout",
+            "bootstrap",
+        ]
+
+    def test_stale_running_plist_is_skipped(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(
+            tmp_path, launch=ProcessResult(exit_code=0, stdout="\tstate = running\n")
+        )
+        job = make_job()
+        world.manage(job)
+        result = world.services.migrate_managed_plists()
+        assert result.checked == 1
+        assert result.skipped_running == 1
+        assert result.migrated == 0
+        assert result.errors == ()
+        assert (world.la_root / f"{job.label}.plist").read_bytes() == PlistCodec().encode_bytes(job)
+        assert [spec.argv[1] for spec in world.launch_runner.specs] == ["print"]
+
+    def test_missing_plist_is_counted_without_reinstall(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        job = make_job()
+        world.manage(job)
+        (world.la_root / f"{job.label}.plist").unlink()
+        result = world.services.migrate_managed_plists()
+        assert result.checked == 1
+        assert result.missing == 1
+        assert result.migrated == 0
+        assert result.errors == ()
+        assert not (world.la_root / f"{job.label}.plist").exists()
+        assert world.launch_runner.specs == []
+
+    def test_unreadable_plist_is_recorded(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path)
+        job = make_job()
+        world.manage(job)
+        destination = world.la_root / f"{job.label}.plist"
+        destination.unlink()
+        destination.mkdir()
+        result = world.services.migrate_managed_plists()
+        assert result.checked == 1
+        assert result.missing == 0
+        assert result.migrated == 0
+        assert len(result.errors) == 1
+        assert result.errors[0][0] == job.label
+        assert "could not read plist" in result.errors[0][1]
+
+    def test_reinstall_failure_is_recorded(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        world = FakeTaskWorld(tmp_path)
+        job = make_job()
+        world.manage(job)
+
+        def _boom(_label: str) -> None:
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(world.services, "reinstall", _boom)
+        result = world.services.migrate_managed_plists()
+        assert result.migrated == 0
+        assert len(result.errors) == 1
+        assert result.errors[0][0] == job.label
+        assert "reinstall raised" in result.errors[0][1]
+
+    def test_reinstall_incomplete_is_recorded(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        world = FakeTaskWorld(tmp_path)
+        job = make_job()
+        world.manage(job)
+        incomplete = InstallResult(
+            job=job,
+            plist_path=world.la_root / f"{job.label}.plist",
+            process=ProcessResult(exit_code=1),
+            completed_phases=("bootout",),
+        )
+        monkeypatch.setattr(world.services, "reinstall", lambda _label: incomplete)
+        result = world.services.migrate_managed_plists()
+        assert result.migrated == 0
+        assert len(result.errors) == 1
+        assert result.errors[0][0] == job.label
+        assert "reinstall incomplete" in result.errors[0][1]
+
+
+class TestIsRunning:
+    def test_matches_running_state(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(tmp_path, launch=ProcessResult(exit_code=0, stdout="state = running"))
+        assert world.services._is_running(make_job().label) is True
+
+    def test_idle_state_does_not_match(self, tmp_path: Path) -> None:
+        world = FakeTaskWorld(
+            tmp_path, launch=ProcessResult(exit_code=0, stdout="state = not running")
+        )
+        assert world.services._is_running(make_job().label) is False

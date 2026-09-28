@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -29,6 +30,7 @@ from task_scheduler.gui.qt_message_logging import install_qt_message_handler
 __all__ = ["create_main_window", "main"]
 
 MAIN_WINDOW_STARTUP_SIZE = QSize(1280, 900)
+logger = logging.getLogger(__name__)
 
 
 def startup_window_size(available_size: QSize | None) -> QSize:
@@ -95,6 +97,29 @@ def _make_crash_callback(
     return _callback
 
 
+def _run_startup_migration(services: TaskCommandService) -> None:
+    """Best-effort one-time migration of stale managed plists at GUI startup.
+
+    Any failure is logged and swallowed so the window still opens; the next
+    launch retries the sweep.
+    """
+    try:
+        result = services.migrate_managed_plists()
+    except Exception:
+        logger.exception("Startup plist migration failed; continuing to open the window.")
+        return
+    logger.info(
+        "Startup plist migration: checked=%d up_to_date=%d migrated=%d "
+        "skipped_running=%d missing=%d errors=%d",
+        result.checked,
+        result.up_to_date,
+        result.migrated,
+        result.skipped_running,
+        result.missing,
+        len(result.errors),
+    )
+
+
 def create_main_window(services: TaskCommandService) -> MainWindow:
     """Create the main window wired to the given application services."""
     return MainWindow(
@@ -118,7 +143,9 @@ def main() -> int:
     install_crash_hooks(
         on_crash=_make_crash_callback(app, log_path, degraded_reason), log_path=log_path
     )
-    window = create_main_window(build_services())
+    services = build_services()
+    _run_startup_migration(services)
+    window = create_main_window(services)
     if degraded_reason is not None:
         _show_degraded_logging_warning()
         window.statusBar().showMessage(_degraded_logging_notice())

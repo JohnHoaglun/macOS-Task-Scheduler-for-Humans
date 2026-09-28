@@ -13,7 +13,7 @@ from pytestqt.qtbot import QtBot
 
 import task_scheduler.bootstrap as bootstrap
 from task_scheduler.application import app_logging as app_logging_mod
-from task_scheduler.application.task_command_service import TaskListing
+from task_scheduler.application.task_command_service import MigrationResult, TaskListing
 from task_scheduler.gui import app as gui_app
 from task_scheduler.gui import main_window
 from task_scheduler.gui import qt_message_logging as qt_msg_mod
@@ -203,3 +203,55 @@ def test_crash_from_worker_thread_marshals_dialog_to_gui_thread(
     assert (log_path, degraded) == (Path("/tmp/app.log"), False)
     assert gui_thread is QtCore.QCoreApplication.instance().thread()
     assert app.quit_requested
+
+
+class _MigratingServices:
+    """Duck-typed TaskCommandService exposing a scripted migrate_managed_plists."""
+
+    def __init__(self, result: MigrationResult | None = None, *, raise_error: bool = False) -> None:
+        self._result = result
+        self._raise = raise_error
+        self.calls = 0
+
+    def migrate_managed_plists(self) -> MigrationResult:
+        self.calls += 1
+        if self._raise:
+            raise RuntimeError("migration blew up")
+        return self._result or MigrationResult(
+            checked=0, up_to_date=0, migrated=0, skipped_running=0, missing=0
+        )
+
+
+def test_run_startup_migration_runs_and_does_not_raise() -> None:
+    services = _MigratingServices(
+        MigrationResult(checked=2, up_to_date=1, migrated=1, skipped_running=0, missing=0)
+    )
+    gui_app._run_startup_migration(services)
+    assert services.calls == 1
+
+
+def test_run_startup_migration_swallows_errors() -> None:
+    services = _MigratingServices(raise_error=True)
+    gui_app._run_startup_migration(services)
+    assert services.calls == 1
+
+
+def test_main_runs_startup_migration_before_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    box = _FakeMessageBox()
+    window = _FakeWindow()
+    seen: list[object] = []
+    monkeypatch.setattr(gui_app, "QApplication", _FakeApp)
+    monkeypatch.setattr(gui_app, "install_qt_message_handler", lambda: None)
+    monkeypatch.setattr(gui_app, "configure_logging", lambda: Path("app.log"))
+    monkeypatch.setattr(gui_app, "logging_degraded_reason", lambda: None)
+    monkeypatch.setattr(gui_app, "install_crash_hooks", lambda on_crash=None, log_path=None: None)
+    monkeypatch.setattr(gui_app, "build_services", lambda: _MigratingServices())
+    monkeypatch.setattr(
+        gui_app, "_run_startup_migration", lambda services: seen.append(services)
+    )
+    monkeypatch.setattr(gui_app, "create_main_window", lambda _services: window)
+    monkeypatch.setattr(gui_app, "QMessageBox", box)
+    assert gui_app.main() == 42
+    assert len(seen) == 1
+    assert isinstance(seen[0], _MigratingServices)
+    assert window.shown
